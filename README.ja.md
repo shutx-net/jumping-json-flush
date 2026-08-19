@@ -19,304 +19,127 @@ jjf export xlsx db-design.json -o db-design.xlsx
 
 ## インストール
 
-### install.sh
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh | sh
 ```
 
-OS と CPU を判定して対応するリリースアーカイブを取得し、**リリースの
-`checksums.txt` と sha256 を照合**したうえでバイナリを配置する。配置先は
-`/usr/local/bin` が書き込み可能ならそこ、そうでなければ `$HOME/.local/bin`。
-どこに入ったかは最後に表示され、`sudo` は一切呼ばない。
+OS と CPU に対応するアーカイブを取得し、**リリースの `checksums.txt` と sha256 を
+照合**したうえで配置する。配置先は `/usr/local/bin` が書き込み可能ならそこ、
+そうでなければ `$HOME/.local/bin`。`sudo` は一切呼ばず、どこに入ったかを表示する。
 
-bash ではなく POSIX sh なので、`| bash` としても同じように動き、bash を持たない
-alpine イメージでもそのまま実行できる。中身は定数と関数定義だけで、処理を始めるのは
-最終行の 1 行だけなので、ダウンロードが途中で切れた場合には**何も実行されない**。
+他に 3 通り:
 
-オプションはパイプ経由でも `-s --` の後ろに置けば渡る。
+- `go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest`
+- `nix profile add github:shutx-net/jumping-json-flush`
+- [Releases](https://github.com/shutx-net/jumping-json-flush/releases) のアーカイブ。
+  `linux/amd64`, `linux/arm64`, `windows/amd64`, `darwin/amd64`, `darwin/arm64`
+  の 5 種類で、それぞれ `checksums.txt` 付き
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh |
-  sh -s -- --version v0.1.0 --dir ~/bin
-```
-
-| オプション | 環境変数 | 既定値 |
-| --- | --- | --- |
-| `--version <tag>` | `JJF_VERSION` | 最新リリース |
-| `--dir <path>` | `JJF_INSTALL_DIR` | 書き込み可能なら `/usr/local/bin`、それ以外は `$HOME/.local/bin` |
-
-対象は Linux / macOS / WSL。Windows では Git Bash か Cygwin 上でのみ動作し、
-`unzip` が必要になる。用意できない場合は下記の手順で zip を直接取得する。
-
-### リリースアーカイブ
-
-[Releases](https://github.com/shutx-net/jumping-json-flush/releases) から使用する OS / CPU 向けの
-アーカイブを取得する。対応ターゲットは `linux/amd64`, `linux/arm64`, `windows/amd64`,
-`darwin/amd64`, `darwin/arm64` の 5 種類。
-
-```sh
-VERSION=v0.1.0
-curl -sSfL -o jjf.tar.gz \
-  "https://github.com/shutx-net/jumping-json-flush/releases/download/${VERSION}/jjf_${VERSION}_linux_amd64.tar.gz"
-tar xzf jjf.tar.gz
-sudo install -m 0755 "jjf_${VERSION}_linux_amd64/jjf" /usr/local/bin/jjf
-jjf version
-```
-
-各リリースには `checksums.txt`（sha256）が添付されている。
-
-```sh
-curl -sSfL -O "https://github.com/shutx-net/jumping-json-flush/releases/download/${VERSION}/checksums.txt"
-sha256sum --check --ignore-missing checksums.txt
-```
-
-### go install
-
-```sh
-go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
-```
-
-バージョンを固定する場合は `@v0.1.0` のようにタグを指定する。Go 1.24 以上が必要。
-
-### nix
-
-```sh
-nix profile add github:shutx-net/jumping-json-flush
-```
+バージョン固定・配置先の指定・Windows・CI・手動での検証・アンインストールは
+[`docs/install.ja.md`](docs/install.ja.md)（[English](docs/install.md)）に
+まとめてある。
 
 ## 使い方
 
-### validate
-
 ```sh
+# 組み込みの JSON Schema で設計 JSON を検証する
 jjf validate db-design.json
-```
 
-DB 設計 JSON を組み込みの JSON Schema（Draft 2020-12）で検証する。
-違反は**全件まとめて**報告され、それぞれが JSON Pointer で位置を指す。
-
-```text
-db-design.json: does not conform to the jjf database design schema
-  /database/dbms                   value must be one of 'PostgreSQL', 'MySQL', 'MariaDB', 'SQLite', 'Oracle', 'SQLServer'
-  /tables/0                        missing property 'logicalName'
-  /tables/0/columns/0              missing property 'nullable'
-  /tables/0/columns/1/logicalName  minLength: got 0, want 1
-  /tables/0/columns/1/name         '9bad' does not match pattern '^[A-Za-z_][A-Za-z0-9_]*$'
-  /tables/0/columns/1/nullable     got string, want boolean
-  /tables/0/indexes/0              missing property 'name'
-
-7 error(s). See schema/db-design.schema.json.
-```
-
-検証はネットワークにアクセスしない。スキーマはバイナリに埋め込まれているため、
-文書に `$schema` が書かれていても外部を取得しにいくことはない。
-
-### export
-
-```sh
+# Excel の DB 設計書に変換する
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
 
-- 出力前に必ず検証する。**検証に失敗した文書からは出力ファイルが 1 バイトも作られない**
-- `-o` を省略すると、**入力パスの拡張子を `.xlsx` に置き換えた場所**へ出力する
-  （`docs/db-design.json` → `docs/db-design.xlsx`）
-- `-o -` で標準出力へ書き出せる。ただし標準出力が**端末の場合は拒否する**
-  （バイナリで画面を汚さないため）。パイプやリダイレクトなら通る
-- 出力は一時ファイルへ書いてから rename するので、途中で失敗しても壊れたファイルが残らない
-- Phase 1 の対応フォーマットは `xlsx` のみ
+検証結果は**全件まとめて**報告され、それぞれが JSON Pointer で位置を指す。
+スキーマはバイナリに埋め込まれているのでネットワークには一切アクセスしない。
+export は必ず先に検証するため、検証に失敗した文書は**出力ファイルを 1 バイトも
+生成しない**。**同じ入力からは常にバイト同一の `.xlsx`** が得られるので、CI で
+成果物のハッシュを比較する意味がある。
 
-```sh
-# パイプへ流す
-jjf export xlsx db-design.json -o - | sha256sum
+2 つのコマンドとオプション、`-o` の規則、パイプラインが読む終了コード
+（不正な入力は 2、スキーマ違反は 3）は
+[`docs/usage.ja.md`](docs/usage.ja.md)（[English](docs/usage.md)）にある。
 
-# 端末へ直接出そうとすると拒否される (終了コード 2)
-jjf export xlsx db-design.json -o -
-# jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>
-```
-
-#### バイト決定性
-
-**同じ入力からは常にバイト同一の `.xlsx` が生成される。**
-生成日時を埋め込まず、ZIP のタイムスタンプを固定し、Go の map の反復順に依存しないためである。
-
-```sh
-jjf export xlsx db-design.json -o a.xlsx
-jjf export xlsx db-design.json -o b.xlsx
-sha256sum a.xlsx b.xlsx   # 2 つのハッシュは一致する
-```
-
-これにより CI で成果物のハッシュを比較したり、
-「JSON を変えていないのに設計書が変わった」を異常として検出できる。
-
-### version
-
-```sh
-jjf version
-# jjf v0.1.0
-# built with go1.24.0 for linux/amd64
-```
-
-リリースバイナリはタグ名を、`go install` で入れたものは Go が記録した
-モジュールバージョンを表示する。
-
-### 終了コード
-
-| コード | 意味 | 典型的な原因 |
-| --- | --- | --- |
-| 0 | 成功 | — |
-| 1 | 一般エラー | 上記のいずれにも分類されない内部エラー |
-| 2 | 入力不正 | 引数の誤り、ファイルが無い、JSON 構文エラー、未対応の `formatVersion`、未知の出力形式、`-o -` を端末に向けた |
-| 3 | スキーマ検証エラー | JSON Schema 違反 |
-| 4 | 出力生成エラー | 出力先に書き込めない、ディレクトリが無い |
-
-CI で使うときは **3 と 2 を区別できる**ことが重要である。3 は設計 JSON の中身の問題、
-2 は呼び出し方・ファイルの場所・`jjf` のバージョンの問題である。
-
-成功メッセージは標準出力、エラーと usage は標準エラーに出力される。
-
-## DB 設計 JSON の形式
-
-完全な例は [`examples/db-design.example.json`](examples/db-design.example.json)、
-構造の正式な定義は [`schema/db-design.schema.json`](schema/db-design.schema.json)。
+## DB 設計 JSON
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
   "formatVersion": "1.0",
-  "database": {
-    "name": "ec_shop",
-    "logicalName": "ECサイト",
-    "dbms": "PostgreSQL"
-  },
+  "database": { "name": "ec_shop", "logicalName": "ECサイト", "dbms": "PostgreSQL" },
   "tables": [
     {
       "name": "users",
       "logicalName": "会員",
       "columns": [
-        {
-          "name": "id",
-          "logicalName": "会員ID",
-          "type": "BIGINT",
-          "nullable": false,
-          "autoIncrement": true
-        },
-        {
-          "name": "email",
-          "logicalName": "メールアドレス",
-          "type": "VARCHAR",
-          "length": 255,
-          "nullable": false
-        }
+        { "name": "id", "logicalName": "会員ID", "type": "BIGINT", "nullable": false },
+        { "name": "email", "logicalName": "メールアドレス", "type": "VARCHAR",
+          "length": 255, "nullable": false }
       ],
-      "primaryKey": { "name": "pk_users", "columns": ["id"] },
-      "uniqueKeys": [{ "name": "uq_users_email", "columns": ["email"] }]
+      "primaryKey": { "name": "pk_users", "columns": ["id"] }
     }
   ]
 }
 ```
 
-要点:
+物理名は ASCII のみで、日本語は `logicalName` に書く。未知のプロパティは
+すべてのオブジェクトで拒否される。完全な例は
+[`examples/db-design.example.json`](examples/db-design.example.json)、構造の
+正式な定義は [`schema/db-design.schema.json`](schema/db-design.schema.json)。
 
-| 項目 | 内容 |
-| --- | --- |
-| エンコーディング | UTF-8（BOM 付きも受け付ける）。改行は LF 推奨 |
-| ルート必須 | `formatVersion`, `database`, `tables` |
-| テーブル必須 | `name`, `logicalName`, `columns` |
-| カラム必須 | `name`, `logicalName`, `type`, `nullable` |
-| 未知プロパティ | すべてのオブジェクトで**禁止**（`additionalProperties: false`） |
-| 物理名 | `^[A-Za-z_][A-Za-z0-9_]*$`、128 文字以内。日本語は `logicalName` に書く |
-| 型名 | `VARCHAR(30)` のようなパラメータ込みは不可。`type: "VARCHAR"` + `length: 30` に分ける |
-| 既定値 | `default` は文字列のみ。SQL リテラルは引用符込み（`"'pending'"`）。DEFAULT 句なしはキー自体を書かない |
-| enum | `dbms` は 6 値、`onUpdate` / `onDelete` は 5 値（`CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION`） |
-
-`$schema` をルートに書いておくと、VS Code などのエディタで補完と警告が効く。
-`jjf` はこの値を読まない。
-
-**現在の検証は構造検証のみ**である。外部キー参照先の存在、テーブル名・カラム名の重複、
-主キーやインデックスのカラムの存在といった**意味的整合性は検証しない**。
-
-### 生成される Excel の構成
-
-| シート | 内容 |
-| --- | --- |
-| 表紙 | データベース名・論理名・DBMS・テーブル数・フォーマットバージョン・説明 |
-| テーブル一覧 | 全テーブルの物理名／論理名／説明／カラム数／シート名 |
-| テーブル定義 | 1 テーブル 1 シート。カラム定義と、主キー・ユニークキー・外部キー・インデックスのブロック |
-
-表記のルール:
-
-- `NULL` 列と `自動採番` 列は `○` = 該当、空セル = 非該当
-- `長さ` 列は `length` / `precision` / `precision,scale` のいずれか。桁指定のない型では空
-- シート名は 31 文字（Excel の上限）に切り詰められ、衝突時は `(2)` `(3)` … が付く。
-  テーブル一覧シートには**実際に割り当てられたシート名**が出るので、切り詰めや採番が起きたか分かる
-- レイアウト・配色は `jjf` が固定で持ち、JSON 側からは制御できない
+各項目・全規則・生成される Excel の 3 シートの内容は
+[`docs/db-design-format.ja.md`](docs/db-design-format.ja.md)
+（[English](docs/db-design-format.md)）にまとめてある。
 
 ## AI エージェントから使う
 
-`skills/db-design/` に、AI エージェント向けの DB 設計ルールと操作方針を
-[Agent Skills](https://code.claude.com/docs/en/skills.md) 形式で同梱している。
-スキル本文は英語だが、トリガー語に日本語も含めてあるので日本語の依頼でも起動する。
-
-Claude Code へは[プラグイン](https://code.claude.com/docs/en/plugins-reference.md)
-として導入する。**利用者側に git / npm / Node は不要**で、HTTPS 経由で zip
-アーカイブを取得する（`archive` ソースのため Claude Code v2.1.224 以降が必要）。
+`skills/db-design/` は、DB 設計の規約と作業ルールを
+[Agent Skills](https://code.claude.com/docs/en/skills.md) 形式で提供する。
+守るべきルール、変更したら検証するワークフロー、許可される enum 値、実際の
+エラーメッセージと対処の対応表、編集レシピが含まれる。Claude Code へは
+プラグインとして入れられる。**git も npm も Node も不要**。
 
 ```text
 /plugin marketplace add https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/.claude-plugin/marketplace.json
 /plugin install jjf@jjf-tools
 ```
 
-導入後は `/jjf:db-design` で呼び出せる。マーケットプレース定義とプラグイン
-マニフェストは [`.claude-plugin/`](.claude-plugin/marketplace.json) にあり、
-アーカイブは各リリースの `jjf-plugin-<tag>.zip` として公開される。
-
-プラグインを使わず `.claude/skills/` へディレクトリごとコピーする方法や、
-リリース手順は [`skills/README.ja.md`](skills/README.ja.md) を参照。含まれる内容:
-
-- Excel を直接編集しない／変更は JSON に対して行う、といったハードルール
-- 変更 → `jjf validate` → 成功を確認してから完了、というワークフロー
-- 必須プロパティ早見表と enum の全許容値
-- DBMS ごとの推奨型名
-- 実際の検証エラーメッセージと直し方の対応表
-- テーブル追加・カラム変更・外部キー追加などの編集レシピ
-- 生成される Excel の表記ルールと、JSON から制御できない範囲
-
-スキル本文は英語なので、**同じ内容を日本語で読み・レビューする**ための人間向け
-ドキュメントを [`docs/db-design-guide.ja.md`](docs/db-design-guide.ja.md) に置いてある。
-上記の内容を 1 本の通読できるガイドにまとめたものである。エージェントが読むのは
-英語スキルであり、両者が食い違った場合は英語スキルが正である。
+呼び出しは `/jjf:db-design`。プラグインを使わない導入方法とリリース手順は
+[`skills/README.ja.md`](skills/README.ja.md)。スキル本体は英語だが、同じ内容を
+人間が読むための日本語版が
+[`docs/db-design-guide.ja.md`](docs/db-design-guide.ja.md) にある。
 
 ## CI に組み込む
 
-`db-design.json` の変更を検出して検証し、失敗したら CI を落とし、
-成功したら `.xlsx` を artifact として保存する構成を推奨する。
-生成された `.xlsx` はリポジトリにコミットしない（派生成果物なので `.gitignore` に入れる）。
-
-そのまま使えるワークフロー例:
-
-- GitHub Actions: [`examples/ci/github-actions.yml`](examples/ci/github-actions.yml)
-- GitLab CI: [`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml)
+`db-design.json` の変更を検知して検証し、`.xlsx` は成果物として保持する。
+派生成果物なのでコミットはしない。すぐ使えるサンプル:
+[`examples/ci/github-actions.yml`](examples/ci/github-actions.yml) と
+[`examples/ci/gitlab-ci.yml`](examples/ci/gitlab-ci.yml)。
 
 ## 依存関係
 
-**直接依存 1 件と、回避不可能な間接依存 1 件のみ。**
+**直接依存 1 つと、避けられない間接依存 1 つだけ。**
 
 | モジュール | 種別 | 用途 |
 | --- | --- | --- |
-| `github.com/santhosh-tekuri/jsonschema/v6` | 直接 | JSON Schema Draft 2020-12 検証 |
-| `golang.org/x/text` | 間接 | `jsonschema/v6` が `ErrorKind.LocalizedString(*message.Printer)` を公開 API に露出しているため回避できない |
+| `github.com/santhosh-tekuri/jsonschema/v6` | 直接 | JSON Schema Draft 2020-12 の検証 |
+| `golang.org/x/text` | 間接 | `jsonschema/v6` が公開 API で露出しているため回避不能 |
 
-最終バイナリに記録される依存も上記 2 件だけである（`go version -m jjf` で確認できる）。
-Excel 出力は `archive/zip` と `encoding/xml` による自前実装であり、外部の Excel ライブラリは使わない。
-実行時の外部依存は無く、`CGO_ENABLED=0` の静的バイナリとして配布される。
+最終バイナリに記録される依存もこの 2 つだけで、`go version -m jjf` で確認できる。
+Excel 出力は `archive/zip` と `encoding/xml` の上に自前で書いており、
+サードパーティの Excel ライブラリは使っていない。
 
-## 開発
+## ドキュメント
 
-開発環境の用意・コマンド表・リポジトリ構成は
-[DEVELOPERS.md](https://github.com/shutx-net/jumping-json-flush/blob/main/DEVELOPERS.md)
-にある（英語）。パスではなく URL でリンクしているのは、リリースアーカイブが同梱するのは
-README だけで、開発者向けドキュメントは含めないため。
+| | |
+| --- | --- |
+| [`docs/install.ja.md`](docs/install.ja.md) | インストール、バージョン固定、ダウンロードの検証 |
+| [`docs/usage.ja.md`](docs/usage.ja.md) | コマンドとオプション、終了コード |
+| [`docs/db-design-format.ja.md`](docs/db-design-format.ja.md) | 設計 JSON の全項目と、生成される Excel |
+| [`docs/db-design-guide.ja.md`](docs/db-design-guide.ja.md) | スキルと同じ規約を人間が読むための日本語ガイド |
+| [`skills/README.ja.md`](skills/README.ja.md) | Agent Skill とその配布方法 |
+| [DEVELOPERS.md](https://github.com/shutx-net/jumping-json-flush/blob/main/DEVELOPERS.md) | 開発環境の用意とコマンド表（英語のみ） |
+
+DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパスではなく URL で
+リンクしているのは、リリースアーカイブが同梱するのは README だけのため。
 
 ## バージョニング
 

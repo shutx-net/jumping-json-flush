@@ -11,14 +11,17 @@
 // existing, with nothing to notice it until a user runs the command from the
 // README.
 //
-// The READMEs are read for the same reason. A curl one liner nobody can copy is
-// not an installation method, and it is the one part of this that is published to
-// people rather than to machines.
+// The install documentation is read for the same reason. A curl one liner nobody
+// can copy is not an installation method, and it is the one part of this that is
+// published to people rather than to machines. The detail lives under docs/, away
+// from the READMEs, which is one more place for the script and what is written
+// about it to drift apart.
 package jjf
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -31,9 +34,19 @@ const (
 	goMod           = "go.mod"
 )
 
-// The two repository READMEs. Both document the install command, so both have to
-// carry the URL the script is actually served from.
-var readmes = []string{"README.md", "README.ja.md"}
+// Every document that shows the install command. The READMEs keep the one liner
+// because it is the first thing a reader looks for; the pair below carries the
+// rest. All four have to name the URL the script is actually served from.
+var commandDocs = []string{
+	"README.md", "README.ja.md",
+	filepath.Join("docs", "install.md"), filepath.Join("docs", "install.ja.md"),
+}
+
+// The installation documentation the READMEs hand off to, one file per language.
+// This is the only place the options are written out for a reader.
+var installDocs = []string{
+	filepath.Join("docs", "install.md"), filepath.Join("docs", "install.ja.md"),
+}
 
 // The constants install.sh declares, each written as NAME='value' on one line of
 // its own, and the two shell assignments that build an archive name from them.
@@ -59,6 +72,15 @@ var (
 // modulePath reads the module directive, the authoritative spelling of this
 // repository's location.
 var modulePath = regexp.MustCompile(`(?m)^module\s+(\S+)$`)
+
+// installUsage captures the body of the here-document usage() prints, and the two
+// patterns pick the interface out of it: the long options and the environment
+// variables that stand in for them.
+var (
+	installUsage = regexp.MustCompile(`(?s)usage\(\) \{.*?<<EOF\n(.*?)\nEOF\n`)
+	usageOption  = regexp.MustCompile(`--[a-z][a-z-]*`)
+	usageEnv     = regexp.MustCompile(`JJF_[A-Z_]+`)
+)
 
 // TestInstallerIsPOSIXSh pins the interpreter. The script is documented as
 // something to pipe into sh, and jjf advertises that it runs on alpine, where
@@ -221,17 +243,47 @@ func TestReleaseWorkflowPublishesTheChecksumsTheInstallerVerifies(t *testing.T) 
 	}
 }
 
-// TestREADMEsDocumentTheInstaller checks that both READMEs carry the URL the
-// script is served from. It is a raw URL on the default branch and never a
-// release asset: a URL with a tag in it would pin whoever copied the line to that
-// release forever.
-func TestREADMEsDocumentTheInstaller(t *testing.T) {
+// TestDocsCarryTheInstallCommand checks that every document showing the command
+// points at the URL the script is served from. It is a raw URL on the default
+// branch and never a release asset: a URL with a tag in it would pin whoever
+// copied the line to that release forever.
+func TestDocsCarryTheInstallCommand(t *testing.T) {
 	want := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/%s",
 		capture(t, installScript, installRepo), installScript)
 
-	for _, path := range readmes {
+	for _, path := range commandDocs {
 		if !strings.Contains(read(t, path), want) {
 			t.Errorf("%s does not document the install command; it has to contain %s", path, want)
+		}
+	}
+}
+
+// TestInstallDocsCoverEveryOption is the drift check the split created. The
+// options are described in one place only now, so an option added to the script
+// and nowhere else is an option nobody can find, and one removed from the script
+// leaves the documentation offering something that no longer works.
+func TestInstallDocsCoverEveryOption(t *testing.T) {
+	usage := capture(t, installScript, installUsage)
+
+	var names []string
+	for _, re := range []*regexp.Regexp{usageOption, usageEnv} {
+		for _, name := range re.FindAllString(usage, -1) {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	slices.Sort(names)
+	if len(names) == 0 {
+		t.Fatalf("%s: no options found in the usage message; this check is reading the wrong thing", installScript)
+	}
+
+	for _, path := range installDocs {
+		src := read(t, path)
+		for _, name := range names {
+			if !strings.Contains(src, name) {
+				t.Errorf("%s does not document %s, which `%s --help` offers", path, name, installScript)
+			}
 		}
 	}
 }

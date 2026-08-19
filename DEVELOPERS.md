@@ -67,23 +67,6 @@ direnv.
 - `install.sh` is POSIX sh, not bash, so lint it with `--shell=sh`. Its
   interpreter, its target list, the archive names it builds and the release tag
   it accepts are all pinned by `install_test.go` against
-  `.github/workflows/release.yml`. shellcheck comes from the nix shell and from
-  the CI runner; the devcontainer image does not carry it
-
-## Repository layout
-
-```text
-install.sh             the one liner installer, served raw from the default branch
-install_test.go        [test only] pins install.sh to the release workflow
-cmd/jjf/               CLI (subcommand dispatch, argument parsing, exit codes)
-internal/exitcode/     exit codes and error wrapping
-internal/model/        Go types matching the design JSON one to one, and decoding
-internal/schema/       compiling the embedded schema and formatting its errors
-internal/sml/          generic SpreadsheetML / OPC writer (knows nothing about database design)
-internal/export/xlsx/  the design document renderer (sole owner of the layout)
-schema/                [authoritative] the design JSON Schema and its go:embed declaration
-skills/db-design/      [authoritative] the Agent Skill for AI agents
-.claude-plugin/        the plugin manifest and the marketplace catalog
-examples/              a sample design JSON and CI workflow examples
-docs/                  human-facing Japanese documentation (the database design guide)
-```
+  `.github/workflows/release.yml`, and its options against `docs/install.md`.
+  shellcheck comes from the nix shell and from the CI runner; the devcontainer
+  image does not carry it

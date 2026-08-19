@@ -74,6 +74,19 @@ var (
 // still cross directories and it is still a document a rename can break.
 var developersDoc = filepath.Join("..", "DEVELOPERS.md")
 
+// The reference documentation the READMEs hand off to, three pairs of it. Unlike
+// DEVELOPERS.md these are written for users and not for contributors, which is why
+// each exists in both languages: a Japanese reader who followed a link out of
+// README.ja.md must not land in English.
+var (
+	installEN = filepath.Join("..", "docs", "install.md")
+	installJA = filepath.Join("..", "docs", "install.ja.md")
+	usageEN   = filepath.Join("..", "docs", "usage.md")
+	usageJA   = filepath.Join("..", "docs", "usage.ja.md")
+	formatEN  = filepath.Join("..", "docs", "db-design-format.md")
+	formatJA  = filepath.Join("..", "docs", "db-design-format.ja.md")
+)
+
 // The READMEs of this directory, which document how to install the skill. They
 // are split by language exactly like the repository ones, so that each language
 // reads front to back on its own.
@@ -86,6 +99,9 @@ const (
 // language, each pair written as {English, Japanese}.
 var languagePairs = [][2]string{
 	{readmeEN, readmeJA},
+	{installEN, installJA},
+	{usageEN, usageJA},
+	{formatEN, formatJA},
 	{skillsReadmeEN, skillsReadmeJA},
 }
 
@@ -93,7 +109,13 @@ var languagePairs = [][2]string{
 // Their links are checked together with the skill's, because they are the entry
 // points a reader arrives at and they point across directories, where a rename
 // anywhere in the repository breaks them silently.
-var outsideDocs = []string{readmeEN, readmeJA, japaneseGuide, developersDoc}
+var outsideDocs = []string{
+	readmeEN, readmeJA,
+	installEN, installJA,
+	usageEN, usageJA,
+	formatEN, formatJA,
+	japaneseGuide, developersDoc,
+}
 
 // AGENTS.md, the project policy document at the repository root, is not listed
 // here: it carries no links. The rename guard reaches it anyway, by walking the
@@ -225,6 +247,16 @@ func TestJapaneseGuideExists(t *testing.T) {
 	}
 }
 
+// TestDesignFormatReferenceListsEveryEnumValue applies the same drift check to the
+// format reference, in both languages. It is where the READMEs send a reader for
+// every field and every rule, so a value missing from it is a value nobody is told
+// about.
+func TestDesignFormatReferenceListsEveryEnumValue(t *testing.T) {
+	for _, path := range []string{formatEN, formatJA} {
+		assertMentionsEveryEnumValue(t, path)
+	}
+}
+
 // TestJapaneseGuideListsEveryEnumValue applies the same drift check to the
 // Japanese guide. Adding a value to the schema and translating only the English
 // reference would leave a Japanese reviewer reading a list the tool no longer
@@ -285,13 +317,13 @@ func assertLinksResolve(t *testing.T, path string) {
 	}
 }
 
-// TestREADMEsLinkToEachOther guards every entry point that exists in two
+// TestLanguagePairsLinkToEachOther guards every document that exists in two
 // languages: both halves of a pair have to be present, and each has to link to
 // the other. GitHub renders README.md and nothing else when it shows a
 // directory, so the Japanese mirror is reachable only through the link the
 // English file carries, and a reader who landed on the mirror needs the way
-// back.
-func TestREADMEsLinkToEachOther(t *testing.T) {
+// back. The installation pair is reached the same way, one link further in.
+func TestLanguagePairsLinkToEachOther(t *testing.T) {
 	for _, pair := range languagePairs {
 		for _, order := range [][2]string{{pair[0], pair[1]}, {pair[1], pair[0]}} {
 			from, to := order[0], filepath.Base(order[1])
@@ -301,7 +333,7 @@ func TestREADMEsLinkToEachOther(t *testing.T) {
 				continue
 			}
 			if !linksTo(string(src), to) {
-				t.Errorf("%s does not link to %s; each README is the only way a reader of one reaches the other",
+				t.Errorf("%s does not link to %s; the link is the only way a reader of one half reaches the other",
 					from, to)
 			}
 		}
