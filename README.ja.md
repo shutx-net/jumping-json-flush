@@ -283,79 +283,10 @@ Excel 出力は `archive/zip` と `encoding/xml` による自前実装であり�
 
 ## 開発
 
-Go はホストに用意しない。以下の 2 つの環境が Go を提供し、後述のコマンド表はどちらでも
-そのまま使える。
-
-### devcontainer
-
-コンテナイメージが Go を持つ。[devcontainer CLI](https://github.com/devcontainers/cli)
-経由で実行する。
-
-```sh
-devcontainer up   --workspace-folder .
-devcontainer exec --workspace-folder . bash -lc '<CMD>'
-```
-
-### nix flake
-
-```sh
-nix develop            # シェルに入り、その中で <CMD> を実行する
-nix develop -c <CMD>   # コマンドを 1 つだけ実行して抜ける
-```
-
-シェルが提供する Go は lock された nixpkgs のもので、`go.mod` の `go` ディレクティブを
-満たしているかは `flake.nix` が検査する。加えて gopls・staticcheck・gh・jq が入る。
-`nix build` は `./result/bin/jjf` を作り、checkPhase で `go test ./...` を実行する。CI は
-これを `nix flake check` で検証する。`.envrc` は direnv 用。
-
-| 目的 | `<CMD>` |
-| --- | --- |
-| ビルド | `go build -o /tmp/jjf ./cmd/jjf` |
-| 実行 | `go run ./cmd/jjf validate examples/db-design.example.json` |
-| テスト | `go test ./...` |
-| テスト（race） | `CGO_ENABLED=1 go test -race ./...` |
-| ゴールデン再生成 | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ -update` |
-| カバレッジ | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
-| vet | `go vet ./...` |
-| 書式チェック | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
-| 書式適用 | `gofmt -w .` |
-| staticcheck | `staticcheck ./...` |
-| クロスビルド確認 | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
-
-注意点:
-
-- `gofmt -l` は未整形ファイルがあっても終了コード 0 を返す。ゲートには必ず
-  `test -z "$(gofmt -l .)"` を使う
-- `go test -race` は CGO を要求する。`CGO_ENABLED=0` を環境に固定してはならない
-- staticcheck は CI では `go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...` で実行し、
-  `go.mod` には入れない（`go get -tool` は間接依存を増やし `go` ディレクティブを引き上げる）
-- `go run ./cmd/jjf ...` は `jjf` 自身の終了コードを隠す。終了コードを検証するときは
-  ビルド済みバイナリを使う
-- `-update` フラグを定義しているのはゴールデンを持つ 4 パッケージだけなので、
-  `go test ./... -update` は残りのパッケージで `flag provided but not defined` になる。
-  上の表のようにパッケージを列挙して渡す
-- nix の開発シェルは `GOTOOLCHAIN=local` を固定する。go コマンドが nix 以外の
-  ツールチェーンを勝手に取得することはない。シェルの `staticcheck` は CI が固定している
-  ものと同じ 2026.1
-- `nix build` で作ったバイナリは stamp する VCS 情報を持たないため、タグではなく
-  `v<マニフェストのバージョン>+nix.<rev>` を表示する。配布アーカイブは従来どおり
-  リリースワークフローが作る
-
-### リポジトリ構成
-
-```text
-cmd/jjf/               CLI（サブコマンド分岐・引数解析・終了コード）
-internal/exitcode/     終了コードとエラーラップ
-internal/model/        DB 設計 JSON に 1 対 1 対応する Go 型とデコード
-internal/schema/       埋め込みスキーマのコンパイルと検証エラーの整形
-internal/sml/          汎用 SpreadsheetML / OPC ライタ（DB 設計を知らない）
-internal/export/xlsx/  DB 設計書レンダラ（レイアウトの唯一の所有者）
-schema/                【正】DB 設計 JSON Schema と go:embed 宣言
-skills/db-design/      【正】AI エージェント向け Agent Skill
-.claude-plugin/        プラグインマニフェストとマーケットプレース定義
-examples/              サンプル設計 JSON と CI ワークフロー例
-docs/                  人間向け日本語ドキュメント（DB 設計ガイド）
-```
+開発環境の用意・コマンド表・リポジトリ構成は
+[DEVELOPERS.md](https://github.com/shutx-net/jumping-json-flush/blob/main/DEVELOPERS.md)
+にある（英語）。パスではなく URL でリンクしているのは、リリースアーカイブが同梱するのは
+README だけで、開発者向けドキュメントは含めないため。
 
 ## バージョニング
 

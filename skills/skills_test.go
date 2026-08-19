@@ -11,11 +11,11 @@
 // it rather than executing it. It is not part of the skill, but it reproduces the
 // same enums and would otherwise go stale unnoticed.
 //
-// The link check reaches outside skills/ for the same reason: that guide and the
-// two repository READMEs point at each other and across directories, so a rename
-// anywhere in the repository can leave them dangling with nothing to notice it.
-// The READMEs of this directory are split by language the same way, and are
-// checked as one more pair.
+// The link check reaches outside skills/ for the same reason: that guide, the two
+// repository READMEs and DEVELOPERS.md point at each other and across
+// directories, so a rename anywhere in the repository can leave them dangling
+// with nothing to notice it. The READMEs of this directory are split by language
+// the same way, and are checked as one more pair.
 //
 // The rename guard covers the same documents plus AGENTS.md. The command this
 // repository ships was renamed once while the module path and the repository URLs
@@ -69,6 +69,11 @@ var (
 	readmeJA = filepath.Join("..", "README.ja.md")
 )
 
+// developersDoc is the contributor documentation both READMEs hand off to. It
+// exists in English only, so it is not half of a language pair, but its links
+// still cross directories and it is still a document a rename can break.
+var developersDoc = filepath.Join("..", "DEVELOPERS.md")
+
 // The READMEs of this directory, which document how to install the skill. They
 // are split by language exactly like the repository ones, so that each language
 // reads front to back on its own.
@@ -88,7 +93,7 @@ var languagePairs = [][2]string{
 // Their links are checked together with the skill's, because they are the entry
 // points a reader arrives at and they point across directories, where a rename
 // anywhere in the repository breaks them silently.
-var outsideDocs = []string{readmeEN, readmeJA, japaneseGuide}
+var outsideDocs = []string{readmeEN, readmeJA, japaneseGuide, developersDoc}
 
 // AGENTS.md, the project policy document at the repository root, is not listed
 // here: it carries no links. The rename guard reaches it anyway, by walking the
