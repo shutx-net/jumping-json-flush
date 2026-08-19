@@ -1,6 +1,6 @@
 # Using jjf
 
-[README](../README.md) · [日本語](usage.ja.md)
+[README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.md) · [日本語](usage.ja.md)
 
 ## validate
 

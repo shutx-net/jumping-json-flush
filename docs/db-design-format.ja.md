@@ -1,9 +1,9 @@
 # DB 設計 JSON の形式
 
-[README](../README.ja.md) · [English](db-design-format.md)
+[README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.ja.md) · [English](db-design-format.md)
 
-完全な例は [`examples/db-design.example.json`](../examples/db-design.example.json)、
-構造の正式な定義は [`schema/db-design.schema.json`](../schema/db-design.schema.json)。
+完全な例は [`examples/db-design.example.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/db-design.example.json)、
+構造の正式な定義は [`schema/db-design.schema.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/schema/db-design.schema.json)。
 
 ```json
 {

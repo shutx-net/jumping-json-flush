@@ -1,11 +1,11 @@
 # The database design JSON format
 
-[README](../README.md) · [日本語](db-design-format.ja.md)
+[README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.md) · [日本語](db-design-format.ja.md)
 
 A complete example lives in
-[`examples/db-design.example.json`](../examples/db-design.example.json), and the
+[`examples/db-design.example.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/db-design.example.json), and the
 formal definition of the structure in
-[`schema/db-design.schema.json`](../schema/db-design.schema.json).
+[`schema/db-design.schema.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/schema/db-design.schema.json).
 
 ```json
 {

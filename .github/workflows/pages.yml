@@ -1,0 +1,64 @@
+name: Pages
+
+# The documentation site at docs/, built with MkDocs and published to GitHub
+# Pages. The Pages source has to be set to "GitHub Actions" for this to be the
+# thing that deploys.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancelling one that is already running: a
+# half published site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: install mkdocs
+        # Pinned for the same reason ci.yml pins staticcheck: a site that renders
+        # differently from one week to the next is not reproducible, and nothing
+        # here would notice.
+        run: pip install --disable-pip-version-check mkdocs-material==9.7.7
+
+      - name: build
+        # --strict turns a link to a page that is not there into a failed build.
+        # It is the only moment anyone would find out, because the pages that do
+        # work still look perfectly fine.
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

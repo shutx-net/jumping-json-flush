@@ -1,0 +1,102 @@
+# The documentation site, published to GitHub Pages by
+# .github/workflows/pages.yml.
+#
+# The nav block below is the page map, and it is the reason this file exists at
+# all: every alternative that derives a sidebar automatically needs per-page front
+# matter to order and group it, and front matter renders as a raw YAML table when
+# the same file is read on github.com. Keeping the map here leaves every document
+# under docs/ exactly as readable in the repository as it is on the site.
+#
+# mkdocs-static-i18n is deliberately not used. It would fold each .ja.md into its
+# .md as a translation and give a language switcher, but it also removes the .ja
+# pages from the default build, which breaks the cross-language links every
+# document carries and that skills/skills_test.go enforces. A 日本語 section in the
+# nav costs one plugin less and keeps those links working in both places.
+
+site_name: Jumpin' Json Flush
+site_description: >-
+  Manage database design specifications as JSON and generate Excel design
+  documents.
+site_url: https://shutx-net.github.io/jumping-json-flush/
+repo_url: https://github.com/shutx-net/jumping-json-flush
+repo_name: shutx-net/jumping-json-flush
+edit_uri: edit/main/docs/
+copyright: MIT
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    # The scheme follows the reader's system setting, and the toggle overrides it
+    # in either direction.
+    - media: "(prefers-color-scheme)"
+      # scheme is left unset so that this entry follows the system, but the colours
+      # still have to be named or it falls back to Material's indigo default.
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-auto
+        name: Follow the system setting
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search:
+      # Both languages are indexed by one search box, which is the whole point of
+      # keeping them in a single build.
+      lang: [en, ja]
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+      # The default slugifier drops non-ASCII, which would turn every Japanese
+      # heading into an anonymous anchor and break the in-page links the Japanese
+      # documents use. This one keeps the characters, the way github.com does.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+
+# The page map. pages_test.go keeps it and docs/ in agreement in both directions:
+# no document is left out, and no entry points at a file that is not there.
+nav:
+  - Home: index.md
+  - Installing jjf: install.md
+  - Using jjf: usage.md
+  - Design JSON format: db-design-format.md
+  - 日本語:
+      - ホーム: index.ja.md
+      - インストール: install.ja.md
+      - 使い方: usage.ja.md
+      - DB 設計 JSON の形式: db-design-format.ja.md
+      - DB 設計ガイド: db-design-guide.ja.md

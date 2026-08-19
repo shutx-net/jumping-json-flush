@@ -10,8 +10,8 @@
 
 | 対象 | ファイル | 言語 | 読み手 |
 | --- | --- | --- | --- |
-| 構造の正式定義 | [`schema/db-design.schema.json`](../schema/db-design.schema.json) | — | ツールとエディタ |
-| Agent Skill | [`skills/db-design/SKILL.md`](../skills/db-design/SKILL.md) と `references/` | 英語 | AI エージェント |
+| 構造の正式定義 | [`schema/db-design.schema.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/schema/db-design.schema.json) | — | ツールとエディタ |
+| Agent Skill | [`skills/db-design/SKILL.md`](https://github.com/shutx-net/jumping-json-flush/blob/main/skills/db-design/SKILL.md) と `references/` | 英語 | AI エージェント |
 | 設計ガイド（この文書） | `docs/db-design-guide.ja.md` | 日本語 | 人間 |
 
 押さえておくべき点が 3 つある。
@@ -157,7 +157,7 @@ db-design.json
 （`primaryKey.columns`、`indexes[].columns` など）も同じく 1 件以上必要で、重複を許さない。
 
 動く完全な文書の例は
-[`examples/db-design.example.json`](../examples/db-design.example.json) にある。
+[`examples/db-design.example.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/db-design.example.json) にある。
 新規作成時はこれを雛形にする。
 
 ## フィールドの作法と許容値
@@ -697,8 +697,8 @@ CI での比較を可能にするためである。
 
 ## 関連ドキュメント
 
-- [`README.ja.md`](../README.ja.md) — インストール、CLI の使い方、CI への組み込み
-- [`schema/db-design.schema.json`](../schema/db-design.schema.json) — 構造の正式定義
-- [`examples/db-design.example.json`](../examples/db-design.example.json) — 完全な設計 JSON の例
-- [`skills/db-design/SKILL.md`](../skills/db-design/SKILL.md) — AI エージェントが読む英語スキル（内容の正）
-- [`skills/README.ja.md`](../skills/README.ja.md) — スキルの導入方法
+- [`README.ja.md`](https://github.com/shutx-net/jumping-json-flush/blob/main/README.ja.md) — インストール、CLI の使い方、CI への組み込み
+- [`schema/db-design.schema.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/schema/db-design.schema.json) — 構造の正式定義
+- [`examples/db-design.example.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/db-design.example.json) — 完全な設計 JSON の例
+- [`skills/db-design/SKILL.md`](https://github.com/shutx-net/jumping-json-flush/blob/main/skills/db-design/SKILL.md) — AI エージェントが読む英語スキル（内容の正）
+- [`skills/README.ja.md`](https://github.com/shutx-net/jumping-json-flush/blob/main/skills/README.ja.md) — スキルの導入方法

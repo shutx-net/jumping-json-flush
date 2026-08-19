@@ -1,3 +1,16 @@
+// The documentation site.
+//
+// docs/ is published with MkDocs, and mkdocs.yml carries the page map by hand
+// because every generator that derives one automatically wants per-page front
+// matter, which renders as a raw YAML table when the same file is read on
+// github.com. A hand written map is the right trade for that, and this is what
+// pays for it: nothing else notices a page that was added to docs/ and never
+// listed, or an entry left pointing at a file that has been renamed.
+//
+// The site is also why several links in docs/ are absolute github.com URLs
+// instead of relative paths. A relative link that leaves docs/ cannot be served,
+// so those targets are named by URL - and a URL is exactly the kind of link that
+// rots silently, which the last check here is for.
 package jjf
 
 import (
@@ -5,108 +18,106 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// pagesConfig is the whole of the GitHub Pages setup. The site is built by GitHub
-// from the default branch, so nothing in this repository runs the build and
-// nothing here can fail loudly when it goes wrong: a document dropped from the
-// site still renders perfectly on github.com, and the broken link only exists for
-// the reader who followed it from the published site.
-const pagesConfig = "_config.yml"
+const (
+	mkdocsConfig = "mkdocs.yml"
+	docsDir      = "docs"
+)
 
-// excludeList captures the items of the exclude: block, which is a flat YAML list
-// of quoted or bare scalars. A parser is not worth a dependency for that, and
-// skills_test.go reads the skill frontmatter by hand for the same reason.
-var excludeList = regexp.MustCompile(`(?m)^exclude:\n((?:[ \t]*-[ \t]*\S+\n)+)`)
+// navSection captures the nav: block, which runs to the first line that starts a
+// new top level key.
+var navSection = regexp.MustCompile(`(?m)^nav:\n((?:[ \t-].*\n?)*)`)
 
-// pagesLink captures the target of an inline markdown link.
-var pagesLink = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)`)
+// navTarget captures the document each nav entry points at.
+var navTarget = regexp.MustCompile(`(?m):\s*(\S+\.md)\s*$`)
 
-// pagesRemote matches a link target that names no file on disk: one with a URL
-// scheme, a protocol-relative host, or a bare fragment.
-var pagesRemote = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.-]*:|//|#)`)
+// blobLink captures the repository path of a link into this repository on
+// github.com. Only blob URLs name a file; a release asset or a raw URL does not
+// have to exist in the working tree.
+var blobLink = regexp.MustCompile(`https://github\.com/shutx-net/jumping-json-flush/blob/main/([^)\s"']+)`)
 
-// TestPagesConfigPublishesEveryLinkedFile is the check the published site cannot
-// make for itself. Jekyll copies whatever it is not told to skip, so the exclude
-// list is the one place where a file silently stops being served while every test
-// that only looks at the file system keeps passing.
-func TestPagesConfigPublishesEveryLinkedFile(t *testing.T) {
-	patterns := pagesExcludes(t)
+// TestNavListsEveryDocument is the completeness half of the page map. A document
+// left out of the nav is still built and still reachable by its URL, so it looks
+// fine to whoever wrote it and is invisible to everybody else.
+func TestNavListsEveryDocument(t *testing.T) {
+	listed := navDocuments(t)
 
-	for _, doc := range publishedMarkdown(t, patterns) {
+	entries, err := os.ReadDir(docsDir)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+			continue
+		}
+		if !slices.Contains(listed, e.Name()) {
+			t.Errorf("%s/%s is not in the nav of %s; it would be published as a page nothing links to",
+				docsDir, e.Name(), mkdocsConfig)
+		}
+	}
+}
+
+// TestNavPointsAtDocumentsThatExist is the other half. MkDocs is run with
+// --strict in the workflow and would fail on this too, but that is after the
+// change has been pushed to the default branch.
+func TestNavPointsAtDocumentsThatExist(t *testing.T) {
+	for _, name := range navDocuments(t) {
+		if _, err := os.Stat(filepath.Join(docsDir, name)); err != nil {
+			t.Errorf("%s lists %q in its nav, which does not exist: %v", mkdocsConfig, name, err)
+		}
+	}
+}
+
+// TestBlobLinksResolve checks the absolute links back into this repository. They
+// exist because a relative link out of docs/ cannot be served by the site, and
+// the cost of spelling them as URLs is that skills/skills_test.go, which only
+// resolves relative links, stops seeing them.
+func TestBlobLinksResolve(t *testing.T) {
+	for _, doc := range repositoryMarkdown(t) {
 		src, err := os.ReadFile(doc)
 		if err != nil {
 			t.Errorf("%v", err)
 			continue
 		}
-		for _, m := range pagesLink.FindAllStringSubmatch(string(src), -1) {
-			target, ok := localLinkTarget(m[1])
-			if !ok {
+		for _, m := range blobLink.FindAllStringSubmatch(string(src), -1) {
+			target, _, _ := strings.Cut(m[1], "#")
+			// A URL written with a <placeholder> in it is showing the shape of a
+			// link, not being one. DEVELOPERS.md documents this exact form.
+			if target == "" || strings.ContainsAny(target, "<>") {
 				continue
 			}
-			resolved := filepath.ToSlash(filepath.Join(filepath.Dir(doc), target))
-			if pagesExcluded(resolved, patterns) {
-				t.Errorf("%s links to %q, which %s excludes from the site; the link works in the repository and 404s on the published page",
-					doc, m[1], pagesConfig)
+			if _, err := os.Stat(target); err != nil {
+				t.Errorf("%s links to %s, which is not in the repository: %v", doc, m[0], err)
 			}
 		}
 	}
 }
 
-// TestPagesConfigKeepsTheGoSourceOutOfTheSite is the other half. The exclude list
-// is there because this repository is mostly Go and none of it belongs on a
-// documentation site; an entry dropped from it would publish the whole tree
-// without anything looking wrong.
-func TestPagesConfigKeepsTheGoSourceOutOfTheSite(t *testing.T) {
-	patterns := pagesExcludes(t)
-
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// Jekyll skips anything whose name starts with a dot on its own.
-		if strings.HasPrefix(d.Name(), ".") && path != "." {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() && pagesExcluded(filepath.ToSlash(path)+"/", patterns) {
-			return fs.SkipDir
-		}
-		if !d.IsDir() && filepath.Ext(path) == ".go" && !pagesExcluded(filepath.ToSlash(path), patterns) {
-			t.Errorf("%s would be published as part of the site; add it, or the directory it is in, to the exclude list of %s",
-				path, pagesConfig)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk: %v", err)
-	}
-}
-
-// pagesExcludes returns the exclude list of the Pages configuration.
-func pagesExcludes(t *testing.T) []string {
+// navDocuments returns the file name of every entry of the nav, in order.
+func navDocuments(t *testing.T) []string {
 	t.Helper()
 
-	m := excludeList.FindStringSubmatch(read(t, pagesConfig))
-	if m == nil {
-		t.Fatalf("%s has no exclude: block; without one Jekyll publishes the whole repository, and this check would pass by no longer reading anything",
-			pagesConfig)
+	block := navSection.FindStringSubmatch(read(t, mkdocsConfig))
+	if block == nil {
+		t.Fatalf("%s has no nav: block; the page map is the reason the file exists", mkdocsConfig)
 	}
 
-	var patterns []string
-	for _, line := range strings.Split(strings.TrimSpace(m[1]), "\n") {
-		item := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-"))
-		patterns = append(patterns, strings.Trim(item, `"'`))
+	var names []string
+	for _, m := range navTarget.FindAllStringSubmatch(block[1], -1) {
+		names = append(names, m[1])
 	}
-	return patterns
+	if len(names) == 0 {
+		t.Fatalf("%s: the nav block lists no document; this check is reading the wrong thing", mkdocsConfig)
+	}
+	return names
 }
 
-// publishedMarkdown returns every markdown file the site serves as a page.
-func publishedMarkdown(t *testing.T, patterns []string) []string {
+// repositoryMarkdown returns every markdown file this repository owns.
+func repositoryMarkdown(t *testing.T) []string {
 	t.Helper()
 
 	var found []string
@@ -114,20 +125,10 @@ func publishedMarkdown(t *testing.T, patterns []string) []string {
 		if err != nil {
 			return err
 		}
-		if strings.HasPrefix(d.Name(), ".") && path != "." {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != "." {
+			return fs.SkipDir
 		}
-		slash := filepath.ToSlash(path)
-		if d.IsDir() {
-			if pagesExcluded(slash+"/", patterns) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) == ".md" && !pagesExcluded(slash, patterns) {
+		if !d.IsDir() && filepath.Ext(path) == ".md" {
 			found = append(found, path)
 		}
 		return nil
@@ -135,55 +136,5 @@ func publishedMarkdown(t *testing.T, patterns []string) []string {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	if len(found) == 0 {
-		t.Fatal("no markdown is published at all; this check is reading the wrong tree")
-	}
 	return found
-}
-
-// pagesExcluded reports whether the site leaves path out. A directory is passed
-// with its trailing slash, the way it is written in the configuration.
-func pagesExcluded(path string, patterns []string) bool {
-	// Jekyll never publishes anything whose name starts with a dot, and that rule
-	// is not written down anywhere in the configuration. It is what keeps
-	// .github/ and .claude-plugin/ off the site, so a relative link into one of
-	// them resolves in a clone and 404s on the published page.
-	for _, segment := range strings.Split(strings.TrimSuffix(path, "/"), "/") {
-		if strings.HasPrefix(segment, ".") && segment != "." && segment != ".." {
-			return true
-		}
-	}
-
-	for _, p := range patterns {
-		switch {
-		case strings.HasSuffix(p, "/"):
-			if path == p || strings.HasPrefix(path, p) {
-				return true
-			}
-		case strings.HasPrefix(p, "**/"):
-			if ok, _ := filepath.Match(strings.TrimPrefix(p, "**/"), filepath.Base(path)); ok {
-				return true
-			}
-		case strings.ContainsAny(p, "*?["):
-			if ok, _ := filepath.Match(p, path); ok {
-				return true
-			}
-		default:
-			if path == p {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// localLinkTarget reduces a link target to the path it names, reporting false when
-// it names no local file at all.
-func localLinkTarget(target string) (string, bool) {
-	if pagesRemote.MatchString(target) {
-		return "", false
-	}
-	path, _, _ := strings.Cut(target, "#")
-	path, _, _ = strings.Cut(path, "?")
-	return path, path != ""
 }

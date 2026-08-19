@@ -135,6 +135,8 @@ Those two are also the only dependencies recorded in the binary, which
 
 ## Documentation
 
+Published as a site as well: **<https://shutx-net.github.io/jumping-json-flush/>**
+
 | | |
 | --- | --- |
 | [`docs/install.md`](docs/install.md) | installing, pinning a version, verifying a download |

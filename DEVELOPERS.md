@@ -64,17 +64,18 @@ direnv.
 - A binary from `nix build` has no VCS metadata to stamp, so it reports
   `v<manifest version>+nix.<rev>` rather than a tag. Release archives keep coming
   from the release workflow
-- The documentation site is GitHub Pages, built by GitHub itself from the default
-  branch with no workflow: `_config.yml` is the entire configuration. Two rules
-  decide what is served and only one of them is written down — Jekyll also skips
-  everything whose name starts with a dot, which is why a link into `.github/` or
-  `.claude-plugin/` has to be an absolute URL and not a relative path.
-  `pages_test.go` enforces both rules against every published document. To
-  reproduce a build locally: `gem install jekyll jekyll-optional-front-matter
-  jekyll-readme-index jekyll-titles-from-headings jekyll-relative-links
-  jekyll-default-layout jekyll-theme-primer`, declare those under `plugins:` in a
-  throwaway copy of the config (GitHub injects them), and run jekyll with
-  `PAGES_REPO_NWO=shutx-net/jumping-json-flush`
+- The documentation site is `docs/`, built with MkDocs Material and deployed by
+  `.github/workflows/pages.yml`; the Pages source is "GitHub Actions" and not a
+  branch. `mkdocs.yml` carries the page map by hand, because every generator that
+  derives a sidebar automatically wants per-page front matter and that renders as
+  a raw YAML table on github.com. `pages_test.go` keeps the map and `docs/` in
+  agreement both ways, and checks the absolute github.com links the site forces on
+  any document that has to point outside `docs/`
+- A relative link that leaves `docs/` cannot be served by the site. Write those as
+  `https://github.com/shutx-net/jumping-json-flush/blob/main/<path>`; the build
+  runs with `--strict` and fails on anything else
+- To work on the site: `pip install mkdocs-material==9.7.7`, then `mkdocs serve`
+  for a live preview or `mkdocs build --strict` for the check the workflow runs
 - `install.sh` is POSIX sh, not bash, so lint it with `--shell=sh`. Its
   interpreter, its target list, the archive names it builds and the release tag
   it accepts are all pinned by `install_test.go` against

@@ -129,6 +129,8 @@ Excel 出力は `archive/zip` と `encoding/xml` の上に自前で書いてお�
 
 ## ドキュメント
 
+サイトとしても公開している: **<https://shutx-net.github.io/jumping-json-flush/>**
+
 | | |
 | --- | --- |
 | [`docs/install.ja.md`](docs/install.ja.md) | インストール、バージョン固定、ダウンロードの検証 |

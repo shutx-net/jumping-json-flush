@@ -74,17 +74,20 @@ var (
 // still cross directories and it is still a document a rename can break.
 var developersDoc = filepath.Join("..", "DEVELOPERS.md")
 
-// The reference documentation the READMEs hand off to, three pairs of it. Unlike
+// The landing page of the documentation site, and the reference documentation the
+// READMEs hand off to: four pairs in all. Unlike
 // DEVELOPERS.md these are written for users and not for contributors, which is why
 // each exists in both languages: a Japanese reader who followed a link out of
 // README.ja.md must not land in English.
 var (
-	installEN = filepath.Join("..", "docs", "install.md")
-	installJA = filepath.Join("..", "docs", "install.ja.md")
-	usageEN   = filepath.Join("..", "docs", "usage.md")
-	usageJA   = filepath.Join("..", "docs", "usage.ja.md")
-	formatEN  = filepath.Join("..", "docs", "db-design-format.md")
-	formatJA  = filepath.Join("..", "docs", "db-design-format.ja.md")
+	docsHomeEN = filepath.Join("..", "docs", "index.md")
+	docsHomeJA = filepath.Join("..", "docs", "index.ja.md")
+	installEN  = filepath.Join("..", "docs", "install.md")
+	installJA  = filepath.Join("..", "docs", "install.ja.md")
+	usageEN    = filepath.Join("..", "docs", "usage.md")
+	usageJA    = filepath.Join("..", "docs", "usage.ja.md")
+	formatEN   = filepath.Join("..", "docs", "db-design-format.md")
+	formatJA   = filepath.Join("..", "docs", "db-design-format.ja.md")
 )
 
 // The READMEs of this directory, which document how to install the skill. They
@@ -99,6 +102,7 @@ const (
 // language, each pair written as {English, Japanese}.
 var languagePairs = [][2]string{
 	{readmeEN, readmeJA},
+	{docsHomeEN, docsHomeJA},
 	{installEN, installJA},
 	{usageEN, usageJA},
 	{formatEN, formatJA},
@@ -111,6 +115,7 @@ var languagePairs = [][2]string{
 // anywhere in the repository breaks them silently.
 var outsideDocs = []string{
 	readmeEN, readmeJA,
+	docsHomeEN, docsHomeJA,
 	installEN, installJA,
 	usageEN, usageJA,
 	formatEN, formatJA,

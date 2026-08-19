@@ -1,6 +1,6 @@
 # Installing jjf
 
-[README](../README.md) · [日本語](install.ja.md)
+[README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.md) · [日本語](install.ja.md)
 
 `jjf` is one statically linked binary. There is no runtime to install beside it,
 no CGO and no glibc, so a musl or alpine image runs it as it is.
@@ -107,8 +107,8 @@ curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/i
 Even pinned, the script itself is served from the default branch and can be
 changed there. A pipeline that wants a URL nobody can move should take the release
 archive instead; that is what
-[`examples/ci/github-actions.yml`](../examples/ci/github-actions.yml) and
-[`examples/ci/gitlab-ci.yml`](../examples/ci/gitlab-ci.yml) do.
+[`examples/ci/github-actions.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/github-actions.yml) and
+[`examples/ci/gitlab-ci.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/gitlab-ci.yml) do.
 
 ### On piping a script into a shell
 

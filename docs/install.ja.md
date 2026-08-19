@@ -1,6 +1,6 @@
 # jjf のインストール
 
-[README](../README.ja.md) · [English](install.md)
+[README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.ja.md) · [English](install.md)
 
 `jjf` は静的リンクされた単一バイナリ。隣に入れるべきランタイムはなく、CGO も
 glibc も要らないので、musl や alpine のイメージでもそのまま動く。
@@ -106,8 +106,8 @@ curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/i
 ただし固定してもスクリプト自体はデフォルトブランチから配信され、そこで変更され
 うる。誰にも動かせない URL が欲しいパイプラインは、リリースアーカイブを直接
 取得するほうがよい。
-[`examples/ci/github-actions.yml`](../examples/ci/github-actions.yml) と
-[`examples/ci/gitlab-ci.yml`](../examples/ci/gitlab-ci.yml) はそうしている。
+[`examples/ci/github-actions.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/github-actions.yml) と
+[`examples/ci/gitlab-ci.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/gitlab-ci.yml) はそうしている。
 
 ### スクリプトをシェルに流し込むことについて
 
