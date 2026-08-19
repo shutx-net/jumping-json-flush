@@ -103,11 +103,13 @@ curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/i
   sh -s -- --version v0.1.0
 ```
 
-ただし固定してもスクリプト自体はデフォルトブランチから配信され、そこで変更され
-うる。誰にも動かせない URL が欲しいパイプラインは、リリースアーカイブを直接
-取得するほうがよい。
 [`examples/ci/github-actions.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/github-actions.yml) と
 [`examples/ci/gitlab-ci.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/gitlab-ci.yml) はそうしている。
+
+ただし固定してもスクリプト自体はデフォルトブランチから配信され、そこで変更され
+うる。誰にも動かせない URL が欲しいパイプラインは、
+[リリースアーカイブ](#リリースアーカイブ)を直接取得し、リリースの
+`checksums.txt` と sha256 を自分で照合するほうがよい。
 
 ### スクリプトをシェルに流し込むことについて
 

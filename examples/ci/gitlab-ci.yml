@@ -16,20 +16,22 @@ variables:
 
 # alpine is enough because jjf is a static binary built with CGO_ENABLED=0: it
 # needs no glibc and no runtime dependencies.
+#
+# install.sh is the installation method the README documents. It is POSIX sh and
+# runs under busybox ash, checks the archive's sha256 against the release's
+# checksums.txt, and writes exactly one file into --dir. --version pins the
+# release, so the pipeline does not start installing a new one on its own. curl is
+# the only thing the image is missing; tar and sha256sum come from busybox.
+#
+# The script itself is served from the default branch and can be changed there. A
+# pipeline that needs a URL nobody can move should take the release archive
+# directly instead; docs/install.md describes both.
 .jjf:
   image: alpine:3.22
   before_script:
     - apk add --no-cache curl
-    - archive="jjf_${JJF_VERSION}_linux_amd64"
-    - base="https://github.com/shutx-net/jumping-json-flush/releases/download/${JJF_VERSION}"
-    - curl -sSfL -O "${base}/${archive}.tar.gz"
-    - curl -sSfL -O "${base}/checksums.txt"
-    # checksums.txt covers all five release archives; keep only the line for the
-    # one that was downloaded, because busybox sha256sum has no --ignore-missing.
-    - grep "  ${archive}.tar.gz$" checksums.txt > archive.sha256
-    - sha256sum -c archive.sha256
-    - tar -xzf "${archive}.tar.gz"
-    - install -m 0755 "${archive}/jjf" /usr/local/bin/jjf
+    - curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh
+      | sh -s -- --version "$JJF_VERSION" --dir /usr/local/bin
     - jjf version
 
 # 1. Detect changes to the design document with rules:changes.
