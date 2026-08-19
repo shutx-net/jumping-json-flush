@@ -34,21 +34,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # install.sh is the installation method the README documents. It picks the
+      # archive for the runner, checks its sha256 against the release's
+      # checksums.txt, and writes exactly one file into --dir. --version pins the
+      # release, so the pipeline does not start installing a new one on its own.
+      #
+      # The script itself is served from the default branch and can be changed
+      # there. A pipeline that needs a URL nobody can move should take the release
+      # archive directly instead; docs/install.md describes both.
       - name: install jjf
         run: |
-          archive="jjf_${JJF_VERSION}_linux_amd64"
-          base="https://github.com/shutx-net/jumping-json-flush/releases/download/${JJF_VERSION}"
-          cd "$RUNNER_TEMP"
-          curl -sSfL -O "${base}/${archive}.tar.gz"
-          curl -sSfL -O "${base}/checksums.txt"
-          # Every release ships checksums.txt covering all five archives, so the
-          # entries for the other four are expected to be missing here.
-          sha256sum --check --ignore-missing checksums.txt
-          tar -xzf "${archive}.tar.gz"
-          mkdir -p bin
-          install -m 0755 "${archive}/jjf" bin/jjf
-          ./bin/jjf version
+          curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh |
+            sh -s -- --version "$JJF_VERSION" --dir "${RUNNER_TEMP}/bin"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/bin/jjf" version
 
       # 2. Validate the design document.
       # 3. A failure fails the job: jjf exits 3 on a schema violation and 2 on

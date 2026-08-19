@@ -104,11 +104,14 @@ curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/i
   sh -s -- --version v0.1.0
 ```
 
-Even pinned, the script itself is served from the default branch and can be
-changed there. A pipeline that wants a URL nobody can move should take the release
-archive instead; that is what
+That is what
 [`examples/ci/github-actions.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/github-actions.yml) and
 [`examples/ci/gitlab-ci.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/examples/ci/gitlab-ci.yml) do.
+
+Even pinned, the script itself is served from the default branch and can be
+changed there. A pipeline that wants a URL nobody can move should take the
+[release archive](#release-archives) instead, and check its sha256 against the
+release's `checksums.txt` itself.
 
 ### On piping a script into a shell
 
