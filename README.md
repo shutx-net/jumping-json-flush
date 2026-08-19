@@ -22,7 +22,38 @@ jjf export xlsx db-design.json -o db-design.xlsx
 
 ## Installation
 
-### Release binaries
+### install.sh
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh | sh
+```
+
+The script works out your OS and CPU, downloads the matching release archive,
+**verifies its sha256 against the release's `checksums.txt`**, and puts the binary
+in `/usr/local/bin` when that directory is writable and in `$HOME/.local/bin`
+otherwise. It prints where the binary went, and it never calls `sudo`.
+
+It is POSIX sh rather than bash, so `| bash` does exactly the same thing and an
+alpine image that ships no bash runs it unchanged. Everything in it is a constant
+or a function and the work starts on the last line, so a download that is cut off
+part way through does nothing at all.
+
+Options reach a piped script after `-s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh |
+  sh -s -- --version v0.1.0 --dir ~/bin
+```
+
+| Option | Environment | Default |
+| --- | --- | --- |
+| `--version <tag>` | `JJF_VERSION` | the latest release |
+| `--dir <path>` | `JJF_INSTALL_DIR` | `/usr/local/bin` when writable, otherwise `$HOME/.local/bin` |
+
+Linux, macOS and WSL are covered. On Windows the script runs only under Git Bash
+or Cygwin and needs `unzip`; without one of those, take the zip by hand as below.
+
+### Release archives
 
 Grab the archive for your OS and CPU from
 [Releases](https://github.com/shutx-net/jumping-json-flush/releases). Five targets are

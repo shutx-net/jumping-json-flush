@@ -119,6 +119,10 @@
               pkgs.gh
               # The release workflow checks the plugin manifests with jq.
               pkgs.jq
+              # install.sh is the only shell this repository ships as a product.
+              # CI lints it with the shellcheck that comes on the runner; this is
+              # the same linter available locally.
+              pkgs.shellcheck
             ];
 
             # Nix pins the toolchain, so the go command must not quietly download

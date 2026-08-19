@@ -19,7 +19,37 @@ jjf export xlsx db-design.json -o db-design.xlsx
 
 ## インストール
 
-### リリースバイナリ
+### install.sh
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh | sh
+```
+
+OS と CPU を判定して対応するリリースアーカイブを取得し、**リリースの
+`checksums.txt` と sha256 を照合**したうえでバイナリを配置する。配置先は
+`/usr/local/bin` が書き込み可能ならそこ、そうでなければ `$HOME/.local/bin`。
+どこに入ったかは最後に表示され、`sudo` は一切呼ばない。
+
+bash ではなく POSIX sh なので、`| bash` としても同じように動き、bash を持たない
+alpine イメージでもそのまま実行できる。中身は定数と関数定義だけで、処理を始めるのは
+最終行の 1 行だけなので、ダウンロードが途中で切れた場合には**何も実行されない**。
+
+オプションはパイプ経由でも `-s --` の後ろに置けば渡る。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/install.sh |
+  sh -s -- --version v0.1.0 --dir ~/bin
+```
+
+| オプション | 環境変数 | 既定値 |
+| --- | --- | --- |
+| `--version <tag>` | `JJF_VERSION` | 最新リリース |
+| `--dir <path>` | `JJF_INSTALL_DIR` | 書き込み可能なら `/usr/local/bin`、それ以外は `$HOME/.local/bin` |
+
+対象は Linux / macOS / WSL。Windows では Git Bash か Cygwin 上でのみ動作し、
+`unzip` が必要になる。用意できない場合は下記の手順で zip を直接取得する。
+
+### リリースアーカイブ
 
 [Releases](https://github.com/shutx-net/jumping-json-flush/releases) から使用する OS / CPU 向けの
 アーカイブを取得する。対応ターゲットは `linux/amd64`, `linux/arm64`, `windows/amd64`,

@@ -5,6 +5,9 @@
 *.json text eol=lf
 *.go   text eol=lf
 *.md   text eol=lf
+# install.sh is piped straight into sh. A CRLF checkout would put a carriage
+# return in the shebang and in every command it runs.
+*.sh   text eol=lf
 *.yml  text eol=lf
 # Golden files are compared byte for byte, so they must never be checked out as
 # CRLF.
