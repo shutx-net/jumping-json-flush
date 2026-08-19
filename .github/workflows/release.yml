@@ -255,15 +255,41 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          options=(--title "$GITHUB_REF_NAME" --generate-notes --verify-tag)
-          # A tag with a pre-release suffix publishes as a pre-release.
-          case "$GITHUB_REF_NAME" in
-            *-*) options+=(--prerelease) ;;
-          esac
-
-          # gh ships on the runner, so no third-party action is needed here.
-          gh release create "$GITHUB_REF_NAME" "${options[@]}" \
-            dist/jjf_*.tar.gz \
-            dist/jjf_*.zip \
-            dist/jjf-plugin-*.zip \
+          assets=(
+            dist/jjf_*.tar.gz
+            dist/jjf_*.zip
+            dist/jjf-plugin-*.zip
             dist/checksums.txt
+          )
+
+          # The release may already exist by the time this step runs. Cutting one
+          # from the GitHub UI creates the tag as well, and the tag is what starts
+          # this workflow, so that ordinary way of releasing used to reach the very
+          # last step with everything built and then fail on
+          # "a release with the same tag name already exists". Uploading to
+          # whatever release the tag has covers that, and --clobber makes a re-run
+          # of this job replace the assets instead of colliding with them.
+          #
+          # gh ships on the runner, so no third-party action is needed here.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "a release already exists for ${GITHUB_REF_NAME}; uploading the assets to it"
+            gh release upload "$GITHUB_REF_NAME" --clobber "${assets[@]}"
+
+            # Notes are only generated when this job creates the release. One made
+            # in the UI keeps whatever body it was given, which must not be
+            # overwritten from here - but an empty one is worth saying out loud,
+            # because nothing else will.
+            if [ -z "$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)" ]; then
+              echo "::warning::the release notes of ${GITHUB_REF_NAME} are empty; use \"Generate release notes\" in the release editor"
+              printf '## Release notes\n\nThe body of `%s` is empty. Open the release and press ' "$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+              printf '"Generate release notes".\n' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            options=(--title "$GITHUB_REF_NAME" --generate-notes --verify-tag)
+            # A tag with a pre-release suffix publishes as a pre-release.
+            case "$GITHUB_REF_NAME" in
+              *-*) options+=(--prerelease) ;;
+            esac
+
+            gh release create "$GITHUB_REF_NAME" "${options[@]}" "${assets[@]}"
+          fi

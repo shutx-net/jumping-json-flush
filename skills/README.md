@@ -124,7 +124,10 @@ lands in `checksums.txt`.
 2. Tag and push. The job builds the archive, computes its digest, publishes the
    release, and prints the complete next content of `marketplace.json` in its job
    summary. The same file is attached to the run as the `marketplace-json`
-   artifact.
+   artifact. Cutting the release from the GitHub UI works too: that creates the
+   tag, the tag starts the same job, and the job uploads its assets to the release
+   that is already there. Only the notes are then yours to write, because the job
+   will not overwrite a body it did not create.
 3. Commit that content to the default branch. Installs are unpinned until you do.
    The digest is reproducible, so re-running the job for the same tag produces the
    same value.
