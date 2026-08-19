@@ -18,9 +18,9 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # The go directive of go.mod is the single source of the Go version.
           go-version-file: go.mod
@@ -42,7 +42,7 @@ jobs:
       - name: coverage summary
         run: go tool cover -func=coverage.out | tail -1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.out
@@ -52,9 +52,9 @@ jobs:
     name: staticcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -65,6 +65,13 @@ jobs:
           # switching is what lets the go command fetch the newer toolchain for
           # this one tool run; pinning GOTOOLCHAIN=local here would fail with
           # "requires go >= 1.25.0".
+          #
+          # setup-go has exported GOTOOLCHAIN=local itself since v6, so this is no
+          # longer only an override of the default: it is an override of the
+          # action. It works because a step's own env wins over anything an
+          # earlier step put in GITHUB_ENV, and it has to stay on this step alone
+          # - every other job here is meant to run the toolchain go.mod names and
+          # nothing else.
           GOTOOLCHAIN: auto
         # Run the linter with a version suffix instead of adding it to go.mod:
         # `go get -tool` would pull in six indirect dependencies and raise the go
@@ -85,9 +92,9 @@ jobs:
           - {goos: darwin, goarch: amd64}
           - {goos: darwin, goarch: arm64}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -104,9 +111,9 @@ jobs:
     name: selfcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -212,7 +219,7 @@ jobs:
           fi
           echo "selfcheck passed"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: db-design-xlsx
           path: dist/db-design.xlsx
@@ -222,7 +229,7 @@ jobs:
     name: installer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: shellcheck
         # install.sh is POSIX sh, not bash: the README tells people to pipe it
@@ -289,7 +296,7 @@ jobs:
     name: nix flake check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The action enables the nix-command and flakes features on its own, and
       # points nix at this workflow's GITHUB_TOKEN, so fetching the flake input
