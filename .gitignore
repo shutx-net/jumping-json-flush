@@ -14,3 +14,8 @@
 coverage.out
 coverage.html
 *.test
+
+# nix build results and direnv cache
+/result
+/result-*
+/.direnv/

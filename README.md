@@ -53,6 +53,12 @@ go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
 
 Pin a version by naming its tag, as in `@v0.1.0`. Go 1.24 or later is required.
 
+### nix
+
+```sh
+nix profile add github:shutx-net/jumping-json-flush
+```
+
 ## Usage
 
 ### validate
@@ -304,13 +310,31 @@ are no runtime dependencies, and the binary is distributed statically linked wit
 
 ## Development
 
-Go is provided inside the container only. Run it through the
+Go is not expected on the host. Two environments provide it, and the command
+table below is written for both.
+
+### devcontainer
+
+The container image carries Go. Drive it with the
 [devcontainer CLI](https://github.com/devcontainers/cli).
 
 ```sh
 devcontainer up   --workspace-folder .
 devcontainer exec --workspace-folder . bash -lc '<CMD>'
 ```
+
+### nix flake
+
+```sh
+nix develop            # enter the shell, then run <CMD> inside it
+nix develop -c <CMD>   # run one command and leave
+```
+
+The shell provides the Go of the locked nixpkgs, which `flake.nix` asserts still
+satisfies the `go` directive of `go.mod`, plus gopls, staticcheck, gh and jq.
+`nix build` produces `./result/bin/jjf` and runs `go test ./...` as its check
+phase, which is what `nix flake check` verifies in CI. `.envrc` is there for
+direnv.
 
 | Goal | `<CMD>` |
 | --- | --- |
@@ -339,6 +363,12 @@ Things to watch out for:
 - Only the four packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
+- The nix dev shell pins `GOTOOLCHAIN=local`, so no go command downloads a
+  toolchain beside the one nix provides. Its `staticcheck` is the same 2026.1
+  release CI pins
+- A binary from `nix build` has no VCS metadata to stamp, so it reports
+  `v<manifest version>+nix.<rev>` rather than a tag. Release archives keep coming
+  from the release workflow
 
 ### Repository layout
 

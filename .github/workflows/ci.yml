@@ -217,3 +217,22 @@ jobs:
           name: db-design-xlsx
           path: dist/db-design.xlsx
           if-no-files-found: error
+
+  nix:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The action enables the nix-command and flakes features on its own, and
+      # points nix at this workflow's GITHUB_TOKEN, so fetching the flake input
+      # is not subject to the anonymous API rate limit.
+      - uses: cachix/install-nix-action@v31
+
+      - name: nix flake check
+        # checks.jjf is the flake's package, and its check phase is
+        # `go test ./...`, so this job repeats the test job inside the nix
+        # sandbox. What it adds is the vendorHash: every change to go.mod or
+        # go.sum invalidates it, the flake is the only thing that reads it, and
+        # nothing else in CI would notice it going stale.
+        run: nix flake check --print-build-logs

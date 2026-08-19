@@ -49,6 +49,12 @@ go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
 
 バージョンを固定する場合は `@v0.1.0` のようにタグを指定する。Go 1.24 以上が必要。
 
+### nix
+
+```sh
+nix profile add github:shutx-net/jumping-json-flush
+```
+
 ## 使い方
 
 ### validate
@@ -277,12 +283,30 @@ Excel 出力は `archive/zip` と `encoding/xml` による自前実装であり�
 
 ## 開発
 
-Go はコンテナ内にのみ用意する。[devcontainer CLI](https://github.com/devcontainers/cli) 経由で実行する。
+Go はホストに用意しない。以下の 2 つの環境が Go を提供し、後述のコマンド表はどちらでも
+そのまま使える。
+
+### devcontainer
+
+コンテナイメージが Go を持つ。[devcontainer CLI](https://github.com/devcontainers/cli)
+経由で実行する。
 
 ```sh
 devcontainer up   --workspace-folder .
 devcontainer exec --workspace-folder . bash -lc '<CMD>'
 ```
+
+### nix flake
+
+```sh
+nix develop            # シェルに入り、その中で <CMD> を実行する
+nix develop -c <CMD>   # コマンドを 1 つだけ実行して抜ける
+```
+
+シェルが提供する Go は lock された nixpkgs のもので、`go.mod` の `go` ディレクティブを
+満たしているかは `flake.nix` が検査する。加えて gopls・staticcheck・gh・jq が入る。
+`nix build` は `./result/bin/jjf` を作り、checkPhase で `go test ./...` を実行する。CI は
+これを `nix flake check` で検証する。`.envrc` は direnv 用。
 
 | 目的 | `<CMD>` |
 | --- | --- |
@@ -310,6 +334,12 @@ devcontainer exec --workspace-folder . bash -lc '<CMD>'
 - `-update` フラグを定義しているのはゴールデンを持つ 4 パッケージだけなので、
   `go test ./... -update` は残りのパッケージで `flag provided but not defined` になる。
   上の表のようにパッケージを列挙して渡す
+- nix の開発シェルは `GOTOOLCHAIN=local` を固定する。go コマンドが nix 以外の
+  ツールチェーンを勝手に取得することはない。シェルの `staticcheck` は CI が固定している
+  ものと同じ 2026.1
+- `nix build` で作ったバイナリは stamp する VCS 情報を持たないため、タグではなく
+  `v<マニフェストのバージョン>+nix.<rev>` を表示する。配布アーカイブは従来どおり
+  リリースワークフローが作る
 
 ### リポジトリ構成
 
