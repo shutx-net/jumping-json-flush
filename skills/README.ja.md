@@ -42,7 +42,7 @@ Claude が自分で読み込む。
 インストールが拒否され、それより古いバージョンではマーケットプレース自体が
 読み込まれない。
 
-マーケットプレースの URL は[デフォルトブランチ](../.claude-plugin/marketplace.json)
+マーケットプレースの URL は[デフォルトブランチ](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/marketplace.json)
 を指しており、リリースアセットではない。これは意図的である。タグを含む URL を
 カタログとして登録させると、その利用者は永久にそのリリースへ固定され、
 `/plugin marketplace update` でも移動できなくなる。どのリリースを配るかは
@@ -104,12 +104,12 @@ frontmatter は Agent Skills のどのホストでも解釈できるフィール
 ## プラグインのリリース手順
 
 メンテナ向け。アーカイブは `v*` タグで
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) が
+[`.github/workflows/release.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/.github/workflows/release.yml) が
 `jjf-plugin-<tag>.zip` として CLI バイナリと一緒に公開する。
 ダイジェストは `checksums.txt` にも入る。
 
-1. 1 つのコミットで、[`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json)
-   と [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) の
+1. 1 つのコミットで、[`.claude-plugin/plugin.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/plugin.json)
+   と [`.claude-plugin/marketplace.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/marketplace.json) の
    プラグインエントリの `version` を先頭の `v` を除いた新バージョンにし、
    `source.url` を新タグのアセットに向け、**`source.sha256` を削除する**。
    前リリースのダイジェストが残っている状態は、無い状態より悪い。全インストールが

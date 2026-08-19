@@ -64,6 +64,17 @@ direnv.
 - A binary from `nix build` has no VCS metadata to stamp, so it reports
   `v<manifest version>+nix.<rev>` rather than a tag. Release archives keep coming
   from the release workflow
+- The documentation site is GitHub Pages, built by GitHub itself from the default
+  branch with no workflow: `_config.yml` is the entire configuration. Two rules
+  decide what is served and only one of them is written down — Jekyll also skips
+  everything whose name starts with a dot, which is why a link into `.github/` or
+  `.claude-plugin/` has to be an absolute URL and not a relative path.
+  `pages_test.go` enforces both rules against every published document. To
+  reproduce a build locally: `gem install jekyll jekyll-optional-front-matter
+  jekyll-readme-index jekyll-titles-from-headings jekyll-relative-links
+  jekyll-default-layout jekyll-theme-primer`, declare those under `plugins:` in a
+  throwaway copy of the config (GitHub injects them), and run jekyll with
+  `PAGES_REPO_NWO=shutx-net/jumping-json-flush`
 - `install.sh` is POSIX sh, not bash, so lint it with `--shell=sh`. Its
   interpreter, its target list, the archive names it builds and the release tag
   it accepts are all pinned by `install_test.go` against

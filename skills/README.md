@@ -44,7 +44,7 @@ verifies on every download.
 older versions the marketplace does not load at all.
 
 The marketplace URL points at [the default
-branch](../.claude-plugin/marketplace.json), not at a release asset. That is
+branch](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/marketplace.json), not at a release asset. That is
 deliberate: a catalog URL carrying a tag would pin whoever added it to that one
 release forever, and no `/plugin marketplace update` could move them off it. The
 entry inside it is what names the release, and it is installable from the first
@@ -108,14 +108,14 @@ whoever installs the skill.
 ## Releasing the plugin
 
 For maintainers. The archive is built and published by
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) on a `v*`
+[`.github/workflows/release.yml`](https://github.com/shutx-net/jumping-json-flush/blob/main/.github/workflows/release.yml) on a `v*`
 tag, as `jjf-plugin-<tag>.zip`, alongside the CLI binaries. Its digest also
 lands in `checksums.txt`.
 
 1. In one commit, set `version` in
-   [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) and in the
+   [`.claude-plugin/plugin.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/plugin.json) and in the
    plugin entry of
-   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) to the
+   [`.claude-plugin/marketplace.json`](https://github.com/shutx-net/jumping-json-flush/blob/main/.claude-plugin/marketplace.json) to the
    new version without its leading `v`, point `source.url` at the new tag's
    asset, and **delete `source.sha256`**. A digest left over from the previous
    release is worse than none: it makes every install fail the integrity check,
