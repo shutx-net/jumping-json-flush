@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "logicalName": "オンラインショップ",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_customers_email",
+          "columns": ["email"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "minimal_db"
+  },
+  "tables": [
+    {
+      "name": "users",
+      "logicalName": "ユーザー",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "ユーザーID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

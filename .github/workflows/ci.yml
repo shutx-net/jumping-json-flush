@@ -1,0 +1,219 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # The go directive of go.mod is the single source of the Go version.
+          go-version-file: go.mod
+
+      - name: gofmt
+        # gofmt -l lists unformatted files and still exits 0, so the list itself
+        # has to be the gate.
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -d .; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race detector, coverage)
+        # The race detector requires cgo, so CGO_ENABLED must keep its default of
+        # 1 here. Only the distributed binaries are built with CGO_ENABLED=0.
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: error
+
+  staticcheck:
+    name: staticcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: staticcheck
+        env:
+          # staticcheck 2026.1 is honnef.co/go/tools v0.7.0, whose go.mod requires
+          # go >= 1.25.0, while jjf itself targets 1.24. Automatic toolchain
+          # switching is what lets the go command fetch the newer toolchain for
+          # this one tool run; pinning GOTOOLCHAIN=local here would fail with
+          # "requires go >= 1.25.0".
+          GOTOOLCHAIN: auto
+        # Run the linter with a version suffix instead of adding it to go.mod:
+        # `go get -tool` would pull in six indirect dependencies and raise the go
+        # directive, which the project's minimal-dependency policy forbids.
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
+
+  crossbuild:
+    name: crossbuild (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One broken target must not hide the state of the other four.
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build
+        # The artifact is thrown away: this job only answers whether the target
+        # still compiles without cgo.
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf
+
+  selfcheck:
+    name: selfcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build jjf
+        # A built binary, not `go run`: `go run` reports its own exit status and
+        # would hide the exit codes this job asserts.
+        run: go build -o "${RUNNER_TEMP}/jjf" ./cmd/jjf
+
+      - name: validate and export the shipped example
+        env:
+          JJF: ${{ runner.temp }}/jjf
+        run: |
+          # This job wires the whole tool together on a real document: schema
+          # validation, decoding, and xlsx generation. It also pins the exit code
+          # contract, which is what callers build their own CI on.
+          failures=0
+
+          # expect <want-code> <label> <command...>
+          #
+          # The status is collected with "|| status=$?" rather than a bare "$?":
+          # this step runs under "bash -e", where a plain assignment from a
+          # failing command substitution aborts the whole script, and half of
+          # these expectations are non-zero exit codes on purpose.
+          expect() {
+            local want="$1" label="$2"
+            shift 2
+            local out status=0
+            out="$("$@" 2>&1)" || status=$?
+            if [ "$status" -ne "$want" ]; then
+              echo "::error::${label}: exit ${status}, want ${want}"
+              printf '%s\n' "$out"
+              failures=$((failures + 1))
+              return
+            fi
+            echo "ok  ${label} (exit ${status})"
+          }
+
+          mkdir -p dist
+
+          expect 0 "version" "$JJF" version
+          "$JJF" version
+
+          expect 0 "validate the example" \
+            "$JJF" validate examples/db-design.example.json
+          expect 0 "export the example" \
+            "$JJF" export xlsx examples/db-design.example.json -o dist/db-design.xlsx
+
+          # A schema violation is exit 3 and nothing else; a missing file, an
+          # unknown format and a rejected formatVersion are exit 2.
+          expect 3 "schema violation is exit 3" \
+            "$JJF" validate cmd/jjf/testdata/schema_violation.json
+          expect 2 "missing input is exit 2" \
+            "$JJF" validate does/not/exist.json
+          expect 2 "malformed json is exit 2" \
+            "$JJF" validate cmd/jjf/testdata/broken.json
+          expect 2 "unsupported format is exit 2" \
+            "$JJF" export markdown examples/db-design.example.json -o dist/x.md
+          expect 2 "unsupported formatVersion is exit 2" \
+            "$JJF" validate cmd/jjf/testdata/future_version.json
+
+          # The workbook has to be a real zip package.
+          if [ ! -s dist/db-design.xlsx ]; then
+            echo "::error::dist/db-design.xlsx is missing or empty"
+            failures=$((failures + 1))
+          elif [ "$(head -c 2 dist/db-design.xlsx)" != "PK" ]; then
+            echo "::error::dist/db-design.xlsx is not a zip package"
+            failures=$((failures + 1))
+          else
+            echo "ok  workbook is a zip package ($(wc -c < dist/db-design.xlsx) bytes)"
+          fi
+
+          # Byte determinism: exporting the same document twice must agree. This
+          # needs no Excel reader, which is why it is the check that runs in CI.
+          "$JJF" export xlsx examples/db-design.example.json -o dist/again.xlsx >/dev/null
+          if ! cmp -s dist/db-design.xlsx dist/again.xlsx; then
+            echo "::error::two exports of the same document differ"
+            failures=$((failures + 1))
+          else
+            echo "ok  two exports are byte identical ($(sha256sum < dist/db-design.xlsx))"
+          fi
+          rm -f dist/again.xlsx
+
+          # Without -o the workbook lands beside the input, with the extension
+          # replaced.
+          cp examples/db-design.example.json "${RUNNER_TEMP}/default-path.json"
+          "$JJF" export xlsx "${RUNNER_TEMP}/default-path.json" >/dev/null
+          if [ ! -s "${RUNNER_TEMP}/default-path.xlsx" ]; then
+            echo "::error::export without -o did not write default-path.xlsx"
+            failures=$((failures + 1))
+          else
+            echo "ok  export without -o writes <input>.xlsx"
+          fi
+
+          # A failed export leaves nothing behind.
+          if [ -e dist/x.md ]; then
+            echo "::error::a rejected export still created an output file"
+            failures=$((failures + 1))
+          fi
+
+          if [ "$failures" -ne 0 ]; then
+            echo "::error::${failures} selfcheck(s) failed"
+            exit 1
+          fi
+          echo "selfcheck passed"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-design-xlsx
+          path: dist/db-design.xlsx
+          if-no-files-found: error

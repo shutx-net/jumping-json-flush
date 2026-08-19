@@ -1,0 +1,4 @@
+bad_enum_ondelete.json: does not conform to the jjf database design schema
+  /tables/1/foreignKeys/0/onDelete  value must be one of 'CASCADE', 'RESTRICT', 'SET NULL', 'SET DEFAULT', 'NO ACTION'
+
+1 error(s). See schema/db-design.schema.json.

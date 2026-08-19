@@ -1,0 +1,4 @@
+missing_required_column.json: does not conform to the jjf database design schema
+  /tables/0/columns/0  missing property 'nullable'
+
+1 error(s). See schema/db-design.schema.json.

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "edges"
+  },
+  "tables": [
+    {
+      "name": "a_table_name_far_longer_than_a_sheet_name_may_be_first",
+      "logicalName": "長すぎる名前その1",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "a_table_name_far_longer_than_a_sheet_name_may_be_second",
+      "logicalName": "長すぎる名前その2",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "bare",
+      "logicalName": "制約なし",
+      "columns": [
+        {
+          "name": "no_size",
+          "logicalName": "サイズなし",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "empty_default",
+          "logicalName": "既定値は空文字",
+          "type": "VARCHAR",
+          "length": 10,
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "precision_only",
+          "logicalName": "精度のみ",
+          "type": "NUMERIC",
+          "precision": 8,
+          "nullable": false
+        },
+        {
+          "name": "auto",
+          "logicalName": "自動採番",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        }
+      ]
+    }
+  ]
+}

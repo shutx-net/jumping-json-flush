@@ -1,0 +1,78 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "wide"
+  },
+  "tables": [
+    {
+      "name": "wide_table",
+      "logicalName": "横長テーブル",
+      "columns": [
+        {
+          "name": "c00",
+          "logicalName": "列00",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c01",
+          "logicalName": "列01",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c02",
+          "logicalName": "列02",
+          "type": "INTEGER"
+        },
+        {
+          "name": "c03",
+          "logicalName": "列03",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c04",
+          "logicalName": "列04",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c05",
+          "logicalName": "列05",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c06",
+          "logicalName": "列06",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c07",
+          "logicalName": "列07",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c08",
+          "logicalName": "列08",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c09",
+          "logicalName": "列09",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "c10",
+          "logicalName": "列10",
+          "type": "INTEGER"
+        }
+      ]
+    }
+  ]
+}

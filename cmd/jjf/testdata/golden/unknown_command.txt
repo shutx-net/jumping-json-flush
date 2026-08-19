@@ -1,0 +1,25 @@
+jjf: unknown command "bogus"
+
+jjf manages database design specifications as JSON and generates
+human readable design documents from them. The JSON is the source of truth;
+generated documents are derived artifacts.
+
+Usage:
+  jjf <command> [arguments]
+
+Commands:
+  validate <input.json>
+        check a document against the jjf database design schema
+  export <format> <input.json> -o <output>
+        generate a design document (formats: xlsx)
+  version
+        print version information
+
+Run "jjf <command> -h" for the options of one command.
+
+Exit codes:
+  0  success
+  1  general error
+  2  invalid input
+  3  schema validation error
+  4  output generation error

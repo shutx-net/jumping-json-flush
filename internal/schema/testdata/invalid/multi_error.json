@@ -1,0 +1,30 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "dbms": "Postgres"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT"
+        },
+        {
+          "name": "9bad",
+          "logicalName": "",
+          "type": "VARCHAR",
+          "nullable": "yes"
+        }
+      ],
+      "indexes": [
+        {
+          "columns": ["id"]
+        }
+      ]
+    }
+  ]
+}

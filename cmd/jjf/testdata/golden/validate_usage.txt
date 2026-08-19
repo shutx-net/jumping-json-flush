@@ -1,0 +1,5 @@
+Check a database design document against the jjf database design
+schema and report every violation found.
+
+Usage:
+  jjf validate <input.json>

@@ -1,0 +1,4 @@
+wrong_type_length.json: does not conform to the jjf database design schema
+  /tables/0/columns/0/length  got string, want integer
+
+1 error(s). See schema/db-design.schema.json.

@@ -1,0 +1,20 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop"
+  },
+  "tables": [
+    {
+      "name": "order-lines",
+      "logicalName": "受注明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

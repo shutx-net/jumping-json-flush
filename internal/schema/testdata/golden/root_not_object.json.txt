@@ -1,0 +1,4 @@
+root_not_object.json: does not conform to the jjf database design schema
+  (document root)  got array, want object
+
+1 error(s). See schema/db-design.schema.json.

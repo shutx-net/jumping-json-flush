@@ -1,0 +1,4 @@
+empty_key_columns.json: does not conform to the jjf database design schema
+  /tables/0/primaryKey/columns  minItems: got 0, want 1
+
+1 error(s). See schema/db-design.schema.json.

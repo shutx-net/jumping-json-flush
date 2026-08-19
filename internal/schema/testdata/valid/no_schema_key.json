@@ -1,0 +1,47 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "inventory",
+    "logicalName": "在庫管理",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "products",
+      "logicalName": "商品",
+      "columns": [
+        {
+          "name": "code",
+          "logicalName": "商品コード",
+          "type": "CHAR",
+          "length": 13,
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "商品名",
+          "type": "VARCHAR",
+          "length": 200,
+          "nullable": false
+        },
+        {
+          "name": "stock",
+          "logicalName": "在庫数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_products",
+        "columns": ["code"]
+      },
+      "indexes": [
+        {
+          "name": "ix_products_name",
+          "columns": ["name"]
+        }
+      ]
+    }
+  ]
+}

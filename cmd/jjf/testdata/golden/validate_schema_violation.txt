@@ -1,0 +1,10 @@
+testdata/schema_violation.json: does not conform to the jjf database design schema
+  /database/dbms                   value must be one of 'PostgreSQL', 'MySQL', 'MariaDB', 'SQLite', 'Oracle', 'SQLServer'
+  /tables/0                        missing property 'logicalName'
+  /tables/0/columns/0              missing property 'nullable'
+  /tables/0/columns/1/logicalName  minLength: got 0, want 1
+  /tables/0/columns/1/name         '9bad' does not match pattern '^[A-Za-z_][A-Za-z0-9_]*$'
+  /tables/0/columns/1/nullable     got string, want boolean
+  /tables/0/indexes/0              missing property 'name'
+
+7 error(s). See schema/db-design.schema.json.

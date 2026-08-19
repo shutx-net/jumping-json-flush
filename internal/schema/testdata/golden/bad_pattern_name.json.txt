@@ -1,0 +1,4 @@
+bad_pattern_name.json: does not conform to the jjf database design schema
+  /tables/0/name  'order-lines' does not match pattern '^[A-Za-z_][A-Za-z0-9_]*$'
+
+1 error(s). See schema/db-design.schema.json.

@@ -1,0 +1,13 @@
+# Normalize everything to LF; the global core.autocrlf=true would otherwise
+# check out extension-less files (.gitignore, LICENSE, go.mod, go.sum) as CRLF.
+* text=auto eol=lf
+
+*.json text eol=lf
+*.go   text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+# Golden files are compared byte for byte, so they must never be checked out as
+# CRLF.
+*.xml  text eol=lf
+*.txt  text eol=lf
+*.xlsx binary

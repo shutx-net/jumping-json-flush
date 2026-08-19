@@ -1,0 +1,4 @@
+bad_pattern_type.json: does not conform to the jjf database design schema
+  /tables/0/columns/0/type  'VARCHAR(30)' does not match pattern '^[A-Za-z][A-Za-z0-9_ ]*$'
+
+1 error(s). See schema/db-design.schema.json.

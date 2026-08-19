@@ -1,0 +1,4 @@
+scale_without_precision.json: does not conform to the jjf database design schema
+  /tables/0/columns/0  properties 'precision' required, if 'scale' exists
+
+1 error(s). See schema/db-design.schema.json.

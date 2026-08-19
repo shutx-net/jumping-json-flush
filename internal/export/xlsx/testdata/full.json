@@ -1,0 +1,221 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "logicalName": "オンラインショップ",
+    "description": "受注から出荷までを扱う業務データベース。",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "会員登録済みの顧客。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "logicalName": "表示名",
+          "type": "VARCHAR",
+          "length": 100,
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "credit_limit",
+          "logicalName": "与信限度額",
+          "type": "NUMERIC",
+          "precision": 12,
+          "scale": 2,
+          "nullable": true,
+          "default": "0"
+        },
+        {
+          "name": "note",
+          "logicalName": "備考",
+          "description": "自由記述。改行は含めない運用とする。",
+          "type": "TEXT",
+          "nullable": true,
+          "default": "NULL"
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_customers_email",
+          "columns": ["email"]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_customers_created_at",
+          "columns": ["created_at"]
+        },
+        {
+          "name": "ix_customers_display_name",
+          "columns": ["display_name", "email"],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "受注ステータス",
+          "type": "VARCHAR",
+          "length": 20,
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "total_amount",
+          "logicalName": "受注金額合計",
+          "type": "NUMERIC",
+          "precision": 14,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "ordered_at",
+          "logicalName": "受注日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_orders_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_customer_id",
+          "columns": ["customer_id"]
+        }
+      ]
+    },
+    {
+      "name": "order_lines",
+      "logicalName": "受注明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "明細番号",
+          "type": "SMALLINT",
+          "nullable": false,
+          "autoIncrement": false
+        },
+        {
+          "name": "product_code",
+          "logicalName": "商品コード",
+          "type": "CHAR",
+          "length": 13,
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "数量",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "単価",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "discount_rate",
+          "logicalName": "割引率",
+          "type": "DOUBLE PRECISION",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_order_lines",
+        "columns": ["order_id", "line_no"]
+      },
+      "uniqueKeys": [
+        {
+          "columns": ["order_id", "product_code"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_order_lines_order",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          },
+          "onDelete": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_lines_product_code",
+          "columns": ["product_code"]
+        }
+      ]
+    }
+  ]
+}

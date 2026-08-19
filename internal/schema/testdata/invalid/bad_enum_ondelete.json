@@ -1,0 +1,43 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_orders_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          },
+          "onDelete": "cascade"
+        }
+      ]
+    }
+  ]
+}

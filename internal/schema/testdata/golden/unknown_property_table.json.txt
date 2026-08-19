@@ -1,0 +1,4 @@
+unknown_property_table.json: does not conform to the jjf database design schema
+  /tables/0  additional properties 'engine' not allowed
+
+1 error(s). See schema/db-design.schema.json.

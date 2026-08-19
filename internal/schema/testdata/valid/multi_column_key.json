@@ -1,0 +1,104 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "warehouse",
+    "logicalName": "倉庫",
+    "dbms": "SQLServer"
+  },
+  "tables": [
+    {
+      "name": "locations",
+      "logicalName": "保管場所",
+      "columns": [
+        {
+          "name": "warehouse_code",
+          "logicalName": "倉庫コード",
+          "type": "CHAR",
+          "length": 4,
+          "nullable": false
+        },
+        {
+          "name": "shelf_code",
+          "logicalName": "棚コード",
+          "type": "CHAR",
+          "length": 6,
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "logicalName": "表示ラベル",
+          "type": "NVARCHAR",
+          "length": 60,
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_locations",
+        "columns": ["warehouse_code", "shelf_code"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_locations_label",
+          "columns": ["warehouse_code", "label"]
+        }
+      ]
+    },
+    {
+      "name": "stock_moves",
+      "logicalName": "在庫移動",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "在庫移動ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "warehouse_code",
+          "logicalName": "倉庫コード",
+          "type": "CHAR",
+          "length": 4,
+          "nullable": false
+        },
+        {
+          "name": "shelf_code",
+          "logicalName": "棚コード",
+          "type": "CHAR",
+          "length": 6,
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "移動数量",
+          "type": "DECIMAL",
+          "precision": 9,
+          "scale": 3,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_stock_moves_location",
+          "columns": ["warehouse_code", "shelf_code"],
+          "references": {
+            "table": "locations",
+            "columns": ["warehouse_code", "shelf_code"]
+          },
+          "onUpdate": "NO ACTION",
+          "onDelete": "SET NULL"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_stock_moves_location",
+          "columns": ["warehouse_code", "shelf_code"],
+          "unique": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,269 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version a `go install`ed binary reports comes from the VCS stamp,
+          # so the clone needs its full history and its tags. The default
+          # fetch-depth of 1 gives neither.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: check the tag
+        # GITHUB_REF_NAME is read from the environment rather than interpolated
+        # into the script, and it has to look like a release before anything is
+        # published under its name.
+        run: |
+          printf 'tag: %s\n' "$GITHUB_REF_NAME"
+          printf '%s\n' "$GITHUB_REF_NAME" |
+            grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || {
+              echo "::error::tag \"$GITHUB_REF_NAME\" is not a release version (want v1.2.3 or v1.2.3-rc.1)"
+              exit 1
+            }
+
+      - name: check the plugin manifests
+        # The plugin is distributed as an archive whose URL carries the tag, and
+        # `version` is what tells an installed plugin that an update exists. Both
+        # have to be bumped in the same commit the tag points at, or the release
+        # publishes a catalog that still advertises the previous version. The
+        # manifest version omits the leading v; the asset URL keeps it.
+        #
+        # plugin.json wins over the marketplace entry, so a stale value there
+        # silently pins every user to the old version. That is why this is a gate
+        # and not a warning, and why it runs before anything is built.
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/jjf-plugin-${GITHUB_REF_NAME}.zip"
+          failures=0
+
+          check() {
+            local label="$1" got="$2" expected="$3"
+            if [ "$got" != "$expected" ]; then
+              echo "::error::${label}: \"${got}\", want \"${expected}\""
+              failures=$((failures + 1))
+              return
+            fi
+            echo "ok  ${label}: ${got}"
+          }
+
+          check ".claude-plugin/plugin.json .version" \
+            "$(jq -r '.version' .claude-plugin/plugin.json)" "$want"
+          check ".claude-plugin/marketplace.json .plugins[0].version" \
+            "$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)" "$want"
+          check ".claude-plugin/marketplace.json .plugins[0].source.url" \
+            "$(jq -r '.plugins[0].source.url' .claude-plugin/marketplace.json)" "$url"
+
+          # An absent sha256 is valid and installs unpinned, which is the state
+          # between building a release and committing its digest. A digest that
+          # is present and wrong is not: it makes every install fail the
+          # integrity check. It is verified against the built zip further down.
+          sha="$(jq -r '.plugins[0].source.sha256 // ""' .claude-plugin/marketplace.json)"
+          if [ -n "$sha" ] && ! printf '%s\n' "$sha" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+            echo "::error::.plugins[0].source.sha256 is not 64 hex characters: \"${sha}\""
+            failures=$((failures + 1))
+          fi
+
+          [ "$failures" -eq 0 ] || exit 1
+
+      - name: test
+        # Never ship binaries that were not tested. The race detector needs cgo,
+        # so CGO_ENABLED keeps its default of 1 for this step.
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: build every target
+        env:
+          # The distributed binaries are static: no cgo, no runtime dependencies.
+          CGO_ENABLED: 0
+        run: |
+          version="$GITHUB_REF_NAME"
+          mkdir -p dist
+
+          for target in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="jjf_${version}_${goos}_${goarch}"
+            stage="dist/${name}"
+
+            # Everything lives inside a directory named after the archive, so
+            # unpacking never scatters files into the current directory and the
+            # binary is always called jjf.
+            mkdir -p "$stage"
+            binary="${stage}/jjf"
+            [ "$goos" = windows ] && binary="${binary}.exe"
+
+            echo "--- ${goos}/${goarch}"
+            GOOS="$goos" GOARCH="$goarch" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=${version}" \
+              -o "$binary" ./cmd/jjf
+            # Both READMEs travel with the archive. README.md links to
+            # README.ja.md on its first line, so shipping one without the other
+            # would put a dangling relative link in every download, and the
+            # generated workbook is labelled in Japanese: its readers are a
+            # first class audience for the offline copy of the documentation.
+            cp LICENSE README.md README.ja.md "$stage/"
+
+            if [ "$goos" = windows ]; then
+              (cd dist && zip -q -r "${name}.zip" "$name")
+            else
+              tar --sort=name --owner=0 --group=0 --numeric-owner \
+                -C dist -czf "dist/${name}.tar.gz" "$name"
+            fi
+          done
+
+          ls -la dist
+
+      - name: check the embedded version
+        run: |
+          # sed rather than head, so that nothing closes the pipe early.
+          got="$("dist/jjf_${GITHUB_REF_NAME}_linux_amd64/jjf" version | sed -n 1p)"
+          want="jjf ${GITHUB_REF_NAME}"
+          printf 'got:  %s\nwant: %s\n' "$got" "$want"
+          [ "$got" = "$want" ] || {
+            echo "::error::the built binary does not report the tag it was built from"
+            exit 1
+          }
+
+      - name: build the plugin archive
+        env:
+          # A fixed timezone, so the local times zip stores do not depend on the
+          # runner's.
+          TZ: UTC
+        run: |
+          version="$GITHUB_REF_NAME"
+          stage="${RUNNER_TEMP}/plugin"
+
+          # The plugin root is the zip root: Claude Code looks for
+          # .claude-plugin/ at the top of the archive.
+          mkdir -p "$stage/.claude-plugin" "$stage/skills"
+          cp .claude-plugin/plugin.json "$stage/.claude-plugin/"
+          cp -R skills/db-design "$stage/skills/"
+          # LICENSE travels with the archive so the redistributed copy carries the
+          # terms its frontmatter names. marketplace.json deliberately does not:
+          # it is the catalog served from the default branch and must never ship
+          # inside the plugin it points at. schema/ and examples/ do not either,
+          # because the schema is embedded in the jjf binary and a second copy
+          # pinned to an old release could only ever be stale.
+          cp LICENSE "$stage/"
+
+          # A fixed mtime, sorted entry names and -X (no uid/gid or other extra
+          # fields) make the archive, and so its digest, identical when this
+          # workflow is re-run for the same tag. zip has no flag for the mtime and
+          # cannot store a date before 1980.
+          find "$stage" -exec touch -t 202001010000 {} +
+          chmod -R a=rX,u+w "$stage"
+
+          (
+            cd "$stage"
+            find .claude-plugin skills LICENSE -type f |
+              LC_ALL=C sort |
+              zip -q -X -@ "${GITHUB_WORKSPACE}/dist/jjf-plugin-${version}.zip"
+          )
+
+          unzip -l "dist/jjf-plugin-${version}.zip"
+
+      - name: checksums
+        run: |
+          cd dist
+          sha256sum jjf_*.tar.gz jjf_*.zip jjf-plugin-*.zip > checksums.txt
+          cat checksums.txt
+
+      - name: refresh the marketplace catalog
+        # The catalog users add lives at .claude-plugin/marketplace.json on the
+        # default branch, never at a release URL: a URL that carries a tag would
+        # pin whoever added it to that release forever, and no `/plugin
+        # marketplace update` could ever move them off it.
+        #
+        # Nothing is pushed from here. This step produces the next content of that
+        # file - the digest is the only value it can know that the tagged commit
+        # could not - and hands it to the maintainer through the job summary and a
+        # workflow artifact. Pushing to the default branch from a tag build would
+        # mean a commit that belongs to no release, a race with concurrent
+        # releases, and a write that branch protection may well refuse.
+        #
+        # It is deliberately not a release asset: a marketplace.json sitting at a
+        # release URL is exactly the trap described above.
+        run: |
+          version="$GITHUB_REF_NAME"
+          digest="$(sha256sum "dist/jjf-plugin-${version}.zip" | cut -d' ' -f1)"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${version}/jjf-plugin-${version}.zip"
+
+          committed="$(jq -r '.plugins[0].source.sha256 // ""' .claude-plugin/marketplace.json)"
+          if [ -n "$committed" ] && [ "$committed" != "$digest" ]; then
+            echo "::error::the committed sha256 does not match the archive built from this tag"
+            printf 'committed: %s\nbuilt:     %s\n' "$committed" "$digest"
+            exit 1
+          fi
+
+          jq --arg v "${version#v}" --arg url "$url" --arg sha "$digest" '
+              .plugins[0].version = $v
+            | .plugins[0].source.url = $url
+            | .plugins[0].source.sha256 = $sha
+          ' .claude-plugin/marketplace.json > dist/marketplace.json
+          jq -e . dist/marketplace.json >/dev/null
+
+          # No backticks in these format strings: shellcheck reads a backtick
+          # inside single quotes as a command substitution that will not expand
+          # and reports SC2016. Tilde fences are GFM, so the JSON block still
+          # renders as code.
+          {
+            printf '## Plugin archive\n\n'
+            printf '| | |\n| --- | --- |\n'
+            printf '| archive | jjf-plugin-%s.zip |\n' "$version"
+            printf '| sha256 | %s |\n' "$digest"
+            printf '| install | /plugin install jjf@jjf-tools |\n\n'
+            if [ -n "$committed" ]; then
+              printf 'The digest on the default branch already matches this archive. '
+              printf 'The published catalog is in sync; nothing to commit.\n'
+            else
+              printf '### Commit the digest\n\n'
+              printf 'The catalog on the default branch has no sha256, so installs are '
+              printf 'unpinned until it is committed. Overwrite '
+              printf '.claude-plugin/marketplace.json with the content below, or '
+              printf 'download it from the marketplace-json artifact of this run, then '
+              printf 'commit it to the default branch.\n\n'
+              printf '~~~json\n'
+              cat dist/marketplace.json
+              printf '~~~\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-json
+          path: dist/marketplace.json
+          if-no-files-found: error
+
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          options=(--title "$GITHUB_REF_NAME" --generate-notes --verify-tag)
+          # A tag with a pre-release suffix publishes as a pre-release.
+          case "$GITHUB_REF_NAME" in
+            *-*) options+=(--prerelease) ;;
+          esac
+
+          # gh ships on the runner, so no third-party action is needed here.
+          gh release create "$GITHUB_REF_NAME" "${options[@]}" \
+            dist/jjf_*.tar.gz \
+            dist/jjf_*.zip \
+            dist/jjf-plugin-*.zip \
+            dist/checksums.txt

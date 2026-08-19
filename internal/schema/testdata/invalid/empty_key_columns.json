@@ -1,0 +1,24 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": []
+      }
+    }
+  ]
+}

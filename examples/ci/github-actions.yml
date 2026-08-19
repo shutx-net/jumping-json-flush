@@ -1,0 +1,70 @@
+# Example GitHub Actions workflow for a repository whose database design lives in
+# db-design.json.
+#
+# Copy this file to .github/workflows/db-design.yml in your own repository and
+# adjust JJF_VERSION and DESIGN. The generated workbook is uploaded as a build
+# artifact and must NOT be committed: put *.xlsx in .gitignore, because the JSON
+# is the source of truth and the workbook is a derived artifact.
+
+name: DB design
+
+# 1. Detect changes to the design document. Nothing else in the repository can
+#    change the design, so there is no reason to run on every push.
+on:
+  push:
+    paths:
+      - 'db-design.json'
+      - '.github/workflows/db-design.yml'
+  pull_request:
+    paths:
+      - 'db-design.json'
+      - '.github/workflows/db-design.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  JJF_VERSION: v0.1.0
+  DESIGN: db-design.json
+
+jobs:
+  db-design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install jjf
+        run: |
+          archive="jjf_${JJF_VERSION}_linux_amd64"
+          base="https://github.com/shutx-net/jumping-json-flush/releases/download/${JJF_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -O "${base}/${archive}.tar.gz"
+          curl -sSfL -O "${base}/checksums.txt"
+          # Every release ships checksums.txt covering all five archives, so the
+          # entries for the other four are expected to be missing here.
+          sha256sum --check --ignore-missing checksums.txt
+          tar -xzf "${archive}.tar.gz"
+          mkdir -p bin
+          install -m 0755 "${archive}/jjf" bin/jjf
+          ./bin/jjf version
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+
+      # 2. Validate the design document.
+      # 3. A failure fails the job: jjf exits 3 on a schema violation and 2 on
+      #    malformed input or a missing file, so no extra scripting is needed.
+      - name: validate
+        run: jjf validate "$DESIGN"
+
+      # 4. Generate the Excel design document.
+      - name: export
+        run: |
+          mkdir -p build
+          jjf export xlsx "$DESIGN" -o build/db-design.xlsx
+
+      # 5. Keep the workbook as a CI artifact instead of committing it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-design-xlsx
+          path: build/db-design.xlsx
+          if-no-files-found: error

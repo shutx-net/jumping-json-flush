@@ -1,0 +1,30 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop"
+  },
+  "tables": [
+    {
+      "name": "order_lines",
+      "logicalName": "受注明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "明細番号",
+          "type": "SMALLINT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_order_lines",
+        "columns": ["order_id", "order_id"]
+      }
+    }
+  ]
+}

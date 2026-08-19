@@ -1,0 +1,371 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "ec_shop",
+    "logicalName": "ECサイト",
+    "description": "オンライン販売サイトの受注管理データベース。会員・商品・受注・受注明細を扱う。",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "users",
+      "logicalName": "会員",
+      "description": "サイトに登録した会員。退会しても行は残し、is_active を false にする。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "会員ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "login_id",
+          "logicalName": "ログインID",
+          "description": "半角英数とアンダースコアのみ。変更不可。",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "password_hash",
+          "logicalName": "パスワードハッシュ",
+          "description": "bcrypt のハッシュ値。平文パスワードは保存しない。",
+          "type": "CHAR",
+          "length": 60,
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "logicalName": "表示名",
+          "type": "VARCHAR",
+          "length": 100,
+          "nullable": false,
+          "default": "''"
+        },
+        {
+          "name": "birth_date",
+          "logicalName": "生年月日",
+          "type": "DATE",
+          "nullable": true
+        },
+        {
+          "name": "is_active",
+          "logicalName": "有効フラグ",
+          "description": "退会済みの会員は false。",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "logicalName": "更新日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_users",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_users_login_id",
+          "columns": ["login_id"]
+        },
+        {
+          "name": "uq_users_email",
+          "columns": ["email"]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_users_created_at",
+          "columns": ["created_at"]
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "logicalName": "商品",
+      "description": "販売する商品のマスタ。販売終了しても行は残す。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "商品ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "code",
+          "logicalName": "商品コード",
+          "description": "JAN コード (13 桁)。",
+          "type": "CHAR",
+          "length": 13,
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "商品名",
+          "type": "VARCHAR",
+          "length": 200,
+          "nullable": false
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "単価",
+          "description": "税抜。通貨は日本円のみを扱う。",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "stock_quantity",
+          "logicalName": "在庫数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "discontinued_at",
+          "logicalName": "販売終了日時",
+          "description": "NULL の間は販売中。",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": true
+        },
+        {
+          "name": "note",
+          "logicalName": "備考",
+          "type": "TEXT",
+          "nullable": true,
+          "default": "NULL"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_products",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_products_code",
+          "columns": ["code"]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_products_name",
+          "columns": ["name"]
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "description": "会員 1 件につき受注は 0 件以上。受注は削除せず status で状態を持つ。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "user_id",
+          "logicalName": "会員ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "order_no",
+          "logicalName": "受注番号",
+          "description": "顧客に案内する番号。yyyyMMdd + 連番 8 桁。",
+          "type": "CHAR",
+          "length": 16,
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "受注ステータス",
+          "description": "pending / paid / shipped / cancelled のいずれか。",
+          "type": "VARCHAR",
+          "length": 20,
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "total_amount",
+          "logicalName": "受注金額合計",
+          "description": "税込。送料を含む。",
+          "type": "NUMERIC",
+          "precision": 14,
+          "scale": 2,
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "shipping_fee",
+          "logicalName": "送料",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "ordered_at",
+          "logicalName": "受注日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "shipped_at",
+          "logicalName": "出荷日時",
+          "description": "未出荷の間は NULL。",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_orders_order_no",
+          "columns": ["order_no"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_orders_user",
+          "columns": ["user_id"],
+          "references": {
+            "table": "users",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_user_id",
+          "columns": ["user_id"]
+        },
+        {
+          "name": "ix_orders_status_ordered_at",
+          "columns": ["status", "ordered_at"],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "logicalName": "受注明細",
+      "description": "受注 1 件につき明細は 1 件以上。単価は受注時点の値を複写して保持する。",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "明細番号",
+          "description": "受注内で 1 から始まる連番。",
+          "type": "SMALLINT",
+          "nullable": false
+        },
+        {
+          "name": "product_id",
+          "logicalName": "商品ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "数量",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "単価",
+          "description": "受注時点の商品単価 (税抜)。商品マスタの変更に追随させない。",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "discount_rate",
+          "logicalName": "割引率",
+          "description": "0.0 から 1.0。値引きがない場合は NULL。",
+          "type": "DOUBLE PRECISION",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_order_items",
+        "columns": ["order_id", "line_no"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_order_items_product",
+          "columns": ["order_id", "product_id"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_order_items_order",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "CASCADE"
+        },
+        {
+          "name": "fk_order_items_product",
+          "columns": ["product_id"],
+          "references": {
+            "table": "products",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_items_product_id",
+          "columns": ["product_id"]
+        }
+      ]
+    }
+  ]
+}

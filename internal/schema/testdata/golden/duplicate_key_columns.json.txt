@@ -1,0 +1,4 @@
+duplicate_key_columns.json: does not conform to the jjf database design schema
+  /tables/0/primaryKey/columns  items at 0 and 1 are equal
+
+1 error(s). See schema/db-design.schema.json.

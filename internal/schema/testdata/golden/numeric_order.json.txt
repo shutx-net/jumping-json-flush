@@ -1,0 +1,5 @@
+numeric_order.json: does not conform to the jjf database design schema
+  /tables/0/columns/2   missing property 'nullable'
+  /tables/0/columns/10  missing property 'nullable'
+
+2 error(s). See schema/db-design.schema.json.

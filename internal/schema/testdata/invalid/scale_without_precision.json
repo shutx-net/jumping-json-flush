@@ -1,0 +1,21 @@
+{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "total_amount",
+          "logicalName": "受注金額合計",
+          "type": "NUMERIC",
+          "scale": 2,
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

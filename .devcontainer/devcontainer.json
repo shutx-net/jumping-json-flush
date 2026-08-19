@@ -1,0 +1,34 @@
+{
+  "name": "Jumpin' Json Flush",
+  "image": "mcr.microsoft.com/devcontainers/go:1.26-trixie",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "mounts": [
+    "source=jjf-go-mod,target=/go/pkg/mod,type=volume",
+    "source=jjf-go-build,target=/home/vscode/.cache/go-build,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.lintTool": "staticcheck",
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.go",
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "files.eol": "\n",
+        "files.insertFinalNewline": true
+      }
+    }
+  },
+  "postCreateCommand": "sudo mkdir -p /go/pkg/sumdb && sudo chown -R vscode /go/pkg/mod /go/pkg/sumdb /home/vscode/.cache && go mod download",
+  "remoteUser": "vscode"
+}

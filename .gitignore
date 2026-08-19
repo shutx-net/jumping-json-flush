@@ -1,0 +1,16 @@
+# spec working notes
+/.spec
+
+# build outputs
+/dist/
+/jjf
+/jjf.exe
+
+# generated design documents (never authoritative)
+*.xlsx
+!**/testdata/**/*.xlsx
+
+# test / coverage artifacts
+coverage.out
+coverage.html
+*.test

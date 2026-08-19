@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "jjf",
+  "displayName": "Jumpin' Json Flush",
+  "version": "0.1.0",
+  "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Requires the jjf CLI on PATH.",
+  "author": {
+    "name": "shutx-net",
+    "url": "https://github.com/shutx-net"
+  },
+  "homepage": "https://github.com/shutx-net/jumping-json-flush",
+  "repository": "https://github.com/shutx-net/jumping-json-flush",
+  "license": "MIT",
+  "keywords": [
+    "database",
+    "database-design",
+    "documentation",
+    "json-schema",
+    "excel",
+    "xlsx"
+  ]
+}

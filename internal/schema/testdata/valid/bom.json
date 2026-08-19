@@ -1,0 +1,31 @@
+﻿{
+  "formatVersion": "1.0",
+  "database": {
+    "name": "bom_db",
+    "logicalName": "BOM付きで保存された設計書",
+    "dbms": "SQLite"
+  },
+  "tables": [
+    {
+      "name": "settings",
+      "logicalName": "設定",
+      "columns": [
+        {
+          "name": "key",
+          "logicalName": "設定キー",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "value",
+          "logicalName": "設定値",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": ["key"]
+      }
+    }
+  ]
+}

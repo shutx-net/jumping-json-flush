@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "title": "jjf database design document",
+  "description": "Canonical structure of a jjf database design JSON document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "database",
+    "tables"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editor / IDE support. Ignored by jjf.",
+      "format": "uri-reference"
+    },
+    "formatVersion": {
+      "$ref": "#/$defs/formatVersion"
+    },
+    "database": {
+      "$ref": "#/$defs/database"
+    },
+    "tables": {
+      "type": "array",
+      "description": "Table definitions.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/table"
+      }
+    }
+  },
+  "$defs": {
+    "formatVersion": {
+      "type": "string",
+      "description": "jjf database design format version (MAJOR.MINOR).",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "identifier": {
+      "type": "string",
+      "description": "Physical (SQL) identifier.",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "logicalName": {
+      "type": "string",
+      "description": "Human readable name. Free text, any language.",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "description": {
+      "type": "string",
+      "description": "Free-form explanatory text.",
+      "maxLength": 2000
+    },
+    "columnType": {
+      "type": "string",
+      "description": "Column data type name without parameters. Parameters go into length / precision / scale.",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z][A-Za-z0-9_ ]*$"
+    },
+    "dbms": {
+      "type": "string",
+      "description": "Target database management system.",
+      "enum": [
+        "PostgreSQL",
+        "MySQL",
+        "MariaDB",
+        "SQLite",
+        "Oracle",
+        "SQLServer"
+      ]
+    },
+    "referentialAction": {
+      "type": "string",
+      "description": "Referential action for a foreign key.",
+      "enum": [
+        "CASCADE",
+        "RESTRICT",
+        "SET NULL",
+        "SET DEFAULT",
+        "NO ACTION"
+      ]
+    },
+    "columnNameList": {
+      "type": "array",
+      "description": "Ordered list of column names belonging to the owning table.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "database": {
+      "type": "object",
+      "description": "Target database information.",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "logicalName": {
+          "$ref": "#/$defs/logicalName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "dbms": {
+          "$ref": "#/$defs/dbms"
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "description": "Single table definition.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "logicalName",
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "logicalName": {
+          "$ref": "#/$defs/logicalName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "primaryKey": {
+          "$ref": "#/$defs/primaryKey"
+        },
+        "uniqueKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uniqueKey"
+          }
+        },
+        "foreignKeys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/foreignKey"
+          }
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/index"
+          }
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "description": "Single column definition.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "logicalName",
+        "type",
+        "nullable"
+      ],
+      "dependentRequired": {
+        "scale": [
+          "precision"
+        ]
+      },
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "logicalName": {
+          "$ref": "#/$defs/logicalName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "type": {
+          "$ref": "#/$defs/columnType"
+        },
+        "length": {
+          "type": "integer",
+          "description": "Declared length for character / binary types.",
+          "minimum": 1
+        },
+        "precision": {
+          "type": "integer",
+          "description": "Total number of significant digits for numeric types.",
+          "minimum": 1
+        },
+        "scale": {
+          "type": "integer",
+          "description": "Number of digits to the right of the decimal point.",
+          "minimum": 0
+        },
+        "nullable": {
+          "type": "boolean",
+          "description": "Whether the column accepts NULL."
+        },
+        "default": {
+          "type": "string",
+          "description": "Default value written verbatim as a SQL expression or literal. Absent means no DEFAULT clause.",
+          "maxLength": 255
+        },
+        "autoIncrement": {
+          "type": "boolean",
+          "description": "Whether the column is auto generated (IDENTITY / AUTO_INCREMENT / SERIAL).",
+          "default": false
+        }
+      }
+    },
+    "primaryKey": {
+      "type": "object",
+      "description": "Primary key constraint.",
+      "additionalProperties": false,
+      "required": [
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnNameList"
+        }
+      }
+    },
+    "uniqueKey": {
+      "type": "object",
+      "description": "Unique key constraint.",
+      "additionalProperties": false,
+      "required": [
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnNameList"
+        }
+      }
+    },
+    "foreignKey": {
+      "type": "object",
+      "description": "Foreign key constraint.",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "references"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnNameList"
+        },
+        "references": {
+          "$ref": "#/$defs/reference"
+        },
+        "onUpdate": {
+          "$ref": "#/$defs/referentialAction"
+        },
+        "onDelete": {
+          "$ref": "#/$defs/referentialAction"
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "description": "Foreign key target.",
+      "additionalProperties": false,
+      "required": [
+        "table",
+        "columns"
+      ],
+      "properties": {
+        "table": {
+          "$ref": "#/$defs/identifier"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnNameList"
+        }
+      }
+    },
+    "index": {
+      "type": "object",
+      "description": "Secondary index.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "columns"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "columns": {
+          "$ref": "#/$defs/columnNameList"
+        },
+        "unique": {
+          "type": "boolean",
+          "description": "Whether the index enforces uniqueness.",
+          "default": false
+        }
+      }
+    }
+  }
+}

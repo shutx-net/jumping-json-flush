@@ -1,0 +1,19 @@
+jjf: unsupported format "markdown"; supported formats: xlsx
+
+Generate a design document from a database design document. The input is
+validated against the jjf database design schema first, so a document that
+fails "jjf validate" produces no output at all.
+
+Usage:
+  jjf export <format> <input.json> [-o <output>]
+
+Formats:
+  xlsx  Excel workbook
+
+Without -o the output goes next to the input, with its extension replaced by
+the one of the chosen format. "-o -" writes to standard output, which must not
+be a terminal.
+
+Flags:
+  -o string
+    	output path, or "-" for standard output

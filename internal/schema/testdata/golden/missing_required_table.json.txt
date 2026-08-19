@@ -1,0 +1,4 @@
+missing_required_table.json: does not conform to the jjf database design schema
+  /tables/0  missing property 'logicalName'
+
+1 error(s). See schema/db-design.schema.json.

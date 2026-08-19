@@ -1,0 +1,66 @@
+# Example GitLab CI configuration for a repository whose database design lives in
+# db-design.json.
+#
+# Copy the contents into your .gitlab-ci.yml and adjust JJF_VERSION and DESIGN.
+# The generated workbook is kept as a job artifact and must NOT be committed: put
+# *.xlsx in .gitignore, because the JSON is the source of truth and the workbook
+# is a derived artifact.
+
+stages:
+  - validate
+  - export
+
+variables:
+  JJF_VERSION: "v0.1.0"
+  DESIGN: "db-design.json"
+
+# alpine is enough because jjf is a static binary built with CGO_ENABLED=0: it
+# needs no glibc and no runtime dependencies.
+.jjf:
+  image: alpine:3.22
+  before_script:
+    - apk add --no-cache curl
+    - archive="jjf_${JJF_VERSION}_linux_amd64"
+    - base="https://github.com/shutx-net/jumping-json-flush/releases/download/${JJF_VERSION}"
+    - curl -sSfL -O "${base}/${archive}.tar.gz"
+    - curl -sSfL -O "${base}/checksums.txt"
+    # checksums.txt covers all five release archives; keep only the line for the
+    # one that was downloaded, because busybox sha256sum has no --ignore-missing.
+    - grep "  ${archive}.tar.gz$" checksums.txt > archive.sha256
+    - sha256sum -c archive.sha256
+    - tar -xzf "${archive}.tar.gz"
+    - install -m 0755 "${archive}/jjf" /usr/local/bin/jjf
+    - jjf version
+
+# 1. Detect changes to the design document with rules:changes.
+# 2. Validate it.
+# 3. A violation fails the pipeline: jjf exits 3 on a schema violation and 2 on
+#    malformed input or a missing file, so no extra scripting is needed.
+validate design:
+  extends: .jjf
+  stage: validate
+  rules:
+    - changes:
+        - db-design.json
+        - .gitlab-ci.yml
+  script:
+    - jjf validate "$DESIGN"
+
+# 4. Generate the Excel design document.
+# 5. Keep it as a job artifact instead of committing it.
+export design:
+  extends: .jjf
+  stage: export
+  needs: ["validate design"]
+  rules:
+    - changes:
+        - db-design.json
+        - .gitlab-ci.yml
+  script:
+    - mkdir -p build
+    - jjf export xlsx "$DESIGN" -o build/db-design.xlsx
+  artifacts:
+    name: "db-design-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - build/db-design.xlsx
+    expire_in: 30 days
