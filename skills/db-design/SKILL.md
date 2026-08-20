@@ -1,10 +1,11 @@
 ---
 name: db-design
-description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, JSON Schema validation with jjf validate, and Excel export with jjf export xlsx. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力。
+description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a PostgreSQL dump with jjf import postgres, JSON Schema validation with jjf validate, and Excel export with jjf export xlsx. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL database or a pg_dump file, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、既存DBからの設計書起こし、pg_dump の取り込み。
 license: MIT
 compatibility: Requires the jjf CLI on PATH. Uses only portable Agent Skills frontmatter fields, so it also works with claude.ai skill upload and the Anthropic Agent SDK.
 allowed-tools:
   - Read
+  - Bash(jjf import:*)
   - Bash(jjf validate:*)
   - Bash(jjf export:*)
 metadata:
@@ -38,7 +39,7 @@ how to recover when validation fails.
 - Add a table; add, change or remove a column; change a type; add an index or a key
 - Update the database design document, the DB schema, or the Excel design document
 - `jjf validate` failed and the document has to be fixed
-- Author a new jjf database design document from scratch
+- Author a new jjf database design document, from scratch or from a `pg_dump` file
 
 ## Authoritative sources
 
@@ -138,6 +139,7 @@ duplicates.
 
 | Command | Effect |
 | --- | --- |
+| `jjf import postgres schema.sql -o db-design.json` | Builds a document from a `pg_dump --schema-only` file, validating it before writing |
 | `jjf validate db-design.json` | Validates and prints `db-design.json: OK` |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | Validates, then writes the workbook and prints `db-design.xlsx: written` |
 | `jjf export xlsx db-design.json` | Same, writing next to the input with the extension replaced |
@@ -154,8 +156,7 @@ Success goes to standard output; errors and usage go to standard error.
 | 3 | **schema violation** | fixing the contents of the JSON |
 | 4 | output failure | creating the output directory or fixing its permissions |
 
-Codes 3 and 2 are the fork in the road: 3 means the document is wrong, 2 means
-the invocation or the environment is.
+Codes 3 and 2 are the fork in the road: 3 means the document is wrong, 2 the invocation or the environment.
 
 ## formatVersion policy
 
@@ -174,11 +175,12 @@ upgrade `jjf` rather than rewriting the document.
 | [references/fields.md](references/fields.md) | Every field, its allowed values and its conventions, including the complete `dbms` and `onUpdate`/`onDelete` enums |
 | [references/types.md](references/types.md) | Recommended `type` spellings per DBMS |
 | [references/errors.md](references/errors.md) | Real validation messages mapped to cause and fix |
-| [references/recipes.md](references/recipes.md) | Worked JSON for adding a table, editing a column, adding keys and indexes |
+| [references/recipes.md](references/recipes.md) | Worked JSON for adding a table, editing a column, adding keys and indexes, and for bootstrapping from a dump |
 | [references/xlsx-output.md](references/xlsx-output.md) | How to read the generated workbook, and what it cannot be asked to do |
 
 A complete working document lives at `examples/db-design.example.json` in the
-jjf repository. Use it as a template for a new document.
+jjf repository — a template for a new document written by hand. When the database
+already exists, `jjf import postgres` is the shorter path; see the recipe.
 
 ## Out of scope
 
@@ -190,7 +192,7 @@ that pretends otherwise.
   and `nullable` consistency with the primary key are all unchecked, and so are
   the author's responsibility.
 - DDL or SQL generation
-- Connecting to a database, or importing a schema from one
+- Connecting to a database. A schema is imported from a `pg_dump` **file**, never from a live server
 - Migrations, schema diffs, breaking-change detection
 - ER diagrams, Mermaid, or Markdown output — `xlsx` is the only format
 - Converting Excel back to JSON, or editing Excel directly

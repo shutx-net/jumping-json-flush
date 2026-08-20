@@ -1,9 +1,48 @@
 # Editing recipes
 
-Worked JSON for each kind of edit. Every recipe ends the same way: run
+Worked JSON for each kind of edit, plus the one recipe that starts a document
+instead of changing it. Every recipe ends the same way: run
 `jjf validate <input.json>` and only stop once it passes.
 
 Back to [SKILL.md](../SKILL.md). Allowed values are in [fields.md](fields.md).
+
+## Bootstrap from a PostgreSQL dump
+
+When the database already exists, do not transcribe it by hand. Dump the schema
+and import it:
+
+```sh
+pg_dump --schema-only mydb > schema.sql
+jjf import postgres schema.sql -o db-design.json
+```
+
+The input is a **file**, not a connection: `jjf` never talks to a server. Any
+`pg_dump --schema-only` output from major 13 to 18 works.
+
+Two things about the result need your attention.
+
+**Logical names are placeholders.** `logicalName` is required on every table and
+column, and a dump has no such thing. `jjf` fills it from `COMMENT ON` where the
+database has one and otherwise repeats the physical name, so `"logicalName":
+"created_at"` means "nobody has written one yet", not "the logical name is
+created_at". Replacing those with real names is the first edit after an import.
+
+**Warnings are not noise.** Anything the design format cannot hold — CHECK
+constraints, partial index predicates, `INCLUDE` columns, exclusion constraints,
+generated columns — is reported on standard error and then dropped. The document
+is therefore a narrower description of the database than the database itself.
+Read every warning before treating the JSON as complete, and say what was lost.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `-schema <name>` | Import that schema instead of `public`. One schema per document; identifiers cannot carry a `schema.` prefix |
+| `-database <name>` | Set `database.name` explicitly instead of deriving it from the file name |
+| `-strict` | Turn every warning into an error, so nothing is dropped silently |
+
+An import that fails writes no file at all — it validates the document it built
+before touching the disk — so there is never a half-written document to clean up.
 
 ## Add a table
 
