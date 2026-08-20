@@ -651,11 +651,41 @@ func databaseName(dump *pgDump, opt Options) (string, error) {
 
 // normalizeDefault puts a default expression on one line.
 //
-// Nothing else is changed: the schema says a default is written verbatim as a
-// SQL expression, so reformatting it would be rewriting the dump. Collapsing
-// the whitespace is what makes a default that spanned three lines readable in a
-// generated table of columns.
-func normalizeDefault(expr string) string { return strings.Join(strings.Fields(expr), " ") }
+// Every token is copied verbatim from the source, delimiters included, so a
+// string literal keeps the spacing it was written with: the schema says a
+// default is written verbatim as a SQL expression, and 'a  b' is not the same
+// value as 'a b'. Only the gaps BETWEEN tokens collapse, each to a single
+// space where there was any separation and to nothing where there was none, so
+// that now() stays now() and a default that spanned three lines becomes
+// readable in a generated table of columns.
+//
+// Collapsing the gaps also drops any comment that sat in one, which flattening
+// to a single line requires: a surviving "--" would comment out the rest of the
+// expression.
+//
+// An expression that does not lex is left to the whitespace-only fallback. It
+// cannot happen for a default the parser accepted, but normalizeDefault must
+// not lose the expression if it ever does.
+func normalizeDefault(expr string) string {
+	toks, err := lex([]byte(expr))
+	if err != nil {
+		return strings.Join(strings.Fields(expr), " ")
+	}
+
+	var b strings.Builder
+	prevEnd := -1
+	for _, t := range toks {
+		if t.kind == kindEOF {
+			break
+		}
+		if prevEnd >= 0 && t.pos > prevEnd {
+			b.WriteByte(' ')
+		}
+		b.WriteString(expr[t.pos:t.end])
+		prevEnd = t.end
+	}
+	return b.String()
+}
 
 // sequenceFromNextval reports the sequence a default reads from, when the
 // default is exactly a nextval() call.

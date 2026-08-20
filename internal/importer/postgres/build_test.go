@@ -795,3 +795,31 @@ func TestImportProducesAValidDocument(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeDefault(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"single line is untouched", "now()", "now()"},
+		{"a wrapped expression folds onto one line", "(a\n  +\n  b)", "(a + b)"},
+		{"a tab counts as separation", "a\t+\tb", "a + b"},
+		{"the cast pg_dump writes keeps its spacing", "nextval('users_id_seq'::regclass)", "nextval('users_id_seq'::regclass)"},
+		{"spacing inside a string literal survives", "'a  b'", "'a  b'"},
+		{"a newline inside a string literal survives", "'a\nb'::text", "'a\nb'::text"},
+		{"a doubled quote inside a literal survives", "'it''s  here'", "'it''s  here'"},
+		{"a dollar quoted literal survives whole", "$tag$a  b$tag$", "$tag$a  b$tag$"},
+		{"a quoted identifier keeps its case", `"MixedCase"`, `"MixedCase"`},
+		{"a line comment is dropped rather than folded in", "1 -- why\n+ 2", "1 + 2"},
+		{"surrounding whitespace is trimmed", "  now()  ", "now()"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeDefault(tt.expr); got != tt.want {
+				t.Errorf("normalizeDefault(%q) = %q, want %q", tt.expr, got, tt.want)
+			}
+		})
+	}
+}
