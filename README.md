@@ -2,6 +2,9 @@
 
 [日本語](README.ja.md)
 
+[![CI](https://github.com/shutx-net/jumping-json-flush/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shutx-net/jumping-json-flush/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
+
 **Jumpin' Json Flush** (`jjf`) is a CLI tool that keeps database design
 information in structured JSON as the single source of truth and turns it into an
 Excel design document people can read.

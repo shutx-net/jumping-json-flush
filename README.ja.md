@@ -2,6 +2,9 @@
 
 [English](README.md)
 
+[![CI](https://github.com/shutx-net/jumping-json-flush/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shutx-net/jumping-json-flush/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
+
 **Jumpin' Json Flush**（`jjf`）は、構造化された JSON 形式の DB 設計情報を
 Single Source of Truth として管理し、人間向けの Excel DB 設計書へ変換する CLI ツール。
 
