@@ -13,12 +13,13 @@ import (
 // schema can be imported at a time.
 const DefaultSchema = "public"
 
-// The range of pg_dump versions this importer was written against. A dump from
-// outside it is still imported; the warning only says that the output shape it
-// was tested on may have moved.
+// The range of pg_dump versions this importer was written against. Every major
+// in it has a real dump committed under testdata/dump, and all of them import to
+// the same document. A dump from outside the range is still imported; the
+// warning only says that the output shape it was tested on may have moved.
 const (
 	minSupportedMajor = 13
-	maxSupportedMajor = 17
+	maxSupportedMajor = 18
 )
 
 // Options controls one import.

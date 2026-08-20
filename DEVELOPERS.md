@@ -59,15 +59,24 @@ direnv.
 - Only the five packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
-- `internal/importer/postgres/testdata/dump/*.sql` is real `pg_dump --schema-only`
-  output, regenerated from `testdata/source/*.sql` by
-  `internal/importer/postgres/testdata/generate.sh`. The script starts a throwaway
-  PostgreSQL cluster under `/tmp`, needs the PostgreSQL binaries (`PGBIN`, default
-  `/usr/lib/postgresql/16/bin`) and root or the `postgres` user, because the server
-  refuses to run as root. The cluster is deleted afterwards and never committed.
-  A regenerated dump always differs in the `\restrict` / `\unrestrict` line:
-  pg_dump 16 puts a random token there. The two fixtures whose headers say they are
-  hand-written are not produced by the script
+- `internal/importer/postgres/testdata/dump/pg<major>/*.sql` is real
+  `pg_dump --schema-only` output, one directory per PostgreSQL major, regenerated
+  from `testdata/source/*.sql` by
+  `internal/importer/postgres/testdata/generate.sh`. The importer supports
+  **pg_dump 13 to 18** and every major in that range has a capture committed;
+  `TestImportAgreesAcrossPgDumpMajors` holds all of them to the same goldens, which
+  are built from pg16. The script starts a throwaway PostgreSQL cluster under
+  `/tmp` for each major it finds under `/usr/lib/postgresql/*/bin` — `PGBIN`
+  narrows it to one — and needs root or the `postgres` user, because the server
+  refuses to run as root. The majors beside the distribution's own come from the
+  PGDG repository at apt.postgresql.org; the script header carries the commands.
+  The clusters are deleted afterwards and never committed. A regenerated dump
+  always differs in the `\restrict` / `\unrestrict` line: pg_dump puts a random
+  token there
+- `internal/importer/postgres/testdata/dump/synthetic/*.sql` is hand-written, says
+  so in its own headers, and is not produced by the script. It covers dump shapes
+  no installed pg_dump writes any more — unqualified names, `WITH (oids = false)` —
+  and one deliberately broken file
 - The nix dev shell pins `GOTOOLCHAIN=local`, so no go command downloads a
   toolchain beside the one nix provides. Its `staticcheck` is the same 2026.1
   release CI pins

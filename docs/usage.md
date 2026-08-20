@@ -91,9 +91,10 @@ Builds a design document from a PostgreSQL schema dump. The input is a **file**:
   comes from a `\connect` line when the dump has one, and otherwise from the input
   file name — which then has to be a legal identifier itself
 - `-strict` turns every warning into an error. Nothing is written in that case
-- Dumps from **pg_dump 13 to 17** are what this was written against. The version
-  banner in the dump header is read, and a dump from outside that range produces a
-  warning rather than a failure
+- Dumps from **pg_dump 13 to 18** are what this was written against, verified
+  against real dumps from every major in that range: all six import to the same
+  document, byte for byte. The version banner in the dump header is read, and a
+  dump from outside that range produces a warning rather than a failure
 
 ### What jjf says about a dump
 

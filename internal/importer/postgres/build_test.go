@@ -723,7 +723,8 @@ func TestImportPgDumpVersionWarning(t *testing.T) {
 		{name: "too old", banner: "-- Dumped by pg_dump version 12.20\n", wantWarn: true},
 		{name: "oldest supported", banner: "-- Dumped by pg_dump version 13.14\n"},
 		{name: "current", banner: "-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)\n"},
-		{name: "too new", banner: "-- Dumped by pg_dump version 18.0\n", wantWarn: true},
+		{name: "newest supported", banner: "-- Dumped by pg_dump version 18.6 (Ubuntu 18.6-1.pgdg24.04+2)\n"},
+		{name: "too new", banner: "-- Dumped by pg_dump version 19.0\n", wantWarn: true},
 		{name: "no banner", banner: ""},
 	}
 
@@ -733,7 +734,7 @@ func TestImportPgDumpVersionWarning(t *testing.T) {
 			if got := len(warnings) == 1; got != tt.wantWarn {
 				t.Fatalf("warnings got = %v, want a version warning = %v", warnings, tt.wantWarn)
 			}
-			if tt.wantWarn && !strings.Contains(warnings[0].Message, "jjf supports 13 to 17") {
+			if tt.wantWarn && !strings.Contains(warnings[0].Message, "jjf supports 13 to 18") {
 				t.Errorf("warning got = %q, want it to name the supported range", warnings[0].Message)
 			}
 		})

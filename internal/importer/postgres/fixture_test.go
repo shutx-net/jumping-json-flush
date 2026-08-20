@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,10 +18,11 @@ import (
 	"github.com/shutx-net/jumping-json-flush/internal/schema"
 )
 
-// The fixtures under testdata/dump are real "pg_dump --schema-only" output,
-// produced from a throwaway PostgreSQL 16 cluster by testdata/generate.sh, plus
-// two hand-written dumps whose own headers say so. They are committed, so these
-// tests need neither a database nor a network.
+// testdata/dump/pg<major>/ holds real "pg_dump --schema-only" output, one
+// directory per PostgreSQL major, produced from throwaway clusters by
+// testdata/generate.sh. testdata/dump/synthetic/ holds hand-written files whose
+// own headers say so. All of them are committed, so these tests need neither a
+// database nor a network.
 
 var update = flag.Bool("update", false, "update golden files")
 
@@ -53,8 +55,20 @@ func checkGolden(t *testing.T, name, got string) {
 	}
 }
 
+// goldenMajor is the pg_dump major the golden documents are built from. Every
+// other major is held to those same goldens rather than to one of its own,
+// which is the whole point of capturing them: see
+// TestImportAgreesAcrossPgDumpMajors.
+const goldenMajor = 16
+
+// syntheticDir holds the hand-written dumps, kept out of the per-major layout
+// so that nothing there claims to be a capture of a pg_dump that never wrote it.
+const syntheticDir = "synthetic"
+
 // fixture is one committed dump and what importing it must produce.
 type fixture struct {
+	// dir is the directory under testdata/dump the dump lives in.
+	dir  string
 	name string
 	// schemaName overrides the default target schema.
 	schemaName string
@@ -65,23 +79,58 @@ type fixture struct {
 	warningsGolden string
 }
 
-// fixtures lists the dumps every test below walks.
-func fixtures() []fixture {
+// majorFixtures lists the dumps every major under testdata/dump holds a capture
+// of, pointed at the major the goldens were built from.
+func majorFixtures() []fixture {
 	return []fixture{
-		{name: "ecshop"},
-		{name: "edge", warningsGolden: "edge.warnings.txt"},
-		{name: "pg13_legacy"},
+		{dir: majorDir(goldenMajor), name: "ecshop"},
+		{dir: majorDir(goldenMajor), name: "edge", warningsGolden: "edge.warnings.txt"},
 	}
 }
 
+// fixtures lists the dumps every test below walks.
+func fixtures() []fixture {
+	return append(majorFixtures(), fixture{dir: syntheticDir, name: "legacy_unqualified"})
+}
+
+// majorDir names the directory under testdata/dump holding the dumps one
+// pg_dump major produced.
+func majorDir(major int) string { return "pg" + strconv.Itoa(major) }
+
+// capturedMajors lists the pg_dump majors testdata/dump holds a capture of, in
+// ascending order.
+func capturedMajors(t *testing.T) []int {
+	t.Helper()
+
+	paths, err := filepath.Glob(filepath.Join("testdata", "dump", "pg[0-9][0-9]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	majors := make([]int, 0, len(paths))
+	for _, path := range paths {
+		major, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(path), "pg"))
+		if err != nil {
+			t.Fatalf("%s is not a per-major dump directory: %v", path, err)
+		}
+		majors = append(majors, major)
+	}
+	if len(majors) == 0 {
+		t.Fatal("no dump directories found under testdata/dump")
+	}
+	slices.Sort(majors)
+	return majors
+}
+
 // dumpPath is the committed dump of a fixture.
-func dumpPath(name string) string { return filepath.Join("testdata", "dump", name+".sql") }
+func dumpPath(dir, name string) string {
+	return filepath.Join("testdata", "dump", dir, name+".sql")
+}
 
 // importFixture reads a fixture and imports it.
 func importFixture(t *testing.T, f fixture) (*model.Document, []Diagnostic) {
 	t.Helper()
 
-	path := dumpPath(f.name)
+	path := dumpPath(f.dir, f.name)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -128,6 +177,54 @@ func TestImportFixtures(t *testing.T) {
 			}
 			checkGolden(t, f.warningsGolden, renderDiagnostics(diags))
 		})
+	}
+}
+
+// TestImportAgreesAcrossPgDumpMajors is what the per-major captures exist for:
+// the same source schema, dumped by every pg_dump major jjf supports, has to
+// import to the same document. A pg_dump that starts writing a different shape
+// is caught here rather than in the field.
+//
+// Only the documents are compared. Diagnostics legitimately differ between
+// majors - the warning line numbers move with the dump header, and a major
+// outside the supported range adds the version warning - so the exact-warning
+// golden stays on goldenMajor alone, in TestImportFixtures.
+func TestImportAgreesAcrossPgDumpMajors(t *testing.T) {
+	for _, f := range majorFixtures() {
+		want, err := os.ReadFile(filepath.Join("testdata", "golden", f.name+".json"))
+		if err != nil {
+			t.Fatalf("read golden (run go test -update to create it): %v", err)
+		}
+
+		for _, major := range capturedMajors(t) {
+			t.Run(f.name+"/"+majorDir(major), func(t *testing.T) {
+				f.dir = majorDir(major)
+				doc, _ := importFixture(t, f)
+
+				got, err := model.Encode(doc)
+				if err != nil {
+					t.Fatalf("Encode returned error %v, want no error", err)
+				}
+				if !bytes.Equal(got, want) {
+					t.Errorf("importing the pg%d dump does not produce the pg%d golden\n--- got ---\n%s\n--- want ---\n%s",
+						major, goldenMajor, got, want)
+				}
+			})
+		}
+	}
+}
+
+// TestCapturedMajorsCoverTheSupportedRange keeps the committed dumps and the
+// range checkDumpVersion names from drifting apart. Widening the range without
+// capturing the new major would leave the claim untested, and dropping a
+// capture would leave the range claiming more than the fixtures show.
+func TestCapturedMajorsCoverTheSupportedRange(t *testing.T) {
+	var want []int
+	for major := minSupportedMajor; major <= maxSupportedMajor; major++ {
+		want = append(want, major)
+	}
+	if got := capturedMajors(t); !slices.Equal(got, want) {
+		t.Errorf("captured majors got = %v, want %v", got, want)
 	}
 }
 
@@ -200,7 +297,7 @@ func TestFixtureImportIsDeterministic(t *testing.T) {
 // Importing internal/export/xlsx from a test in this package is not a cycle:
 // xlsx does not import the importer, and it never will.
 func TestFixtureRoundTripToXLSX(t *testing.T) {
-	doc, _ := importFixture(t, fixture{name: "ecshop"})
+	doc, _ := importFixture(t, fixture{dir: majorDir(goldenMajor), name: "ecshop"})
 
 	raw, err := model.Encode(doc)
 	if err != nil {
@@ -221,7 +318,7 @@ func TestFixtureRoundTripToXLSX(t *testing.T) {
 }
 
 func TestImportBrokenFixture(t *testing.T) {
-	path := dumpPath("broken")
+	path := dumpPath(syntheticDir, "broken")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +344,7 @@ func TestImportBrokenFixture(t *testing.T) {
 
 func TestImportSchemaFilterOnEdgeFixture(t *testing.T) {
 	t.Run("audit", func(t *testing.T) {
-		doc, diags := importFixture(t, fixture{name: "edge", schemaName: "audit"})
+		doc, diags := importFixture(t, fixture{dir: majorDir(goldenMajor), name: "edge", schemaName: "audit"})
 		var names []string
 		for _, table := range doc.Tables {
 			names = append(names, table.Name)
@@ -267,7 +364,7 @@ func TestImportSchemaFilterOnEdgeFixture(t *testing.T) {
 	})
 
 	t.Run("the cross-schema foreign key is reported once", func(t *testing.T) {
-		_, diags := importFixture(t, fixture{name: "edge"})
+		_, diags := importFixture(t, fixture{dir: majorDir(goldenMajor), name: "edge"})
 		crossing := 0
 		for _, d := range diags {
 			if strings.Contains(d.Message, "outside schema public") {

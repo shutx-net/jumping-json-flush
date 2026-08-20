@@ -1,24 +1,25 @@
 --
--- HAND-WRITTEN FIXTURE. This file was NOT produced by generate.sh.
+-- HAND-WRITTEN FIXTURE. This file was NOT produced by generate.sh, and it is
+-- not a capture of any pg_dump version: every major under testdata/dump/pg*/ is
+-- a real capture, and none of them writes the file below. It carries no version
+-- banner for that reason, which also covers the case Import treats as
+-- legitimate on purpose - a hand-edited or concatenated dump has nothing to
+-- check.
 --
--- Only PostgreSQL 16 is installed in the development container, so this dump is
--- written by hand in the shape older pg_dump majors produce, from real-world
--- pg_dump 13 output. It differs from the generated fixtures in the ways the
--- majors really differ:
+-- What it exercises are the shapes pg_dump 11 and older wrote, and that
+-- hand-edited files still carry:
 --
 --   * "SET search_path = public, pg_catalog;" instead of the
---     "SELECT pg_catalog.set_config('search_path', '', false);" form, so every
---     name in the file is UNQUALIFIED;
---   * "WITH (oids = false)" after the column list;
+--     "SELECT pg_catalog.set_config('search_path', '', false);" form every
+--     captured major writes, so every name in the file is UNQUALIFIED;
+--   * "SET default_with_oids = false;" and "WITH (oids = false)" after the
+--     column list, both gone since PostgreSQL 12;
 --   * serial columns rather than identity columns;
---   * no \restrict wrapper.
+--   * no \restrict wrapper, which every captured major does write.
 --
 -- It is the fixture that proves an unqualified name is treated as belonging to
 -- the schema being imported.
 --
-
--- Dumped from database version 13.14
--- Dumped by pg_dump version 13.14
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
