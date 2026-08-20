@@ -154,9 +154,10 @@ var enumDefs = []string{"dbms", "referentialAction"}
 // pre-approved Bash pattern of the frontmatter has to spell it exactly.
 const binaryName = "jjf"
 
-// allowedSubcommands are the subcommands the skill pre-approves: validate, which
-// reads, and export, which writes a workbook at a path the user supplies.
-var allowedSubcommands = []string{"validate", "export"}
+// allowedSubcommands are the subcommands the skill pre-approves: import, which
+// reads a dump and writes a document, validate, which reads, and export, which
+// writes a workbook. The two that write take the path from the user.
+var allowedSubcommands = []string{"import", "validate", "export"}
 
 func TestSkillFrontmatter(t *testing.T) {
 	path := filepath.Join(skillDir, skillFile)
