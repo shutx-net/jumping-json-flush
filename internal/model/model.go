@@ -6,6 +6,11 @@
 // only - whether "absent" and the zero value differ in meaning.
 package model
 
+// CurrentFormatVersion is the format version jjf WRITES into a document it
+// generates. SupportedFormatMajor in decode.go is the version jjf READS; the
+// two must keep agreeing on the major, which the tests assert.
+const CurrentFormatVersion = "1.0"
+
 // Document is the root of a jjf database design document.
 type Document struct {
 	// Schema mirrors the optional "$schema" reference that editors use for

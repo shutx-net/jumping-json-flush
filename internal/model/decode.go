@@ -38,6 +38,24 @@ func Decode(raw []byte) (*Document, error) {
 	return &doc, nil
 }
 
+// Encode renders a document as the canonical jjf JSON: two-space indentation,
+// field order taken from the struct definitions above, and one trailing
+// newline so the file ends the way every other text file in this repository
+// does.
+//
+// HTML escaping is left at encoding/json's default, because that default is
+// what every other tool that reads these documents will expect.
+//
+// A failure here means the document could not be produced, not that some input
+// was bad, so it carries OutputFailed rather than InvalidInput.
+func Encode(doc *Document) ([]byte, error) {
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, exitcode.Wrap(exitcode.OutputFailed, "encode document", err)
+	}
+	return append(raw, '\n'), nil
+}
+
 // checkFormatVersion reports whether v is a format version this build can
 // process.
 func checkFormatVersion(v string) error {
