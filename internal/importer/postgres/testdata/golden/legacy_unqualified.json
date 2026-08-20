@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
   "formatVersion": "1.0",
   "database": {
-    "name": "pg13_legacy",
+    "name": "legacy_unqualified",
     "dbms": "PostgreSQL"
   },
   "tables": [
