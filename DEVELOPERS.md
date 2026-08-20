@@ -36,13 +36,14 @@ direnv.
 | run | `go run ./cmd/jjf validate examples/db-design.example.json` |
 | test | `go test ./...` |
 | test (race) | `CGO_ENABLED=1 go test -race ./...` |
-| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ -update` |
+| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/importer/postgres/ -update` |
 | coverage | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
 | vet | `go vet ./...` |
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
 | format | `gofmt -w .` |
 | staticcheck | `staticcheck ./...` |
 | lint install.sh | `shellcheck --shell=sh install.sh` |
+| regenerate the pg_dump fixtures | `sh internal/importer/postgres/testdata/generate.sh` |
 | cross-build check | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
 
 ## Things to watch out for
@@ -55,9 +56,18 @@ direnv.
   raises the `go` directive)
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
-- Only the four packages that own goldens define the `-update` flag, so
+- Only the five packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
+- `internal/importer/postgres/testdata/dump/*.sql` is real `pg_dump --schema-only`
+  output, regenerated from `testdata/source/*.sql` by
+  `internal/importer/postgres/testdata/generate.sh`. The script starts a throwaway
+  PostgreSQL cluster under `/tmp`, needs the PostgreSQL binaries (`PGBIN`, default
+  `/usr/lib/postgresql/16/bin`) and root or the `postgres` user, because the server
+  refuses to run as root. The cluster is deleted afterwards and never committed.
+  A regenerated dump always differs in the `\restrict` / `\unrestrict` line:
+  pg_dump 16 puts a random token there. The two fixtures whose headers say they are
+  hand-written are not produced by the script
 - The nix dev shell pins `GOTOOLCHAIN=local`, so no go command downloads a
   toolchain beside the one nix provides. Its `staticcheck` is the same 2026.1
   release CI pins

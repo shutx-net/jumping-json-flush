@@ -1,0 +1,195 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "edge",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "items",
+      "logicalName": "items",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "logicalName": "event_id",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "quantity",
+          "logicalName": "quantity",
+          "type": "INTEGER",
+          "nullable": true
+        },
+        {
+          "name": "price",
+          "logicalName": "price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "total",
+          "logicalName": "total",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": true
+        },
+        {
+          "name": "note",
+          "logicalName": "note",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "doc",
+          "logicalName": "doc",
+          "type": "JSONB",
+          "nullable": true
+        },
+        {
+          "name": "span",
+          "logicalName": "span",
+          "type": "INTERVAL",
+          "precision": 6,
+          "nullable": true
+        },
+        {
+          "name": "grid",
+          "logicalName": "grid",
+          "type": "INTEGER ARRAY",
+          "nullable": true
+        },
+        {
+          "name": "flags",
+          "logicalName": "flags",
+          "type": "BIT",
+          "length": 8,
+          "nullable": true
+        },
+        {
+          "name": "mask",
+          "logicalName": "mask",
+          "type": "BIT VARYING",
+          "length": 64,
+          "nullable": true
+        },
+        {
+          "name": "cost",
+          "logicalName": "cost",
+          "type": "MONEY",
+          "nullable": true
+        },
+        {
+          "name": "origin",
+          "logicalName": "origin",
+          "type": "INET",
+          "nullable": true
+        },
+        {
+          "name": "deleted_at",
+          "logicalName": "deleted_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": true
+        },
+        {
+          "name": "valid_from",
+          "logicalName": "valid_from",
+          "type": "TIMESTAMPTZ",
+          "nullable": false
+        },
+        {
+          "name": "valid_to",
+          "logicalName": "valid_to",
+          "type": "TIMESTAMPTZ",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "items_pkey",
+        "columns": [
+          "id"
+        ]
+      },
+      "indexes": [
+        {
+          "name": "items_doc_idx",
+          "columns": [
+            "doc"
+          ]
+        },
+        {
+          "name": "items_live_idx",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "items_ordered_idx",
+          "columns": [
+            "price"
+          ]
+        },
+        {
+          "name": "items_price_incl_idx",
+          "columns": [
+            "price"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_key",
+      "logicalName": "no_key",
+      "columns": [
+        {
+          "name": "label",
+          "logicalName": "label",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "item_id",
+          "logicalName": "item_id",
+          "type": "INTEGER",
+          "nullable": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "no_key_item_fkey",
+          "columns": [
+            "item_id"
+          ],
+          "references": {
+            "table": "items",
+            "columns": [
+              "id"
+            ]
+          }
+        },
+        {
+          "name": "no_key_item_match_fkey",
+          "columns": [
+            "item_id"
+          ],
+          "references": {
+            "table": "items",
+            "columns": [
+              "id"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

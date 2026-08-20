@@ -1,0 +1,432 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "ecshop",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "オンラインショップの利用者。退会しても行は残す。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "logicalName": "display_name",
+          "type": "VARCHAR",
+          "nullable": true
+        },
+        {
+          "name": "note",
+          "logicalName": "note",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "referrer_id",
+          "logicalName": "referrer_id",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "nicknames",
+          "logicalName": "nicknames",
+          "type": "VARCHAR ARRAY",
+          "length": 30,
+          "nullable": true
+        },
+        {
+          "name": "tags",
+          "logicalName": "tags",
+          "type": "TEXT ARRAY",
+          "nullable": true
+        },
+        {
+          "name": "profile",
+          "logicalName": "profile",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "external_id",
+          "logicalName": "external_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "active",
+          "logicalName": "active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "born_on",
+          "logicalName": "born_on",
+          "type": "DATE",
+          "nullable": true
+        },
+        {
+          "name": "balance",
+          "logicalName": "残高",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "registered_at",
+          "logicalName": "registered_at",
+          "type": "TIMESTAMP",
+          "precision": 3,
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "logicalName": "updated_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "primaryKey": {
+        "name": "customers_pkey",
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "customers_email_key",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "customers_referrer_id_fkey",
+          "columns": [
+            "referrer_id"
+          ],
+          "references": {
+            "table": "customers",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "SET NULL"
+        }
+      ]
+    },
+    {
+      "name": "order_lines",
+      "logicalName": "注文明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "order_id",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "line_no",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "product_id",
+          "logicalName": "product_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "unit_price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "order_lines_pkey",
+        "columns": [
+          "order_id",
+          "line_no"
+        ]
+      },
+      "foreignKeys": [
+        {
+          "name": "order_lines_order_id_fkey",
+          "columns": [
+            "order_id"
+          ],
+          "references": {
+            "table": "orders",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "CASCADE"
+        },
+        {
+          "name": "order_lines_product_id_fkey",
+          "columns": [
+            "product_id"
+          ],
+          "references": {
+            "table": "products",
+            "columns": [
+              "id"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "注文",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "customer_id",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "注文状態",
+          "type": "ORDER_STATUS",
+          "nullable": false,
+          "default": "'pending'::public.order_status"
+        },
+        {
+          "name": "placed_at",
+          "logicalName": "placed_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "shipped_at",
+          "logicalName": "shipped_at",
+          "type": "TIMESTAMPTZ",
+          "nullable": true
+        },
+        {
+          "name": "total",
+          "logicalName": "total",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "orders_pkey",
+        "columns": [
+          "id"
+        ]
+      },
+      "foreignKeys": [
+        {
+          "name": "orders_customer_id_fkey",
+          "columns": [
+            "customer_id"
+          ],
+          "references": {
+            "table": "customers",
+            "columns": [
+              "id"
+            ]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "orders_customer_id_idx",
+          "columns": [
+            "customer_id"
+          ]
+        },
+        {
+          "name": "orders_status_placed_at_idx",
+          "columns": [
+            "status",
+            "placed_at"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "logicalName": "商品",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "sku",
+          "logicalName": "sku",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "name",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "logicalName": "price",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "weight",
+          "logicalName": "weight",
+          "type": "DOUBLE PRECISION",
+          "nullable": true
+        },
+        {
+          "name": "released_on",
+          "logicalName": "released_on",
+          "type": "DATE",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "products_pkey",
+        "columns": [
+          "id"
+        ]
+      },
+      "indexes": [
+        {
+          "name": "products_sku_key",
+          "columns": [
+            "sku"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "shipments",
+      "logicalName": "配送",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "order_id",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "line_no",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "carrier",
+          "logicalName": "carrier",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        },
+        {
+          "name": "tracking_no",
+          "logicalName": "tracking_no",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": true
+        },
+        {
+          "name": "shipped_on",
+          "logicalName": "shipped_on",
+          "type": "DATE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "shipments_pkey",
+        "columns": [
+          "order_id",
+          "line_no"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "shipments_carrier_tracking_key",
+          "columns": [
+            "carrier",
+            "tracking_no"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "shipments_line_fkey",
+          "columns": [
+            "order_id",
+            "line_no"
+          ],
+          "references": {
+            "table": "order_lines",
+            "columns": [
+              "order_id",
+              "line_no"
+            ]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "CASCADE"
+        }
+      ]
+    }
+  ]
+}
