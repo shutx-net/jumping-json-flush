@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jjf",
   "displayName": "Jumpin' Json Flush",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Requires the jjf CLI on PATH.",
   "author": {
     "name": "shutx-net",
