@@ -16,6 +16,7 @@ Single Source of Truth として管理し、人間向けの Excel DB 設計書�
   配布する（`/plugin install jjf@jjf-tools`）
 
 ```sh
+jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
@@ -45,6 +46,10 @@ OS と CPU に対応するアーカイブを取得し、**リリースの `check
 ## 使い方
 
 ```sh
+# PostgreSQL のスキーマダンプから設計 JSON を組み立てる
+pg_dump --schema-only mydb > schema.sql
+jjf import postgres schema.sql -o db-design.json
+
 # 組み込みの JSON Schema で設計 JSON を検証する
 jjf validate db-design.json
 
@@ -52,13 +57,19 @@ jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
 
+import が読むのは `pg_dump --schema-only` の**ファイル**であり、`jjf` が
+データベースへ接続することはない。生成した文書は書き出す前に検証するので、
+`jjf validate` が拒否する文書が import から残ることはない。`CHECK` 制約や
+部分索引のように設計フォーマットに書き場所が無いものは、行番号付きで標準エラーに
+報告し、周囲のテーブルはそのまま取り込む。
+
 検証結果は**全件まとめて**報告され、それぞれが JSON Pointer で位置を指す。
 スキーマはバイナリに埋め込まれているのでネットワークには一切アクセスしない。
 export は必ず先に検証するため、検証に失敗した文書は**出力ファイルを 1 バイトも
 生成しない**。**同じ入力からは常にバイト同一の `.xlsx`** が得られるので、CI で
 成果物のハッシュを比較する意味がある。
 
-2 つのコマンドとオプション、`-o` の規則、パイプラインが読む終了コード
+3 つのコマンドとオプション、`-o` の規則、パイプラインが読む終了コード
 （不正な入力は 2、スキーマ違反は 3）は
 [`docs/usage.ja.md`](docs/usage.ja.md)（[English](docs/usage.md)）にある。
 
@@ -158,9 +169,13 @@ DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパ�
 
 ## 対象外
 
-DB への接続・既存 DB からのスキーマ取り込み、DDL 生成、ER 図 / Mermaid 出力、
-Markdown 出力、意味的整合性検証、マイグレーション管理、Excel から JSON への逆変換、
+稼働中の DB への接続、DDL 生成、ER 図 / Mermaid 出力、Markdown 出力、
+意味的整合性検証、マイグレーション管理、Excel から JSON への逆変換、
 Excel の直接編集、GUI、Excel テンプレートのカスタマイズは対象外である。
+
+**`pg_dump --schema-only` のファイル**からのスキーマ取り込みは PostgreSQL に限り
+対応している（[`docs/usage.ja.md`](docs/usage.ja.md#import)）。稼働中のサーバから
+直接スキーマを読むことは対象外である。
 
 ## ライセンス
 

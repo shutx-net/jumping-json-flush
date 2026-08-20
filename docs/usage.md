@@ -68,6 +68,90 @@ sha256sum a.xlsx b.xlsx   # the two hashes are identical
 That makes it possible to compare artifact hashes in CI, and to treat "the design
 document changed although the JSON did not" as the anomaly it is.
 
+## import
+
+```sh
+pg_dump --schema-only mydb > schema.sql
+jjf import postgres schema.sql -o db-design.json
+```
+
+Builds a design document from a PostgreSQL schema dump. The input is a **file**:
+`jjf` never connects to a database, and `postgres` is the only dialect.
+
+- The generated document is **validated against the schema before it is written**,
+  so `import` can never produce a document that `jjf validate` would reject
+- Leave `-o` out and the output goes **next to the input, with the extension
+  replaced by `.json`** (`schema.sql` → `schema.json`)
+- `-o -` writes to standard output. Unlike `export` this is allowed on a terminal
+  as well, because JSON is text worth reading
+- `-schema` chooses the PostgreSQL schema to import, `public` by default. A design
+  document has nowhere to put a schema qualification, so exactly one schema is
+  imported at a time and everything else is dropped
+- `-database` names the database in the generated document. Without it the name
+  comes from a `\connect` line when the dump has one, and otherwise from the input
+  file name — which then has to be a legal identifier itself
+- `-strict` turns every warning into an error. Nothing is written in that case
+- Dumps from **pg_dump 13 to 17** are what this was written against. The version
+  banner in the dump header is read, and a dump from outside that range produces a
+  warning rather than a failure
+
+### What jjf says about a dump
+
+There are three tiers, and which one applies is decided by what the design format
+can hold — not by how unusual the SQL is.
+
+| Tier | Example | What happens |
+| --- | --- | --- |
+| Skipped in silence | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO` | Nothing. A dump is full of these, and warning about each would bury the warnings that matter |
+| Warned about | a `CHECK` constraint, a partial or expression index, `INCLUDE`, a non-btree access method, `DEFERRABLE`, `INHERITS`, a generated column | One line on standard error naming the dump line, and **the surrounding table or index is still imported** |
+| An error | SQL that does not parse, a name the format cannot hold, the same table defined twice | Exit 2. Nothing is written |
+
+```text
+$ jjf import postgres schema.sql -o db-design.json
+schema.sql:14: warning: constraint users_email_check on table public.users: check constraint is not imported
+schema.sql:20: warning: index users_email_live_idx on table public.users: partial index predicate is not imported
+schema.sql:22: warning: index users_doc_idx on table public.users: access method gin is not imported; recorded as a plain index
+db-design.json: written
+```
+
+The `file:line: warning:` shape is what editors and CI annotators already parse.
+Warnings go to standard error, the success line to standard output.
+
+An identifier the format cannot hold is an **error, never a silent rename**: a
+table called `"user-profiles"` stops the import instead of quietly becoming
+`user_profiles`, because a renamed document looks correct and describes a database
+that does not exist. Constraint names are the one exception — the schema makes
+them optional, so an unusable one is dropped with a warning and the constraint is
+imported without a name.
+
+### logicalName and description
+
+The schema requires a `logicalName` on every table and column, and a dump has
+none. So:
+
+- the **first line** of a `COMMENT ON` becomes the `logicalName`
+- the **rest** becomes the `description`
+- a table or column **without a comment** gets its physical name as its
+  `logicalName`
+
+That last rule is a starting point to edit, not an answer. The generated document
+is meant to be opened and given real names.
+
+### What is not imported
+
+Views, materialized views, functions, triggers, types beyond the name of an enum
+used as a column type, extensions, partitioning, inheritance, row level security,
+privileges, and sequences beyond deciding which column auto-increments.
+
+`CHECK` and exclusion constraints, index predicates and expressions, `INCLUDE`
+columns, operator classes, `DESC` / `NULLS` ordering and `DEFERRABLE` flags have
+nowhere to live in the design format, so they warn and are dropped. Anything
+outside the schema `-schema` selected is dropped too — silently, except for a
+foreign key that pointed into it, which is a real relationship and is reported.
+
+How a PostgreSQL type becomes a `type` plus `length` / `precision` / `scale` is in
+[the format reference](db-design-format.md#postgresql-types-on-import).
+
 ## version
 
 ```sh
@@ -85,7 +169,7 @@ module version Go recorded.
 | --- | --- | --- |
 | 0 | success | — |
 | 1 | general error | an internal error that fits none of the other categories |
-| 2 | invalid input | wrong arguments, missing file, JSON syntax error, unsupported `formatVersion`, unknown output format, `-o -` pointed at a terminal |
+| 2 | invalid input | wrong arguments, missing file, JSON syntax error, unsupported `formatVersion`, unknown output format, `-o -` pointed at a terminal, a dump that cannot be parsed, `-strict` with warnings |
 | 3 | schema validation error | a JSON Schema violation |
 | 4 | output generation error | the destination cannot be written, the directory does not exist |
 
