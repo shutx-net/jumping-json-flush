@@ -213,6 +213,42 @@ jobs:
             failures=$((failures + 1))
           fi
 
+          # The importer, on the committed pg_dump fixtures: a dump becomes a
+          # document, the document validates, and the document exports.
+          expect 0 "import the postgres fixture" \
+            "$JJF" import postgres internal/importer/postgres/testdata/dump/ecshop.sql -o dist/imported.json
+          expect 0 "validate the imported document" \
+            "$JJF" validate dist/imported.json
+          expect 0 "export the imported document" \
+            "$JJF" export xlsx dist/imported.json -o dist/imported.xlsx
+
+          # A broken dump, a strict run with warnings, and an unknown dialect are
+          # all exit 2.
+          expect 2 "a broken dump is exit 2" \
+            "$JJF" import postgres internal/importer/postgres/testdata/dump/broken.sql -o dist/broken.json
+          expect 2 "-strict on a dump with warnings is exit 2" \
+            "$JJF" import postgres internal/importer/postgres/testdata/dump/edge.sql -strict -o dist/edge.json
+          expect 2 "an unknown dialect is exit 2" \
+            "$JJF" import mysql internal/importer/postgres/testdata/dump/ecshop.sql -o dist/nope.json
+
+          # None of the three failures may leave an output file behind.
+          for leftover in dist/broken.json dist/edge.json dist/nope.json; do
+            if [ -e "$leftover" ]; then
+              echo "::error::a rejected import still created ${leftover}"
+              failures=$((failures + 1))
+            fi
+          done
+
+          # Byte determinism again, this time for the importer.
+          "$JJF" import postgres internal/importer/postgres/testdata/dump/ecshop.sql -o dist/imported-again.json >/dev/null
+          if ! cmp -s dist/imported.json dist/imported-again.json; then
+            echo "::error::two imports of the same dump differ"
+            failures=$((failures + 1))
+          else
+            echo "ok  two imports are byte identical"
+          fi
+          rm -f dist/imported-again.json
+
           if [ "$failures" -ne 0 ]; then
             echo "::error::${failures} selfcheck(s) failed"
             exit 1

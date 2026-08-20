@@ -19,6 +19,7 @@ Excel design document people can read.
   Claude Code plugin (`/plugin install jjf@jjf-tools`)
 
 ```sh
+jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
@@ -50,6 +51,10 @@ hand and uninstalling are all in [`docs/install.md`](docs/install.md)
 ## Usage
 
 ```sh
+# build a design document from a PostgreSQL schema dump
+pg_dump --schema-only mydb > schema.sql
+jjf import postgres schema.sql -o db-design.json
+
 # check a design document against the built-in JSON Schema
 jjf validate db-design.json
 
@@ -57,13 +62,20 @@ jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
 
+An import reads a `pg_dump --schema-only` **file** — `jjf` never connects to a
+database — and validates what it produced before writing it, so an import cannot
+leave behind a document that `jjf validate` would reject. Anything the design
+format cannot hold, such as a `CHECK` constraint or a partial index, is reported
+on standard error with the line it was on, and the surrounding table is still
+imported.
+
 Validation reports **every violation at once**, each pointing at its location with
 a JSON Pointer, and touches no network: the schema is embedded in the binary. An
 export validates first, so a document that fails produces no output file at all,
 not even a single byte. **The same input always produces a byte-identical
 `.xlsx`**, which is what makes comparing artifact hashes in CI worth doing.
 
-The two commands and their options, the rules for `-o`, and the exit codes a
+The three commands and their options, the rules for `-o`, and the exit codes a
 pipeline reads — 2 for bad input, 3 for a schema violation — are in
 [`docs/usage.md`](docs/usage.md) ([日本語](docs/usage.ja.md)).
 
@@ -165,10 +177,14 @@ The tool's version and the database design format's version are **independent**.
 
 ## Out of scope
 
-Connecting to a database or importing a schema from an existing one, DDL
-generation, ER diagram / Mermaid output, Markdown output, semantic consistency
-validation, migration management, converting Excel back into JSON, editing the
-Excel directly, a GUI, and customising the Excel template are all out of scope.
+Connecting to a running database, DDL generation, ER diagram / Mermaid output,
+Markdown output, semantic consistency validation, migration management, converting
+Excel back into JSON, editing the Excel directly, a GUI, and customising the Excel
+template are all out of scope.
+
+Importing a schema **from a `pg_dump --schema-only` file** is supported, for
+PostgreSQL only; see [`docs/usage.md`](docs/usage.md#import). Reading the schema
+out of a live server is not.
 
 ## License
 

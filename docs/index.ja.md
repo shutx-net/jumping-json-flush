@@ -6,13 +6,14 @@
 Single Source of Truth として管理し、人間向けの Excel DB 設計書へ変換する CLI ツール。
 
 ```sh
+jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 ```
 
 - **[インストール](install.ja.md)** — ワンライナー、バージョン固定、配置先の指定、
   手動での検証
-- **[使い方](usage.ja.md)** — 2 つのコマンド、`-o` の規則、パイプラインが読む終了コード
+- **[使い方](usage.ja.md)** — 3 つのコマンド、`-o` の規則、パイプラインが読む終了コード
 - **[DB 設計 JSON の形式](db-design-format.ja.md)** — 各項目・全規則・生成される
   Excel の 3 シート
 - **[DB 設計ガイド](db-design-guide.ja.md)** — Agent Skill と同じ規約を人間が読む形で

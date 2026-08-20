@@ -1,0 +1,13 @@
+line 84: column public.items.total: generated column is imported as an ordinary column
+line 96: constraint items_price_check on table public.items: check constraint is not imported
+line 97: constraint items_quantity_check on table public.items: check constraint is not imported
+line 128: constraint items_no_overlap on table public.items: exclusion constraint is not imported
+line 143: index items_doc_idx on table public.items: access method gin is not imported; recorded as a plain index
+line 150: index items_live_idx on table public.items: partial index predicate is not imported
+line 157: index items_note_idx on table public.items: expression index is not imported
+line 164: index items_ordered_idx on table public.items: column ordering options are not imported
+line 171: index items_price_incl_idx on table public.items: INCLUDE columns are not imported
+line 187: constraint no_key_item_fkey on table public.no_key: DEFERRABLE and NOT VALID flags are not imported
+line 195: foreign key no_key_item_match_fkey on table public.no_key: MATCH FULL is not imported
+line 87: items.span: interval field qualifier "day to second" is not represented
+line 179: table items: foreign key items_event_id_fkey references audit.events outside schema public; not imported

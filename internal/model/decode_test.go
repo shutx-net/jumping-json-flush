@@ -267,3 +267,71 @@ func corpus(t *testing.T) []string {
 	}
 	return files
 }
+
+func TestEncodeRoundTrip(t *testing.T) {
+	for _, path := range corpus(t) {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := Decode(raw)
+			if err != nil {
+				t.Fatalf("Decode() = %v, want nil", err)
+			}
+
+			encoded, err := Encode(first)
+			if err != nil {
+				t.Fatalf("Encode() = %v, want nil", err)
+			}
+			if !bytes.HasSuffix(encoded, []byte("}\n")) || bytes.HasSuffix(encoded, []byte("\n\n")) {
+				t.Errorf("Encode() output ends with %q, want exactly one trailing newline", tail(encoded))
+			}
+			if !bytes.Contains(encoded, []byte("\n  \"formatVersion\"")) {
+				t.Errorf("Encode() output is not indented with two spaces:\n%s", encoded)
+			}
+
+			second, err := Decode(encoded)
+			if err != nil {
+				t.Fatalf("Decode(Encode(...)) = %v, want nil", err)
+			}
+			if !reflect.DeepEqual(first, second) {
+				t.Errorf("round trip changed the document:\n%s", encoded)
+			}
+		})
+	}
+}
+
+// tail returns the last few bytes of b, for a failure message about them.
+func tail(b []byte) string {
+	if len(b) > 8 {
+		b = b[len(b)-8:]
+	}
+	return string(b)
+}
+
+// TestCurrentFormatVersionMatchesSupportedMajor pins the one relationship
+// between the version jjf writes and the versions it reads: a document this
+// build generates has to be one this build accepts.
+func TestCurrentFormatVersionMatchesSupportedMajor(t *testing.T) {
+	if !strings.HasPrefix(CurrentFormatVersion, SupportedFormatMajor+".") {
+		t.Errorf("CurrentFormatVersion = %q, want a %s.x version", CurrentFormatVersion, SupportedFormatMajor)
+	}
+
+	doc := &Document{
+		FormatVersion: CurrentFormatVersion,
+		Database:      Database{Name: "shop"},
+		Tables: []Table{{
+			Name:        "customers",
+			LogicalName: "顧客",
+			Columns:     []Column{{Name: "id", LogicalName: "ID", Type: "INTEGER"}},
+		}},
+	}
+	raw, err := Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode() = %v, want nil", err)
+	}
+	if _, err := Decode(raw); err != nil {
+		t.Errorf("Decode(Encode(...)) = %v, want nil", err)
+	}
+}

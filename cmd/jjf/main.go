@@ -20,6 +20,8 @@ Usage:
   jjf <command> [arguments]
 
 Commands:
+  import <dialect> <input.sql> -o <output.json>
+        build a document from a schema dump (dialects: postgres)
   validate <input.json>
         check a document against the jjf database design schema
   export <format> <input.json> -o <output>
@@ -60,6 +62,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	var err error
 	switch args[0] {
+	case "import":
+		err = runImport(args[1:], stdout, stderr)
 	case "validate":
 		err = runValidate(args[1:], stdout, stderr)
 	case "export":

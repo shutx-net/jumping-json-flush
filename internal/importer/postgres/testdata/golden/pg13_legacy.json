@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "pg13_legacy",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "authors",
+      "logicalName": "著者",
+      "description": "本を書いた人。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "name",
+          "logicalName": "name",
+          "type": "VARCHAR",
+          "length": 120,
+          "nullable": false
+        },
+        {
+          "name": "bio",
+          "logicalName": "bio",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "born_on",
+          "logicalName": "born_on",
+          "type": "DATE",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "authors_pkey",
+        "columns": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "books",
+      "logicalName": "書籍",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "author_id",
+          "logicalName": "author_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "isbn",
+          "logicalName": "ISBN",
+          "type": "CHAR",
+          "length": 13,
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "logicalName": "title",
+          "type": "TEXT",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "logicalName": "price",
+          "type": "NUMERIC",
+          "precision": 8,
+          "scale": 2,
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "published_at",
+          "logicalName": "published_at",
+          "type": "TIMESTAMP",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "books_pkey",
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "books_isbn_key",
+          "columns": [
+            "isbn"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "books_author_id_fkey",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "table": "authors",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "books_author_id_idx",
+          "columns": [
+            "author_id"
+          ]
+        }
+      ]
+    }
+  ]
+}

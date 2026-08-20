@@ -55,6 +55,41 @@
 | 既定値 | `default` は文字列のみ。SQL リテラルは引用符込み（`"'pending'"`）。DEFAULT 句なしはキー自体を書かない |
 | enum | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`。`onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
+### import 時の PostgreSQL 型の扱い
+
+`jjf import postgres` は PostgreSQL の型を、型名と、スキーマがその隣に持つ数値属性へ
+分解する。**`varchar(255)` は長さ、`timestamp(3)` は小数秒の精度**であり、これを
+取り違えると別の列になる。**`TIMESTAMP` と `TIMESTAMPTZ` は決して同一視しない。**
+両者はデータの意味そのものが違うためである。
+
+| PostgreSQL | `type` | パラメータ |
+| --- | --- | --- |
+| `character varying`, `varchar` | `VARCHAR` | `length` |
+| `character`, `char`, `bpchar` | `CHAR` | `length` |
+| `bit` | `BIT` | `length` |
+| `bit varying`, `varbit` | `BIT VARYING` | `length` |
+| `numeric`, `decimal` | `NUMERIC` | `precision`, `scale` |
+| `timestamp without time zone`, `timestamp` | `TIMESTAMP` | `precision` |
+| `timestamp with time zone`, `timestamptz` | `TIMESTAMPTZ` | `precision` |
+| `time without time zone`, `time` | `TIME` | `precision` |
+| `time with time zone`, `timetz` | `TIMETZ` | `precision` |
+| `interval`, `interval <fields>` | `INTERVAL` | `precision` |
+| `integer`, `int`, `int4` | `INTEGER` | — |
+| `bigint`, `int8` | `BIGINT` | — |
+| `smallint`, `int2` | `SMALLINT` | — |
+| `boolean`, `bool` | `BOOLEAN` | — |
+| `double precision`, `float8`, `float` | `DOUBLE PRECISION` | — |
+| `real`, `float4` | `REAL` | — |
+| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true` |
+| `text`, `bytea`, `uuid`, `json`, `jsonb`, `date`, `money`, `inet` ほか | 同じ名前の大文字 | — |
+| 配列（`text[]`, `character varying(30)[]`） | `TEXT ARRAY`, `VARCHAR ARRAY` | 要素のものを引き継ぐ |
+
+ユーザー定義型や enum は、pg_dump が付ける `public.` を落とした大文字の名前になる。
+`interval day to second` のフィールド修飾子や PostGIS 型の引数のように、書き場所が
+無いパラメータは警告を出して捨てる。
+
+取り込まない対象を含む import の詳細は [jjf の使い方](usage.ja.md#import) にある。
+
 `$schema` をルートに書いておくと、VS Code などのエディタで補完と警告が効く。
 `jjf` はこの値を読まない。
 

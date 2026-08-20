@@ -57,6 +57,45 @@ The essentials:
 | Defaults | `default` is a string only. A SQL literal includes its quotes (`"'pending'"`). No DEFAULT clause means the key is simply absent |
 | Enums | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`. `onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
+### PostgreSQL types on import
+
+`jjf import postgres` splits a PostgreSQL type into the `type` name and the
+numeric attributes the schema keeps beside it. **`varchar(255)` is a length while
+`timestamp(3)` is a fractional-second precision**, which is the one sentence most
+likely to save a reader an hour, and **`TIMESTAMP` and `TIMESTAMPTZ` never
+collapse into one another**, because the difference changes what the stored data
+means.
+
+| PostgreSQL | `type` | Parameters |
+| --- | --- | --- |
+| `character varying`, `varchar` | `VARCHAR` | `length` |
+| `character`, `char`, `bpchar` | `CHAR` | `length` |
+| `bit` | `BIT` | `length` |
+| `bit varying`, `varbit` | `BIT VARYING` | `length` |
+| `numeric`, `decimal` | `NUMERIC` | `precision`, `scale` |
+| `timestamp without time zone`, `timestamp` | `TIMESTAMP` | `precision` |
+| `timestamp with time zone`, `timestamptz` | `TIMESTAMPTZ` | `precision` |
+| `time without time zone`, `time` | `TIME` | `precision` |
+| `time with time zone`, `timetz` | `TIMETZ` | `precision` |
+| `interval`, `interval <fields>` | `INTERVAL` | `precision` |
+| `integer`, `int`, `int4` | `INTEGER` | — |
+| `bigint`, `int8` | `BIGINT` | — |
+| `smallint`, `int2` | `SMALLINT` | — |
+| `boolean`, `bool` | `BOOLEAN` | — |
+| `double precision`, `float8`, `float` | `DOUBLE PRECISION` | — |
+| `real`, `float4` | `REAL` | — |
+| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true` |
+| `text`, `bytea`, `uuid`, `json`, `jsonb`, `date`, `money`, `inet`, … | the same name in upper case | — |
+| any array (`text[]`, `character varying(30)[]`) | `TEXT ARRAY`, `VARCHAR ARRAY` | those of the element |
+
+A user-defined type or enum keeps its name in upper case, without the `public.`
+qualification pg_dump writes. A parameter the format has no room for — the field
+qualifier of `interval day to second`, the arguments of a PostGIS type — is
+dropped with a warning.
+
+The rest of the command, including what it does not import, is in
+[Using jjf](usage.md#import).
+
 Writing `$schema` at the root gives you completion and warnings in editors such as
 VS Code. `jjf` itself never reads the value.
 
