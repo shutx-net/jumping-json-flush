@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
+	"github.com/shutx-net/jumping-json-flush/internal/model"
+	"github.com/shutx-net/jumping-json-flush/internal/schema"
 )
 
 var update = flag.Bool("update", false, "update golden files")
@@ -659,6 +661,16 @@ func TestGoldenOutput(t *testing.T) {
 			stream: func(stdout, _ *bytes.Buffer) string { return stdout.String() },
 		},
 		{
+			golden: "import_usage.txt",
+			args:   []string{"import", "-h"},
+			stream: func(stdout, _ *bytes.Buffer) string { return stdout.String() },
+		},
+		{
+			golden: "import_unsupported_dialect.txt",
+			args:   []string{"import", "mysql", "testdata/postgres/schema.sql"},
+			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
+		},
+		{
 			golden: "export_unsupported_format.txt",
 			args:   []string{"export", "markdown", "testdata/valid.json"},
 			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
@@ -719,5 +731,339 @@ func TestExitCodeOfRealProcess(t *testing.T) {
 				t.Fatalf("exit code = %d, want %d\n%s", got, tt.want, out)
 			}
 		})
+	}
+}
+
+// pgFixture names one of the hand-written dumps under testdata/postgres.
+func pgFixture(name string) string { return filepath.Join("testdata", "postgres", name) }
+
+// importedDocument reads a generated document back and asserts that it is one
+// jjf itself accepts. Nothing the importer writes may fail "jjf validate".
+func importedDocument(t *testing.T, path string) []byte {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the generated document: %v", err)
+	}
+	assertValidDocument(t, path, raw)
+	return raw
+}
+
+// assertValidDocument decodes raw and validates it against the embedded schema.
+func assertValidDocument(t *testing.T, source string, raw []byte) {
+	t.Helper()
+
+	validator, err := schema.NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(source, raw); err != nil {
+		var ide *schema.InvalidDocumentError
+		if errors.As(err, &ide) {
+			var report strings.Builder
+			ide.WriteReport(&report)
+			t.Fatalf("the generated document does not conform to the schema:\n%s", &report)
+		}
+		t.Fatalf("validating the generated document: %v", err)
+	}
+	if _, err := model.Decode(raw); err != nil {
+		t.Fatalf("decoding the generated document: %v", err)
+	}
+}
+
+func TestRunImport(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantCode   int
+		wantStdout string // substring
+		wantStderr string // substring
+	}{
+		{
+			name:       "a dump with nothing to warn about",
+			args:       []string{"import", "postgres", pgFixture("schema.sql"), "-o", filepath.Join(dir, "ok.json")},
+			wantCode:   0,
+			wantStdout: "ok.json: written",
+		},
+		{
+			name:       "missing file",
+			args:       []string{"import", "postgres", pgFixture("does_not_exist.sql"), "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: "no such file or directory",
+		},
+		{
+			name:       "structurally broken sql",
+			args:       []string{"import", "postgres", pgFixture("broken.sql"), "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: "line 7",
+		},
+		{
+			name:       "a dump with no tables",
+			args:       []string{"import", "postgres", pgFixture("no_tables.sql"), "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: `no tables found in schema "public"`,
+		},
+		{
+			name:       "a schema the dump does not have",
+			args:       []string{"import", "postgres", pgFixture("schema.sql"), "-schema", "audit", "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: `no tables found in schema "audit"`,
+		},
+		{
+			name:       "the database name can be given",
+			args:       []string{"import", "postgres", pgFixture("schema.sql"), "-database", "shop", "-o", filepath.Join(dir, "named.json")},
+			wantCode:   0,
+			wantStdout: "named.json: written",
+		},
+		{
+			name:       "unsupported dialect",
+			args:       []string{"import", "mysql", pgFixture("schema.sql")},
+			wantCode:   2,
+			wantStderr: `unsupported dialect "mysql"`,
+		},
+		{
+			name:       "no operands",
+			args:       []string{"import"},
+			wantCode:   2,
+			wantStderr: "a dialect and exactly one input file, got 0",
+		},
+		{
+			name:       "only a dialect",
+			args:       []string{"import", "postgres"},
+			wantCode:   2,
+			wantStderr: "a dialect and exactly one input file, got 1",
+		},
+		{
+			name:       "three operands",
+			args:       []string{"import", "postgres", pgFixture("schema.sql"), "extra"},
+			wantCode:   2,
+			wantStderr: "a dialect and exactly one input file, got 3",
+		},
+		{
+			name:       "help",
+			args:       []string{"import", "-h"},
+			wantCode:   0,
+			wantStdout: "jjf import <dialect> <input.sql>",
+		},
+		{
+			name:       "undefined flag",
+			args:       []string{"import", "postgres", pgFixture("schema.sql"), "-bogus"},
+			wantCode:   2,
+			wantStderr: "flag provided but not defined: -bogus",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, &stdout, &stderr)
+			if code != tt.wantCode {
+				t.Errorf("run = %d, want %d\nstdout: %s\nstderr: %s", code, tt.wantCode, &stdout, &stderr)
+			}
+			if tt.wantStdout != "" && !strings.Contains(stdout.String(), tt.wantStdout) {
+				t.Errorf("stdout = %q, want it to contain %q", &stdout, tt.wantStdout)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Errorf("stderr = %q, want it to contain %q", &stderr, tt.wantStderr)
+			}
+		})
+	}
+
+	// Nothing above that failed may have left a file behind.
+	if _, err := os.Stat(filepath.Join(dir, "x.json")); !os.IsNotExist(err) {
+		t.Errorf("a failed import left an output file behind: %v", err)
+	}
+}
+
+// TestRunImportWritesJSON pins that -o is honoured wherever it appears. The
+// standard flag package stops at the first operand, so without the permuting
+// parser in flags.go two of these three would silently write nothing.
+func TestRunImportWritesJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name string
+		args func(out string) []string
+	}{
+		{
+			name: "flag last",
+			args: func(out string) []string {
+				return []string{"import", "postgres", pgFixture("schema.sql"), "-o", out}
+			},
+		},
+		{
+			name: "flag first",
+			args: func(out string) []string {
+				return []string{"import", "-o", out, "postgres", pgFixture("schema.sql")}
+			},
+		},
+		{
+			name: "flag between the operands",
+			args: func(out string) []string {
+				return []string{"import", "postgres", "-o", out, pgFixture("schema.sql")}
+			},
+		},
+	}
+
+	var first []byte
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(dir, tt.name+".json")
+			var stdout, stderr bytes.Buffer
+			if code := run(tt.args(out), &stdout, &stderr); code != 0 {
+				t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want it empty", &stderr)
+			}
+
+			got := importedDocument(t, out)
+			if first == nil {
+				first = got
+			} else if !bytes.Equal(first, got) {
+				t.Error("the same dump imported to different bytes depending on flag position")
+			}
+		})
+	}
+}
+
+func TestRunImportDefaultsToTheInputPath(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "db-dump.sql")
+	raw, err := os.ReadFile(pgFixture("schema.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	// The file name is not a legal identifier, so the database name has to come
+	// from the flag.
+	if code := run([]string{"import", "postgres", input, "-database", "shop"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	importedDocument(t, filepath.Join(dir, "db-dump.json"))
+}
+
+func TestRunImportToStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"import", "postgres", pgFixture("schema.sql"), "-o", "-"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want it empty", &stderr)
+	}
+	assertValidDocument(t, "standard output", stdout.Bytes())
+}
+
+func TestRunImportStrict(t *testing.T) {
+	const wantWarnings = 3
+
+	tests := []struct {
+		name      string
+		strict    bool
+		wantCode  int
+		wantWrite bool
+	}{
+		{name: "warnings are not fatal by default", wantCode: 0, wantWrite: true},
+		{name: "strict turns warnings into a failure", strict: true, wantCode: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out.json")
+			args := []string{"import", "postgres", pgFixture("warnings.sql"), "-o", out}
+			if tt.strict {
+				args = append(args, "-strict")
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != tt.wantCode {
+				t.Fatalf("run = %d, want %d\nstderr: %s", code, tt.wantCode, &stderr)
+			}
+			// The warnings are printed either way: -strict changes what happens
+			// next, not what the user is told.
+			if got := strings.Count(stderr.String(), ": warning: "); got != wantWarnings {
+				t.Errorf("warnings on stderr = %d, want %d\nstderr: %s", got, wantWarnings, &stderr)
+			}
+			if !strings.Contains(stderr.String(), "warnings.sql:14: warning: ") {
+				t.Errorf("stderr = %q, want a warning naming line 14", &stderr)
+			}
+
+			_, err := os.Stat(out)
+			if tt.wantWrite {
+				if err != nil {
+					t.Fatalf("output file: %v", err)
+				}
+				importedDocument(t, out)
+				return
+			}
+			if !os.IsNotExist(err) {
+				t.Errorf("a strict run wrote an output file anyway: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunImportIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	var runs [2][]byte
+	for i := range runs {
+		out := filepath.Join(dir, fmt.Sprintf("run%d.json", i))
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"import", "postgres", pgFixture("schema.sql"), "-o", out}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+		raw, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs[i] = raw
+	}
+	if !bytes.Equal(runs[0], runs[1]) {
+		t.Errorf("two imports of the same dump differ:\n%s\n%s", runs[0], runs[1])
+	}
+}
+
+// TestRunImportThenValidateAndExport walks the journey the importer exists for:
+// a dump becomes a document, the document passes validation, and the document
+// renders as a workbook.
+func TestRunImportThenValidateAndExport(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "db-design.json")
+	book := filepath.Join(dir, "db-design.xlsx")
+
+	steps := []struct {
+		name string
+		args []string
+	}{
+		{name: "import", args: []string{"import", "postgres", pgFixture("schema.sql"), "-o", doc}},
+		{name: "validate", args: []string{"validate", doc}},
+		{name: "export", args: []string{"export", "xlsx", doc, "-o", book}},
+	}
+	for _, step := range steps {
+		var stdout, stderr bytes.Buffer
+		if code := run(step.args, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s = %d, want 0\nstderr: %s", step.name, code, &stderr)
+		}
+	}
+	readWorkbook(t, book)
+}
+
+func TestRunImportUnwritableOutput(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "no-such-dir", "out.json")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"import", "postgres", pgFixture("schema.sql"), "-o", out}, &stdout, &stderr)
+	if code != 4 {
+		t.Errorf("run = %d, want 4 (output generation error)\nstderr: %s", code, &stderr)
+	}
+	if !strings.Contains(stderr.String(), out) {
+		t.Errorf("stderr = %q, want it to name the requested output path %s", &stderr, out)
 	}
 }

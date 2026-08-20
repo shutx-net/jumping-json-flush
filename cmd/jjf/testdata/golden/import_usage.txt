@@ -1,0 +1,28 @@
+Convert a PostgreSQL schema dump into a jjf database design document.
+The input is the output of "pg_dump --schema-only". The generated document is
+validated against the jjf database design schema before it is written, so a
+document that would fail "jjf validate" is never produced.
+
+Usage:
+  jjf import <dialect> <input.sql> [-o <output>]
+
+Dialects:
+  postgres  PostgreSQL, from pg_dump --schema-only
+
+Without -o the output goes next to the input, with its extension replaced by
+".json". "-o -" writes to standard output.
+
+Statements jjf does not map are skipped in silence. A statement it does map but
+that carries a clause the design format cannot hold is reported as a warning on
+standard error, naming the line; -strict turns those warnings into an error and
+writes nothing.
+
+Flags:
+  -database string
+    	database name for the generated document; defaults to the input file name
+  -o string
+    	output path, or "-" for standard output
+  -schema string
+    	PostgreSQL schema to import (default "public")
+  -strict
+    	treat warnings as errors
