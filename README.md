@@ -79,9 +79,19 @@ export validates first, so a document that fails produces no output file at all,
 not even a single byte. **The same input always produces a byte-identical
 `.xlsx`**, which is what makes comparing artifact hashes in CI worth doing.
 
+`jjf validate` then checks the document **against itself**: that the columns named
+by its keys and indexes exist, that every foreign key names a table this document
+defines, matches it column for column and targets columns that table constrains
+to be unique, that no primary key column is declared nullable, and that one table
+never uses the same column or constraint name twice. Those findings are warnings
+on standard error and leave the exit code successful, so a document that passes
+today keeps passing; `-strict` turns them into a failure.
+
 The three commands and their options, the rules for `-o`, and the exit codes a
 pipeline reads — 2 for bad input, 3 for a schema violation — are in
-[`docs/usage.md`](docs/usage.md) ([日本語](docs/usage.ja.md)).
+[`docs/usage.md`](docs/usage.md) ([日本語](docs/usage.ja.md)). Code 3 means JSON
+Schema conformance and nothing else: a referential finding is not a schema
+violation, so `validate -strict` reports one as 2.
 
 ## The database design JSON
 
@@ -182,9 +192,9 @@ The tool's version and the database design format's version are **independent**.
 ## Out of scope
 
 Connecting to a running database, DDL generation, Mermaid output, Markdown
-output, semantic consistency validation, migration management, converting Excel
-back into JSON, editing the Excel directly, a GUI, and customising the Excel
-template are all out of scope.
+output, judging a database design (normalization, index strategy, type choice),
+migration management, converting Excel back into JSON, editing the Excel
+directly, a GUI, and customising the Excel template are all out of scope.
 
 An entity relationship diagram is generated as Graphviz DOT source (`jjf export
 dot`); see [`docs/usage.md`](docs/usage.md#export). Rendering it to an image is

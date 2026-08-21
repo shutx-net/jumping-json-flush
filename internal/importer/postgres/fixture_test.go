@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shutx-net/jumping-json-flush/internal/check"
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
 	"github.com/shutx-net/jumping-json-flush/internal/export/xlsx"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -212,6 +213,62 @@ func TestImportAgreesAcrossPgDumpMajors(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestImportedDocumentsAreSelfConsistent holds the importer to the promise its
+// construction already makes: a document jjf builds from a dump never
+// contradicts itself.
+//
+// The mechanism, not the assertion: applyForeignKey refuses a foreign key whose
+// naming or referenced columns do not resolve, one that reaches outside the
+// target schema, one whose target table was not imported, and one whose two
+// ends name a different number of columns; applyKey refuses a key naming an
+// unknown column and forces every primary key column NOT NULL. Each of those is
+// one of the checks in internal/check, arrived at independently from the other
+// end.
+//
+// A failure here therefore means one of two things: the importer has started
+// emitting something it cannot back up, or a fixture is not the pg_dump output
+// it claims to be. It does not mean the checker should be relaxed.
+//
+// Importing internal/check from a test in this package is not a cycle: check
+// does not import the importer, and it never will.
+func TestImportedDocumentsAreSelfConsistent(t *testing.T) {
+	for _, f := range fixtures() {
+		t.Run(f.name, func(t *testing.T) {
+			doc, _ := importFixture(t, f)
+			assertSelfConsistent(t, doc)
+		})
+	}
+
+	// The claim is literally "pg13 through pg18", so every captured major is
+	// walked as well, the way TestImportAgreesAcrossPgDumpMajors does.
+	for _, f := range majorFixtures() {
+		for _, major := range capturedMajors(t) {
+			t.Run(f.name+"/"+majorDir(major), func(t *testing.T) {
+				f.dir = majorDir(major)
+				doc, _ := importFixture(t, f)
+				assertSelfConsistent(t, doc)
+			})
+		}
+	}
+}
+
+// assertSelfConsistent fails the test with every finding on its own line, so
+// that a regression reads as a list of things to fix rather than as a count.
+func assertSelfConsistent(t *testing.T, doc *model.Document) {
+	t.Helper()
+
+	findings := check.Document(doc)
+	if len(findings) == 0 {
+		return
+	}
+	var b strings.Builder
+	for _, finding := range findings {
+		b.WriteString(finding.String())
+		b.WriteString("\n")
+	}
+	t.Errorf("the imported document contradicts itself:\n%s", &b)
 }
 
 // TestCapturedMajorsCoverTheSupportedRange keeps the committed dumps and the

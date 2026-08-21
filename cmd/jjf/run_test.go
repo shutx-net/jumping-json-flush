@@ -313,6 +313,19 @@ func TestRunValidate(t *testing.T) {
 			wantStdout: "testdata/valid.json: OK",
 		},
 		{
+			name:       "a clean document is clean with -strict too",
+			args:       []string{"validate", "-strict", "testdata/valid.json"},
+			wantCode:   0,
+			wantStdout: "testdata/valid.json: OK",
+		},
+		{
+			name:       "referential warnings are not fatal",
+			args:       []string{"validate", "testdata/referential_warnings.json"},
+			wantCode:   0,
+			wantStdout: "testdata/referential_warnings.json: OK, 3 warning(s)",
+			wantStderr: ": warning: ",
+		},
+		{
 			name:       "missing file",
 			args:       []string{"validate", "testdata/does_not_exist.json"},
 			wantCode:   2,
@@ -376,6 +389,55 @@ func TestRunValidate(t *testing.T) {
 			}
 			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
 				t.Errorf("stderr = %q, want it to contain %q", stderr.String(), tt.wantStderr)
+			}
+		})
+	}
+}
+
+// TestRunValidateStrict mirrors TestRunImportStrict: the warnings are the same
+// either way, and -strict changes only what the run is worth.
+func TestRunValidateStrict(t *testing.T) {
+	const wantWarnings = 3
+
+	tests := []struct {
+		name     string
+		strict   bool
+		wantCode int
+	}{
+		{name: "warnings are not fatal by default", wantCode: 0},
+		{name: "strict turns warnings into a failure", strict: true, wantCode: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := []string{"validate", "testdata/referential_warnings.json"}
+			if tt.strict {
+				args = append(args, "-strict")
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != tt.wantCode {
+				t.Fatalf("run = %d, want %d\nstderr: %s", code, tt.wantCode, &stderr)
+			}
+			// The warnings are printed either way: -strict changes what happens
+			// next, not what the user is told.
+			if got := strings.Count(stderr.String(), ": warning: "); got != wantWarnings {
+				t.Errorf("warnings on stderr = %d, want %d\nstderr: %s", got, wantWarnings, &stderr)
+			}
+
+			if !tt.strict {
+				if !strings.Contains(stdout.String(), ": OK, 3 warning(s)") {
+					t.Errorf("stdout = %q, want the OK line with the warning count", &stdout)
+				}
+				return
+			}
+			// A strict run has no verdict to report: saying OK after failing
+			// would be worse than saying nothing.
+			if strings.Contains(stdout.String(), ": OK") {
+				t.Errorf("stdout = %q, want no success line from a strict run", &stdout)
+			}
+			if !strings.Contains(stderr.String(), "jjf: 3 warning(s) with -strict") {
+				t.Errorf("stderr = %q, want the same sentence \"jjf import -strict\" says", &stderr)
 			}
 		})
 	}
@@ -892,6 +954,11 @@ func TestGoldenOutput(t *testing.T) {
 			stream: func(stdout, _ *bytes.Buffer) string { return stdout.String() },
 		},
 		{
+			golden: "validate_warnings.txt",
+			args:   []string{"validate", "testdata/referential_warnings.json"},
+			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
+		},
+		{
 			golden: "validate_schema_violation.txt",
 			args:   []string{"validate", "testdata/schema_violation.json"},
 			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
@@ -928,6 +995,7 @@ func TestExitCodeOfRealProcess(t *testing.T) {
 	}{
 		{"valid document", []string{"validate", "testdata/valid.json"}, 0},
 		{"schema violation", []string{"validate", "testdata/schema_violation.json"}, 3},
+		{"referential warnings with -strict", []string{"validate", "-strict", "testdata/referential_warnings.json"}, 2},
 	}
 
 	for _, tt := range tests {

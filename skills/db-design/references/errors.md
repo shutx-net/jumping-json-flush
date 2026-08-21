@@ -50,6 +50,39 @@ The root of the document is pointed at as `(document root)`.
 | `properties 'precision' required, if 'scale' exists` | `scale` was written without `precision` | add `precision`, or drop `scale` |
 | `got array, want object` | the document root is an array | the root is a `{ }` object |
 
+## Referential warnings (exit code 0, or 2 with `-strict`)
+
+A document that conforms to the schema is then checked against itself. Each
+finding is one line on standard error, shaped `<input>: warning: <what>: <the
+problem>` — `<what>` names the object, because there is no line number to give.
+
+```text
+db-design.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
+db-design.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+db-design.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+```
+
+The run still **succeeds**: standard output says `db-design.json: OK, 3
+warning(s)` and the exit code is 0. `jjf validate -strict` prints the same
+warnings and then fails with `jjf: 3 warning(s) with -strict` and exit code
+**2, not 3** — code 3 means the document does not conform to the JSON Schema
+and nothing else, and a referential finding is not a schema violation.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `names column "placed_at", which the table does not define` | a key or index names a column its table has no `columns[]` entry for | add the column, or correct the spelling; identifier case is never folded |
+| `references table "customers", which this document does not define` | a foreign key points at a table this document has no entry for | add the table, or correct the name |
+| `names 1 column(s) but references 2` | the two ends of a foreign key list a different number of columns | make `columns` and `references.columns` the same length, in matching order |
+| `references (email) of table accounts, which no primary key, unique key or unique index there constrains to be unique` | the referenced columns are not the target's primary key, one of its unique keys, or a unique index | point the foreign key at the target's key, or add a unique key or `"unique": true` index covering those columns |
+| `names column "id", which the table declares nullable` | a primary key column has `"nullable": true` | set `"nullable": false`; SQL forces a primary key column NOT NULL anyway |
+| `defines column "email" more than once` | one table has two `columns[]` entries with the same `name` | remove or rename one of them |
+| `declares more than one constraint or index called "pk_accounts"` | one table uses the same name for two of its `primaryKey` / `uniqueKeys[]` / `foreignKeys[]` / `indexes[]` | rename one; unnamed constraints never collide |
+
+Whether the design is a *good* one is not checked, so do not offer normalization,
+index-strategy or type advice as though `jjf` had asked for it. Duplicate table
+names across a document, type compatibility across a foreign key, and the
+uniqueness of index names across a schema are not checked either.
+
 ## Failures before validation (exit code 2)
 
 | Output | Cause | Fix |

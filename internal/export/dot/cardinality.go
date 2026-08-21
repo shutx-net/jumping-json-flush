@@ -154,8 +154,8 @@ func sameColumnSet(a, b []string) bool {
 // It returns nil rather than reporting an error because a foreign key naming a
 // column the table does not define is a LEGAL document: $defs/foreignKey
 // constrains columns to $defs/columnNameList, which is a list of identifiers
-// and nothing more, and semantic validation is out of scope. The derivation
-// must therefore be total.
+// and nothing more. The derivation must therefore be total. "jjf validate" is
+// where such a document is reported, as a warning; this package renders it.
 //
 // Such a column is treated as NOT NULL, that is, it does not make the child end
 // optional: absent information must not invent an optional relationship, and

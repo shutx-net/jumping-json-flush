@@ -1,5 +1,17 @@
 Check a database design document against the jjf database design
 schema and report every violation found.
 
+The document is then checked against itself: whether the columns named by
+its keys and indexes exist, whether every foreign key names a table this
+document defines, matches it column for column and targets columns that
+table constrains to be unique, whether a primary key column is declared
+nullable, and whether one table uses a column or constraint name twice.
+Those are reported as warnings on standard error and leave the exit code
+successful; -strict turns them into an error.
+
 Usage:
   jjf validate <input.json>
+
+Flags:
+  -strict
+    	treat warnings as errors

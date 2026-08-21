@@ -99,9 +99,20 @@ The rest of the command, including what it does not import, is in
 Writing `$schema` at the root gives you completion and warnings in editors such as
 VS Code. `jjf` itself never reads the value.
 
-**Validation today is structural only.** Semantic consistency is **not** checked:
-whether a foreign key's target exists, whether table or column names are
-duplicated, whether the columns named by a primary key or an index exist.
+**`jjf validate` checks the structure, then the document against itself**: that
+the columns named by its keys and indexes exist, that every foreign key names a
+table this document defines, matches it column for column and targets columns
+that table constrains to be unique, that no primary key column is declared
+nullable, and that one table never uses the same column or constraint name
+twice. Those findings are warnings; `-strict` turns them into a failure. See
+[Referential checks](usage.md#referential-checks).
+
+**Whether the design is a good one is not checked.** Normalization, index
+strategy, type suitability and naming conventions are the author's, as is the
+type compatibility of the two ends of a foreign key. Duplicate *table* names
+across a document — as opposed to duplicate *column* names within one table,
+which are checked — and the uniqueness of index names across a schema are not
+checked either.
 
 ## What the generated workbook contains
 
