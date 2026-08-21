@@ -105,6 +105,51 @@
           "columns": ["shipped_at"]
         }
       ]
+    },
+    {
+      "name": "settings",
+      "logicalName": "設定",
+      "description": "Carries an empty default, and three defaults that do not read as a SQL expression: a bare word, an unbalanced quote and an unbalanced parenthesis.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "設定ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "logicalName": "備考",
+          "type": "TEXT",
+          "nullable": false,
+          "default": ""
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now"
+        },
+        {
+          "name": "owner",
+          "logicalName": "所有者",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "it's"
+        },
+        {
+          "name": "slots",
+          "logicalName": "スロット数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "(1 + 2"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_settings",
+        "columns": ["id"]
+      }
     }
   ]
 }

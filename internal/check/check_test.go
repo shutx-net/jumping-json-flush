@@ -410,6 +410,47 @@ func TestDocument(t *testing.T) {
 			},
 		},
 		{
+			name: "a default that does not read as an expression is located by its column",
+			doc: document(model.Table{
+				Name: "orders", LogicalName: "受注",
+				Columns:    []model.Column{col("id"), withDefault(col("created_at"), "now")},
+				PrimaryKey: &model.PrimaryKey{Name: "pk_orders", Columns: []string{"id"}},
+			}),
+			want: []string{
+				`column created_at on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'`,
+			},
+		},
+		{
+			// A column with no name is not schema-valid, but this package is
+			// total over documents that never passed the schema, so the label
+			// still has to name something a reader can find by counting.
+			name: "an unnamed column falls back to its 1-based position",
+			doc: document(model.Table{
+				Name: "orders", LogicalName: "受注",
+				Columns:    []model.Column{col("id"), col("code"), withDefault(model.Column{Type: "TEXT"}, "now")},
+				PrimaryKey: &model.PrimaryKey{Name: "pk_orders", Columns: []string{"id"}},
+			}),
+			want: []string{
+				`column #3 on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'`,
+			},
+		},
+		{
+			// The default findings are raised inside the loop that already
+			// reports a duplicate column name, so they interleave with it in
+			// column order rather than arriving before or after it as a block.
+			name: "default findings interleave with the duplicate column finding, in column order",
+			doc: document(table("orders",
+				withDefault(col("code"), ""),
+				col("note"),
+				withDefault(col("note"), "now"),
+			)),
+			want: []string{
+				`column code on table orders: declares an empty default; omit the "default" key when the column has no DEFAULT clause`,
+				`table orders: defines column "note" more than once`,
+				`column note on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'`,
+			},
+		},
+		{
 			name: "findings across two tables come out in document order",
 			doc: document(
 				model.Table{
@@ -496,6 +537,19 @@ func TestDocumentIsTotal(t *testing.T) {
 				Name: "orders", LogicalName: "受注",
 				PrimaryKey: &model.PrimaryKey{},
 			}),
+		},
+		{
+			// The scanner has no length bound of its own: the schema's maxLength
+			// is the only one, and a document that skipped the schema must not
+			// make it spin or index past the end.
+			name: "a default of nothing but punctuation, longer than the schema allows",
+			doc:  document(table("orders", withDefault(col("code"), strings.Repeat("()[]::.,", 40)))),
+		},
+		{
+			// A backslash with nothing after it walks the scanner's index past
+			// the last byte of the string.
+			name: "a default ending mid-escape",
+			doc:  document(table("orders", withDefault(col("code"), `E'a\`))),
 		},
 		{
 			name: "two tables sharing a name",
@@ -590,6 +644,10 @@ func TestFixtures(t *testing.T) {
 			"foreign key fk_orders_code on table orders: references (email) of table accounts, " +
 				"which no primary key, unique key or unique index there constrains to be unique",
 			`index ix_orders_missing on table orders: names column "shipped_at", which the table does not define`,
+			`column note on table settings: declares an empty default; omit the "default" key when the column has no DEFAULT clause`,
+			`column created_at on table settings: declares the default "now", in which "now" is a bare word; a string literal is written 'now'`,
+			`column owner on table settings: declares the default "it's", which has an unbalanced single quote`,
+			`column slots on table settings: declares the default "(1 + 2", which has an unbalanced parenthesis`,
 		}
 		doc := decodeFixture(t, filepath.Join("testdata", "invalid", "every_check.json"))
 		if got := rendered(Document(doc)); !slices.Equal(got, want) {
