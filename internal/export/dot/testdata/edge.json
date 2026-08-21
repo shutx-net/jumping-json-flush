@@ -1,0 +1,249 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "graph",
+    "logicalName": "グラフ",
+    "description": "exporter が耐えなければならない形をひとつの文書に集めたもの。",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "graph",
+      "logicalName": "グラフ & <図> \"面\"",
+      "description": "DOT の予約語と同じ名前で、主キーも外部キーも持たない。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "グラフID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "weight",
+          "logicalName": "重み",
+          "type": "NUMERIC",
+          "precision": 8,
+          "nullable": true
+        },
+        {
+          "name": "ratio",
+          "logicalName": "比率",
+          "type": "NUMERIC",
+          "precision": 5,
+          "scale": 2,
+          "nullable": true
+        },
+        {
+          "name": "amount",
+          "logicalName": "金額 <税込>",
+          "type": "NUMERIC",
+          "length": 10,
+          "precision": 5,
+          "scale": 2,
+          "nullable": true
+        },
+        {
+          "name": "drawn_at",
+          "logicalName": "描画日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "edge",
+      "logicalName": "辺",
+      "columns": [
+        {
+          "name": "graph_id",
+          "logicalName": "グラフID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "seq",
+          "logicalName": "連番",
+          "type": "SMALLINT",
+          "nullable": false
+        },
+        {
+          "name": "from_node",
+          "logicalName": "始点ノード",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "to_node",
+          "logicalName": "終点ノード",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_edge",
+        "columns": ["graph_id", "seq"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_edge_graph",
+          "columns": ["graph_id"],
+          "references": {
+            "table": "graph",
+            "columns": ["id"]
+          }
+        },
+        {
+          "columns": ["from_node"],
+          "references": {
+            "table": "nodes",
+            "columns": ["id"]
+          }
+        },
+        {
+          "name": "fk_edge_to_node",
+          "columns": ["to_node"],
+          "references": {
+            "table": "nodes",
+            "columns": ["id"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "edge_labels",
+      "logicalName": "辺ラベル",
+      "description": "複合外部キーが複合主キー全体と一致するため 1:1 になる。",
+      "columns": [
+        {
+          "name": "graph_id",
+          "logicalName": "グラフID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "seq",
+          "logicalName": "連番",
+          "type": "SMALLINT",
+          "nullable": false
+        },
+        {
+          "name": "caption",
+          "logicalName": "表示文字列",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_edge_labels",
+        "columns": ["graph_id", "seq"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_edge_labels_edge",
+          "columns": ["seq", "graph_id"],
+          "references": {
+            "table": "edge",
+            "columns": ["graph_id", "seq"]
+          },
+          "onDelete": "CASCADE"
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "logicalName": "分類",
+      "description": "自己参照する外部キーを持つ。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "分類ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "parent_id",
+          "logicalName": "親分類ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "logicalName": "分類名",
+          "type": "VARCHAR",
+          "length": 60,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_categories",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_categories_parent",
+          "columns": ["parent_id"],
+          "references": {
+            "table": "categories",
+            "columns": ["id"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "node_stats",
+      "logicalName": "ノード統計",
+      "description": "一意インデックスだけが一意性を与える表。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "統計ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "node_id",
+          "logicalName": "ノードID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "visits",
+          "logicalName": "訪問回数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_node_stats",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_node_stats_node",
+          "columns": ["node_id"],
+          "references": {
+            "table": "nodes",
+            "columns": ["id"]
+          }
+        },
+        {
+          "name": "fk_node_stats_unknown_column",
+          "columns": ["missing_id"],
+          "references": {
+            "table": "graph",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_node_stats_node",
+          "columns": ["node_id"],
+          "unique": true
+        }
+      ]
+    }
+  ]
+}
