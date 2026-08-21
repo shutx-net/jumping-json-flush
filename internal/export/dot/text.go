@@ -33,17 +33,23 @@ import (
 // table names graph, node, edge, subgraph, strict and digraph - every one of
 // them a DOT keyword. Quoting unconditionally costs one byte per side and
 // removes the entire class of collisions.
+func quoteID(s string) string { return `"` + escapeString(s) + `"` }
+
+// escapeString escapes s for the inside of a DOT double-quoted string. It is
+// quoteID without the quotes, and exists for the one caller that builds a
+// longer string around document text: the stub node's label, which appends a
+// DOT \n escape that must reach graphviz unaltered and so cannot be produced
+// by quoting the whole label at once.
 //
 // The escaping is defensive rather than reachable: every quoted string this
 // package emits is built from $defs/identifier values - the database name,
 // table names, foreign key names and column names - which cannot contain a
 // quote, a backslash, a newline or anything else needing an escape. It is here
 // so that a future caller passing freer text cannot open a hole, and the unit
-// test is the only place it is exercised.
-func quoteID(s string) string {
+// tests are the only place it is exercised.
+func escapeString(s string) string {
 	var b strings.Builder
-	b.Grow(len(s) + 2)
-	b.WriteByte('"')
+	b.Grow(len(s))
 	// One pass, byte by byte: two successive Replace calls could be ordered
 	// wrongly and escape their own output. Bytes of a multibyte UTF-8 sequence
 	// are all >= 0x80 and so fall through untouched.
@@ -57,7 +63,6 @@ func quoteID(s string) string {
 			b.WriteByte(c)
 		}
 	}
-	b.WriteByte('"')
 	return b.String()
 }
 
