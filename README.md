@@ -82,8 +82,9 @@ not even a single byte. **The same input always produces a byte-identical
 `jjf validate` then checks the document **against itself**: that the columns named
 by its keys and indexes exist, that every foreign key names a table this document
 defines, matches it column for column and targets columns that table constrains
-to be unique, that no primary key column is declared nullable, and that one table
-never uses the same column or constraint name twice. Those findings are warnings
+to be unique, that no primary key column is declared nullable, that one table
+never uses the same column or constraint name twice, and that no column declares
+a default that is empty or does not read as a SQL expression. Those findings are warnings
 on standard error and leave the exit code successful, so a document that passes
 today keeps passing; `-strict` turns them into a failure.
 

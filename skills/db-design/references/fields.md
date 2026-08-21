@@ -62,15 +62,16 @@ Applies to `database.name`, `tables[].name`, `columns[].name`,
 
 - **Boolean, never omitted.** `true` accepts NULL, `false` is NOT NULL
 - The string `"true"` is a type error. Do not quote it
-- Set `false` on every column of the primary key. `jjf` does not check this,
-  so it is on the author
+- Set `false` on every column of the primary key. `jjf validate` warns when a
+  primary key column is declared nullable
 
 ## `default`
 
 - **String only**, at most 255 characters. Numbers and booleans are written as
   strings too (`"default": "0"`, `"default": "true"`)
-- The value is a **SQL expression or literal, copied verbatim**. `jjf` never
-  interprets it
+- The value is **SQL expression text, copied verbatim** into the DEFAULT
+  clause. `jjf` never evaluates it; it only checks that it reads as an
+  expression
 - String literals carry their quotes: `"default": "'pending'"`, or
   `"default": "''"` for the empty string
 - Functions go in as written: `"default": "CURRENT_TIMESTAMP"`,
@@ -78,7 +79,13 @@ Applies to `database.name`, `tables[].name`, `columns[].name`,
 - **No DEFAULT clause means no `default` key.** Omit it entirely
 - Write `"default": "NULL"` only to state `DEFAULT NULL` explicitly
 - `"default": ""` means "a DEFAULT of the empty SQL expression", which is
-  meaningless. For a default of the empty string write `"''"`
+  meaningless. For a default of the empty string write `"''"`. `jjf validate`
+  warns about it
+- An unquoted word is warned about too: `"default": "now"` is a *column
+  reference* in SQL, not the string `now` — PostgreSQL rejects it with "cannot
+  use column reference in DEFAULT expression". Write `"'now'"` for the string,
+  `"now()"` for the function. Keyword constants such as `CURRENT_TIMESTAMP`
+  need nothing
 
 ## `autoIncrement`
 

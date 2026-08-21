@@ -30,7 +30,7 @@ Validation touches no network. The schema is embedded in the binary, so a
 
 ### Referential checks
 
-A document that conforms to the schema is then checked **against itself**. Six
+A document that conforms to the schema is then checked **against itself**. Eight
 things are looked at:
 
 - every column named by a primary key, a unique key, a foreign key or an index
@@ -42,6 +42,11 @@ things are looked at:
 - no primary key column is declared `nullable: true`
 - one table never uses the same column name, or the same constraint or index
   name, twice
+- no column declares a `default` that is empty — write no `default` key at all
+  when the column has no DEFAULT clause
+- every `default` reads as a SQL expression. A string default carries its SQL
+  quoting, so the string `now` is written `"'now'"`; the bare `"now"` is a
+  column reference, which no DEFAULT may contain
 
 Each finding is one line on standard error, naming the object rather than a
 place in the file:
@@ -74,7 +79,9 @@ schema violation, and asking for `-strict` is a property of the invocation.
 Whether the design is a *good* one is not checked and never will be:
 normalization, index strategy, type suitability and naming conventions are the
 author's. Duplicate table names across a document, and the uniqueness of index
-names across a schema, are not checked either.
+names across a schema, are not checked either. A `default` is only read as an
+expression, never evaluated: jjf does not run it, does not check it against the
+column's `type`, and does not object to a function it has never heard of.
 
 ## export
 

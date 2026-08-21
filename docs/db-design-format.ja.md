@@ -52,7 +52,7 @@
 | 未知プロパティ | すべてのオブジェクトで**禁止**（`additionalProperties: false`） |
 | 物理名 | `^[A-Za-z_][A-Za-z0-9_]*$`、128 文字以内。日本語は `logicalName` に書く |
 | 型名 | `VARCHAR(30)` のようなパラメータ込みは不可。`type: "VARCHAR"` + `length: 30` に分ける |
-| 既定値 | `default` は文字列のみ。SQL リテラルは引用符込み（`"'pending'"`）。DEFAULT 句なしはキー自体を書かない |
+| 既定値 | `default` は DEFAULT 句にそのまま入る SQL 式のテキスト。文字列の既定値は SQL の引用符込み（`"'pending'"`）。DEFAULT 句なしはキー自体を書かない。空の `""` は警告 |
 | enum | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`。`onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 ### import 時の PostgreSQL 型の扱い
@@ -97,7 +97,8 @@
 キーとインデックスが指すカラムの存在、外部キーの参照先テーブルが定義されていること、
 列数が一致すること、参照先の列が一意（主キー・ユニークキー・ユニークインデックスの
 いずれか）であること、主キーのカラムが `nullable: true` でないこと、同一テーブル内で
-カラム名・制約名が重複しないことの 6 点である。検出結果は警告として標準エラーに出力し、
+カラム名・制約名が重複しないこと、既定値が空でなく SQL 式として読めることの 8 点である。
+検出結果は警告として標準エラーに出力し、
 終了コードは 0 のままである。`-strict` を付けたときだけ終了コード 2 で失敗する。
 詳細は [参照整合性の検査](usage.ja.md#参照整合性の検査) にある。
 

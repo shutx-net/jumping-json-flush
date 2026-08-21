@@ -66,6 +66,7 @@ A generated `.xlsx` is **not** a source. Never read one as input.
 5. Write SQL string literals in `default` with their quotes included, as in
    `"default": "'pending'"`. Omit the `default` key entirely when the column has
    no DEFAULT clause; never write `"default": ""` to mean "no default".
+   `jjf validate` warns about both an empty default and an unquoted word.
 6. Never change `formatVersion` to work around an error.
 7. Run `jjf validate` after every edit, and report done only once it passes.
 8. Change only what was asked. No drive-by reformatting or reordering.
@@ -132,8 +133,8 @@ duplicates.
 | Command | Effect |
 | --- | --- |
 | `jjf import postgres schema.sql -o db-design.json` | Builds a document from a `pg_dump --schema-only` file, validating it before writing |
-| `jjf validate db-design.json` | Validates the structure, then reports referential problems as warnings; prints `db-design.json: OK` |
-| `jjf validate -strict db-design.json` | Same, but any referential warning fails the run with exit code 2 |
+| `jjf validate db-design.json` | Validates the structure, then reports what the document contradicts as warnings; prints `db-design.json: OK` |
+| `jjf validate -strict db-design.json` | Same, but any warning fails the run with exit code 2 |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | Validates, then writes the workbook and prints `db-design.xlsx: written` |
 | `jjf export xlsx db-design.json` | Same, writing next to the input with the extension replaced |
 | `jjf export xlsx db-design.json -o -` | Writes to standard output; refused when that is a terminal, because a workbook is binary |

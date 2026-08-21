@@ -85,7 +85,7 @@
    `"length": 30` に分ける。pattern が括弧を許可していない。
 5. `default` の SQL 文字列リテラルは引用符込みで書く（`"default": "'pending'"`）。
    DEFAULT 句がないなら `default` キー自体を書かない。「既定値なし」を `"default": ""` で
-   表さない。
+   表さない。空の既定値も引用符のない語も `jjf validate` が警告する。
 6. エラーを回避するために `formatVersion` を書き換えない。
 7. 編集したら毎回 `jjf validate` を実行し、通ってから完了とする。
 8. 依頼されたことだけ変更する。ついでの整形や並べ替えをしない。
@@ -218,20 +218,26 @@ enum の許容値は、試行錯誤せず一発で正しく書けるように全
 
 - **boolean、省略不可。** `true` は NULL 可、`false` は NOT NULL
 - 文字列 `"true"` は型エラーになる。クォートしない
-- 主キーを構成するカラムは `false` にする。`jjf` は検査しないので書く側の責任である
+- 主キーを構成するカラムは `false` にする。主キーのカラムが `nullable: true` だと
+  `jjf validate` が警告する
 
 ### default
 
 - **string のみ**、255 文字以内。数値も真偽値も文字列として書く
   （`"default": "0"`、`"default": "true"`）
-- 値は **SQL 式・SQL リテラルをそのまま書いたもの**である。`jjf` は中身を解釈しない
+- 値は **DEFAULT 句にそのまま入る SQL 式のテキスト**である。`jjf` は中身を評価しない。
+  式として読めるかどうかだけを見る
 - 文字列リテラルは引用符込み: `"default": "'pending'"`、空文字列なら `"default": "''"`
 - 関数はそのまま: `"default": "CURRENT_TIMESTAMP"`、`"default": "now()"`、
   `"default": "gen_random_uuid()"`
 - **DEFAULT 句がないなら `default` キー自体を書かない。** 完全に省略する
 - `DEFAULT NULL` を明示したいときだけ `"default": "NULL"` と書く
 - `"default": ""` は「空の SQL 式を既定値にする」という意味不明な指定になる。空文字列を
-  既定値にしたいなら `"''"` と書く
+  既定値にしたいなら `"''"` と書く。`jjf validate` はこれを警告する
+- 引用符のない語も警告する。`"default": "now"` は SQL では文字列 `now` ではなく
+  **カラム参照**であり、PostgreSQL は "cannot use column reference in DEFAULT
+  expression" で撥ねる。文字列なら `"'now'"`、関数なら `"now()"` と書く。
+  `CURRENT_TIMESTAMP` のような keyword 定数はそのままでよい
 
 ### autoIncrement
 
@@ -466,12 +472,14 @@ jjf import postgres schema.sql -o db-design.json
 
 - NOT NULL にする: `nullable` を `false` にする。そのカラムが `SET NULL` 外部キーの
   NULL 側になっていないかを先に確認し、既存の NULL 行をどう扱うかを `description` に書く
-- 既定値を外す: **`default` キーを削除する。** `""` にしない
+- 既定値を外す: **`default` キーを削除する。** `""` にしない。`""` は `jjf validate` が
+  警告する
 
 ### カラムを削除する
 
 `columns` から要素を消したら、**そのカラム名を参照している箇所をすべて消す。**
-参照整合性は `jjf` が検査しないので、消し漏れても検証は通ってしまう。
+消し漏れは `jjf validate` が警告するが、警告は終了コードを 0 のままにするので、
+`-strict` を付けない限り検証自体は通る。
 
 確認する場所:
 
@@ -675,7 +683,10 @@ CI での比較を可能にするためである。
 - `長さ` 列は `length` があればその値、なければ `precision`、両方あれば `precision,scale`
   （例 `10,2`）。3 つとも無ければ空
 - `既定値` 列は、似て見えるが違う 2 つの状態を書き分ける。`default` に空文字列を書いた場合は
-  **空文字列のセル**、**`default` キー自体が無い**場合は**空白セル**になる
+  **空文字列のセル**、**`default` キー自体が無い**場合は**空白セル**になる。前者は書いて
+  よい指定ではなく `jjf validate` が警告する間違いで、両方を空白セルにすると著者が読む
+  成果物からその間違いが消えてしまうため、workbook は書かれたとおりに書き分ける。SQL の
+  空文字列を既定値にしたいなら `"''"` と書く
 - `説明` 列は折り返し表示になる
 
 ### 制約ブロック

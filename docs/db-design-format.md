@@ -54,7 +54,7 @@ The essentials:
 | Unknown properties | **rejected** on every object (`additionalProperties: false`) |
 | Physical names | `^[A-Za-z_][A-Za-z0-9_]*$`, at most 128 characters. Japanese belongs in `logicalName` |
 | Type names | Parameters may not be inlined as in `VARCHAR(30)`. Split them into `type: "VARCHAR"` plus `length: 30` |
-| Defaults | `default` is a string only. A SQL literal includes its quotes (`"'pending'"`). No DEFAULT clause means the key is simply absent |
+| Defaults | `default` is SQL expression text, copied verbatim into the DEFAULT clause. A string default carries its SQL quoting (`"'pending'"`). No DEFAULT clause means the key is simply absent; an empty `""` is a warning |
 | Enums | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`. `onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 ### PostgreSQL types on import
@@ -103,8 +103,9 @@ VS Code. `jjf` itself never reads the value.
 the columns named by its keys and indexes exist, that every foreign key names a
 table this document defines, matches it column for column and targets columns
 that table constrains to be unique, that no primary key column is declared
-nullable, and that one table never uses the same column or constraint name
-twice. Those findings are warnings; `-strict` turns them into a failure. See
+nullable, that one table never uses the same column or constraint name twice,
+and that no column declares a default that is empty or does not read as a SQL
+expression. Those findings are warnings; `-strict` turns them into a failure. See
 [Referential checks](usage.md#referential-checks).
 
 **Whether the design is a good one is not checked.** Normalization, index

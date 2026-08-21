@@ -214,7 +214,7 @@
         },
         "default": {
           "type": "string",
-          "description": "Default value written verbatim as a SQL expression or literal. Absent means no DEFAULT clause.",
+          "description": "SQL expression text for the DEFAULT clause, copied verbatim. A string default carries its SQL quoting, as in 'pending'. Absent means no DEFAULT clause.",
           "maxLength": 255
         },
         "autoIncrement": {
