@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "logicalName": "オンラインショップ",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_orders_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_placed_at",
+          "columns": ["placed_at"]
+        }
+      ]
+    }
+  ]
+}

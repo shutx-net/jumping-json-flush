@@ -1,0 +1,3 @@
+testdata/referential_warnings.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
+testdata/referential_warnings.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+testdata/referential_warnings.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
