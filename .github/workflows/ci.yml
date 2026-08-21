@@ -59,23 +59,19 @@ jobs:
           go-version-file: go.mod
 
       - name: staticcheck
-        env:
-          # staticcheck 2026.1 is honnef.co/go/tools v0.7.0, whose go.mod requires
-          # go >= 1.25.0, while jjf itself targets 1.24. Automatic toolchain
-          # switching is what lets the go command fetch the newer toolchain for
-          # this one tool run; pinning GOTOOLCHAIN=local here would fail with
-          # "requires go >= 1.25.0".
-          #
-          # setup-go has exported GOTOOLCHAIN=local itself since v6, so this is no
-          # longer only an override of the default: it is an override of the
-          # action. It works because a step's own env wins over anything an
-          # earlier step put in GITHUB_ENV, and it has to stay on this step alone
-          # - every other job here is meant to run the toolchain go.mod names and
-          # nothing else.
-          GOTOOLCHAIN: auto
         # Run the linter with a version suffix instead of adding it to go.mod:
         # `go get -tool` would pull in six indirect dependencies and raise the go
         # directive, which the project's minimal-dependency policy forbids.
+        #
+        # This step carried GOTOOLCHAIN=auto while jjf targeted 1.24: staticcheck
+        # 2026.1 is honnef.co/go/tools v0.7.0, whose go.mod requires go >= 1.25.0,
+        # so the run needed a toolchain newer than the one go.mod named. The
+        # toolchain directive now names 1.26.7, which already satisfies that, and
+        # the override is gone with it. Every job in this file runs the toolchain
+        # go.mod names and nothing else, which is what the rest of it already
+        # wanted. A future staticcheck needing more than the pinned toolchain
+        # fails loudly with "requires go >= x.y.z" instead of drifting onto some
+        # other version.
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
 
   crossbuild:

@@ -165,9 +165,10 @@ sha256sum -c archive.sha256      # macOS: shasum -a 256 -c archive.sha256
 go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
 ```
 
-Name a tag, as in `@v0.1.0`, to pin a version. Go 1.24 or later is required. The
-version such a binary reports is the module version Go recorded, not a release
-tag.
+Name a tag, as in `@v0.1.0`, to pin a version. Go 1.26 or later is required; an
+older Go fetches the toolchain `go.mod` names, unless `GOTOOLCHAIN=local` forbids
+it. The version such a binary reports is the module version Go recorded, not a
+release tag.
 
 ## nix
 
