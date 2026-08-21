@@ -77,9 +77,21 @@ direnv.
   so in its own headers, and is not produced by the script. It covers dump shapes
   no installed pg_dump writes any more — unqualified names, `WITH (oids = false)` —
   and one deliberately broken file
-- The nix dev shell pins `GOTOOLCHAIN=local`, so no go command downloads a
-  toolchain beside the one nix provides. Its `staticcheck` is the same 2026.1
-  release CI pins
+- `go.mod` pins the toolchain in two directives that do different jobs. `go 1.26`
+  is the floor: a go command older than that refuses to build, which is where the
+  enforcement lives. `toolchain go1.26.7` is the exact release the go command
+  fetches and runs when the local one is older, downloaded as a module and
+  verified through the checksum database like any other. Set them with
+  `go mod edit -go=1.26 -toolchain=go1.26.7` rather than by hand; plain
+  `go get go@1.26` resolves to the newest patch and collapses both into a single
+  `go 1.26.7` line, which would make the flake assertion below demand that exact
+  patch from nixpkgs
+- `GOTOOLCHAIN=local` ignores the toolchain directive and runs whatever is
+  installed, so a build under it is pinned by the `go` line alone. That is the
+  case in the nix dev shell, which pins `GOTOOLCHAIN=local` so no go command
+  downloads a toolchain beside the one nix provides: a nix build uses nixpkgs'
+  Go, pinned by `flake.lock`, and `flake.nix` asserts only that it satisfies the
+  `go` directive. Its `staticcheck` is the same 2026.1 release CI pins
 - A binary from `nix build` has no VCS metadata to stamp, so it reports
   `v<manifest version>+nix.<rev>` rather than a tag. Release archives keep coming
   from the release workflow

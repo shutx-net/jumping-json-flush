@@ -1,6 +1,8 @@
 module github.com/shutx-net/jumping-json-flush
 
-go 1.24
+go 1.26
+
+toolchain go1.26.7
 
 require github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 
