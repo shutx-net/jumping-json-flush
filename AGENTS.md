@@ -89,9 +89,20 @@ Tool versions and specification format versions are independent.
 
 ## Scope
 
+`jjf validate` checks a document against the JSON Schema and then against
+itself: whether the columns named by keys and indexes exist, whether every
+foreign key names a table the document defines, matches it column for column
+and targets columns that table constrains to be unique, whether a primary key
+column is nullable, and whether one table reuses a column or constraint name.
+Those findings are warnings; `-strict` makes them a failure.
+
 Unless explicitly requested, do not add:
 
-* semantic database validation
+* database design judgement: normalization, index strategy, type suitability,
+  naming conventions, or anything else that is an opinion about a design rather
+  than a statement about the document
+* checks that depend on a particular database system, such as the uniqueness of
+  index names across a schema
 * database connections or introspection
 * migration management
 * ORM functionality

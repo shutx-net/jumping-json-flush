@@ -2,7 +2,9 @@
 
 Worked JSON for each kind of edit, plus the one recipe that starts a document
 instead of changing it. Every recipe ends the same way: run
-`jjf validate <input.json>` and only stop once it passes.
+`jjf validate <input.json>` and only stop once it passes. A `warning:` line does
+not fail the run, but it is worth fixing all the same — see
+[errors.md](errors.md).
 
 Back to [SKILL.md](../SKILL.md). Allowed values are in [fields.md](fields.md).
 

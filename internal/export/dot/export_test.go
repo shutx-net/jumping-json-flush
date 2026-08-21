@@ -408,9 +408,10 @@ func TestExportSelfReference(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestExportStubNodeForUndefinedTarget covers a legal document: the schema
-// deliberately does not check that a foreign key's target exists, because
-// semantic validation is out of scope. The edge is not dropped and the export
-// does not fail; the diagram shows exactly what the JSON claims.
+// deliberately does not check that a foreign key's target exists. The edge is
+// not dropped and the export does not fail; the diagram shows exactly what the
+// JSON claims. "jjf validate" warns about the same document - the exporter
+// never does.
 func TestExportStubNodeForUndefinedTarget(t *testing.T) {
 	first := model.Table{
 		Name: "orders", LogicalName: "受注",

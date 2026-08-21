@@ -27,6 +27,49 @@ db-design.json: does not conform to the jjf database design schema
 検証はネットワークにアクセスしない。スキーマはバイナリに埋め込まれているため、
 文書に `$schema` が書かれていても外部を取得しにいくことはない。
 
+### 参照整合性の検査
+
+スキーマに適合した文書は、続けて**自分自身と矛盾していないか**を検査する。
+見るのは次の 6 点である。
+
+- 主キー・ユニークキー・外部キー・インデックスが指すカラムが、宣言している
+  テーブルに定義されていること
+- 外部キーの参照先テーブルが、この文書で定義されていること
+- 外部キーの列数と参照先の列数が一致すること
+- 参照先の列が集合として一意であること（参照先テーブルの主キー・ユニークキー・
+  ユニークインデックスのいずれかによる）
+- 主キーのカラムが `nullable: true` でないこと
+- 同一テーブル内でカラム名、および制約名・インデックス名が重複しないこと
+
+検出結果は 1 件 1 行で標準エラーに出力する。位置ではなく対象の名前で示す。
+
+```text
+db-design.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+db-design.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
+db-design.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+```
+
+これらは**警告**である。終了コードは 0 のままで、標準出力の成功行に件数が添えられる。
+いま通る文書はこれからも通る。
+
+```text
+db-design.json: OK, 3 warning(s)
+```
+
+- `-strict` はすべての警告をエラーに変える。警告はどちらの場合も出力される。
+  `-strict` が変えるのは実行の成否だけであり、このとき標準出力には何も書かれない
+
+```sh
+jjf validate -strict db-design.json   # 検出があれば終了コード 2
+```
+
+`-strict` での失敗は **3 ではなく 2** である。3 は JSON Schema に適合しないことだけを
+意味する。参照整合性の指摘はスキーマ違反ではなく、`-strict` を付けたのは呼び出し方の
+問題だからである。
+
+設計の良し悪し（正規化・インデックス設計・型選択・命名規約）は判断しない。
+テーブル名の文書内での重複、インデックス名のスキーマ全体での一意性も検査しない。
+
 ## export
 
 ```sh
@@ -79,8 +122,9 @@ dot -Tsvg er.dot -o er.svg
 - 図はテーブル 1 つにつき節 1 つ（列を並べた HTML 風の表で、各行に `PK` / `FK` の
   マーカー、物理名と論理名、型が入る）と、外部キー 1 本につき辺 1 本からなる
 - 文書が定義していないテーブルを参照する外部キーは、失敗させずに破線のスタブ節として
-  描く。外部キーの参照先は意図的に検査していない。意味検証は対象外であり、
-  そうした文書は合法で、図は JSON が主張しているとおりのものを示す
+  描く。exporter は何も検査せず、何も報告しない。そうした文書は合法で、図は JSON が
+  主張しているとおりのものを示す。同じ文書を警告として報告するのは `jjf validate`
+  の役目である
 
 #### 多重度
 
@@ -211,6 +255,8 @@ jjf version
 | 4 | 出力生成エラー | 出力先に書き込めない、ディレクトリが無い |
 
 CI で使うときは **3 と 2 を区別できる**ことが重要である。3 は設計 JSON の中身の問題、
-2 は呼び出し方・ファイルの場所・`jjf` のバージョンの問題である。
+2 は呼び出し方・ファイルの場所・`jjf` のバージョンの問題である。3 は JSON Schema への
+適合だけを意味する。参照整合性の指摘はスキーマ違反ではないので、`validate -strict` は
+`import -strict` と同じく 2 で報告する。
 
 成功メッセージは標準出力、エラーと usage は標準エラーに出力される。

@@ -81,6 +81,8 @@ A generated `.xlsx` is **not** a source. Never read one as input.
 5. Run `jjf validate <input.json>`.
 6. **If validation fails, return to step 4.** One run reports every violation at once, so fix all
    of them before running again. Never report done on a document that still fails.
+   A `warning:` line does not fail the run, but it is the document contradicting
+   itself — fix it rather than ignoring it; see [references/errors.md](references/errors.md).
 7. Run `jjf export xlsx <input.json> -o <output.xlsx>` when a refreshed workbook is wanted,
    or `jjf export dot <input.json> -o <output.dot>` when an ER diagram is wanted.
    Export validates first, so a failing document produces no output at all.
@@ -130,7 +132,8 @@ duplicates.
 | Command | Effect |
 | --- | --- |
 | `jjf import postgres schema.sql -o db-design.json` | Builds a document from a `pg_dump --schema-only` file, validating it before writing |
-| `jjf validate db-design.json` | Validates and prints `db-design.json: OK` |
+| `jjf validate db-design.json` | Validates the structure, then reports referential problems as warnings; prints `db-design.json: OK` |
+| `jjf validate -strict db-design.json` | Same, but any referential warning fails the run with exit code 2 |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | Validates, then writes the workbook and prints `db-design.xlsx: written` |
 | `jjf export xlsx db-design.json` | Same, writing next to the input with the extension replaced |
 | `jjf export xlsx db-design.json -o -` | Writes to standard output; refused when that is a terminal, because a workbook is binary |
@@ -147,7 +150,8 @@ Success goes to standard output; errors and usage go to standard error.
 | 3 | **schema violation** | fixing the contents of the JSON |
 | 4 | output failure | creating the output directory or fixing its permissions |
 
-Codes 3 and 2 are the fork in the road: 3 means the document is wrong, 2 the invocation or the environment.
+Codes 3 and 2 are the fork in the road: 3 means the document does not conform to the JSON Schema, 2 the invocation
+or the environment — which is why `-strict` with warnings is a 2.
 
 ## formatVersion policy
 
@@ -178,10 +182,10 @@ already exists, `jjf import postgres` is the shorter path; see the recipe.
 `jjf` does none of the following. Say so plainly instead of fabricating JSON
 that pretends otherwise.
 
-- **Semantic validation.** Foreign key targets, duplicate table or column names,
-  the existence of key and index columns, type compatibility across a foreign key
-  and `nullable` consistency with the primary key are all unchecked, and so are
-  the author's responsibility.
+- **Database design judgement.** Normalization, index strategy, type suitability
+  and naming conventions are the author's, and so are type compatibility across a
+  foreign key and duplicate table names — those stay unchecked. What `jjf
+  validate` does check is in [references/errors.md](references/errors.md).
 - DDL or SQL generation
 - Connecting to a database. A schema is imported from a `pg_dump` **file**, never from a live server
 - Migrations, schema diffs, breaking-change detection

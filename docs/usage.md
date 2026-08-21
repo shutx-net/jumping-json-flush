@@ -28,6 +28,54 @@ db-design.json: does not conform to the jjf database design schema
 Validation touches no network. The schema is embedded in the binary, so a
 `$schema` written in the document never causes a fetch.
 
+### Referential checks
+
+A document that conforms to the schema is then checked **against itself**. Six
+things are looked at:
+
+- every column named by a primary key, a unique key, a foreign key or an index
+  is defined by the table that declares it
+- every foreign key names a table this document defines
+- a foreign key names as many columns as it references
+- the referenced columns, as a set, are constrained to be unique in the target
+  table — by its primary key, by one of its unique keys, or by a unique index
+- no primary key column is declared `nullable: true`
+- one table never uses the same column name, or the same constraint or index
+  name, twice
+
+Each finding is one line on standard error, naming the object rather than a
+place in the file:
+
+```text
+db-design.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+db-design.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
+db-design.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+```
+
+They are **warnings**. The exit code stays 0 and standard output reports the
+count beside the verdict, so a document that passes today keeps passing:
+
+```text
+db-design.json: OK, 3 warning(s)
+```
+
+- `-strict` turns every warning into an error. The warnings are printed either
+  way; `-strict` changes only what the run is worth, and nothing is written to
+  standard output in that case
+
+```sh
+jjf validate -strict db-design.json   # exit code 2 when anything was found
+```
+
+A strict failure is **exit code 2, not 3**. Code 3 means the document does not
+conform to the JSON Schema and nothing else; a referential finding is not a
+schema violation, and asking for `-strict` is a property of the invocation.
+
+Whether the design is a *good* one is not checked and never will be:
+normalization, index strategy, type suitability and naming conventions are the
+author's. Duplicate table names across a document, and the uniqueness of index
+names across a schema, are not checked either.
+
 ## export
 
 ```sh
@@ -86,9 +134,10 @@ dot -Tsvg er.dot -o er.svg
   row carrying the `PK` / `FK` markers, the physical and logical names and the
   type — and one edge per foreign key
 - A foreign key naming a table the document does **not** define renders as a
-  dashed stub node rather than failing. Foreign key targets are deliberately
-  never checked: semantic validation is out of scope, so such a document is
-  legal and the diagram shows exactly what the JSON claims
+  dashed stub node rather than failing. The exporter checks nothing and reports
+  nothing, ever: such a document is legal and the diagram shows exactly what the
+  JSON claims. `jjf validate` is where the same document is reported, as a
+  warning
 
 #### Cardinality
 
@@ -225,6 +274,8 @@ module version Go recorded.
 
 What matters in CI is being able to **tell 3 from 2**. A 3 is a problem with the
 contents of the design JSON; a 2 is a problem with how the tool was called, where
-the file is, or which version of `jjf` is installed.
+the file is, or which version of `jjf` is installed. A 3 means JSON Schema
+conformance and nothing else: a referential finding is not a schema violation, so
+`validate -strict` reports one as 2, exactly as `import -strict` does.
 
 Success messages go to standard output; errors and usage go to standard error.
