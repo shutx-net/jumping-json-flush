@@ -1,0 +1,278 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "logicalName": "オンラインショップ",
+    "description": "受注から出荷までを扱う業務データベース。",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "会員登録済みの顧客。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "credit_limit",
+          "logicalName": "与信限度額",
+          "type": "NUMERIC",
+          "precision": 12,
+          "scale": 2,
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_customers_email",
+          "columns": ["email"]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_customers_created_at",
+          "columns": ["created_at"]
+        }
+      ]
+    },
+    {
+      "name": "customer_profiles",
+      "logicalName": "顧客プロフィール",
+      "description": "顧客 1 件につき高々 1 件。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "プロフィールID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "nickname",
+          "logicalName": "ニックネーム",
+          "type": "VARCHAR",
+          "length": 50,
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customer_profiles",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_customer_profiles_customer",
+          "columns": ["customer_id"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_customer_profiles_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          },
+          "onDelete": "CASCADE"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "coupon_id",
+          "logicalName": "クーポンID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "total_amount",
+          "logicalName": "受注金額合計",
+          "type": "NUMERIC",
+          "precision": 14,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "ordered_at",
+          "logicalName": "受注日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_orders_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        },
+        {
+          "name": "fk_orders_coupon",
+          "columns": ["coupon_id"],
+          "references": {
+            "table": "coupons",
+            "columns": ["id"]
+          },
+          "onDelete": "SET NULL"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_customer_id",
+          "columns": ["customer_id"]
+        }
+      ]
+    },
+    {
+      "name": "order_lines",
+      "logicalName": "受注明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "明細番号",
+          "type": "SMALLINT",
+          "nullable": false
+        },
+        {
+          "name": "product_code",
+          "logicalName": "商品コード",
+          "type": "CHAR",
+          "length": 13,
+          "nullable": false
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "単価",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_order_lines",
+        "columns": ["order_id", "line_no"]
+      },
+      "uniqueKeys": [
+        {
+          "columns": ["order_id", "product_code"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_order_lines_order",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          },
+          "onDelete": "CASCADE"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_lines_product_code",
+          "columns": ["product_code"]
+        }
+      ]
+    },
+    {
+      "name": "coupons",
+      "logicalName": "クーポン",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "クーポンID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "code",
+          "logicalName": "クーポンコード",
+          "type": "VARCHAR",
+          "length": 20,
+          "nullable": false
+        },
+        {
+          "name": "discount_rate",
+          "logicalName": "割引率",
+          "type": "NUMERIC",
+          "precision": 5,
+          "scale": 3,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_coupons",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_coupons_code",
+          "columns": ["code"]
+        }
+      ]
+    }
+  ]
+}

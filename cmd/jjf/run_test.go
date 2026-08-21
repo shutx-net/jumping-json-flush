@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -512,6 +513,31 @@ func TestRunExportErrors(t *testing.T) {
 			wantStderr: `unsupported format "markdown"`,
 		},
 		{
+			// The message lists the table, so a new format appears in it
+			// without anyone editing the message.
+			name:       "unsupported format names every format",
+			args:       []string{"export", "markdown", "testdata/valid.json"},
+			wantCode:   2,
+			wantStderr: "supported formats: xlsx, dot",
+		},
+		{
+			// A format name that differs only in case is unknown, exactly as
+			// an import dialect that does is.
+			name:       "a format name is case sensitive",
+			args:       []string{"export", "XLSX", "testdata/valid.json"},
+			wantCode:   2,
+			wantStderr: `unsupported format "XLSX"`,
+		},
+		{
+			// Validation runs before rendering for every format, so the dot
+			// exporter is never reached and no file is written.
+			name:       "schema violation, dot",
+			args:       []string{"export", "dot", "testdata/schema_violation.json"},
+			useTempOut: true,
+			wantCode:   3,
+			wantStderr: "does not conform to the jjf database design schema",
+		},
+		{
 			name:       "no arguments",
 			args:       []string{"export"},
 			wantCode:   2,
@@ -635,6 +661,191 @@ func checkWorkbook(t *testing.T, b []byte) {
 	for _, want := range []string{"[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("the workbook has no %s; it holds %v", want, names)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The dot format
+// ---------------------------------------------------------------------------
+
+// TestRunExportWritesDot covers the three positions -o may appear in, as the
+// workbook test does, and checks that the position cannot change the bytes.
+func TestRunExportWritesDot(t *testing.T) {
+	tests := []struct {
+		name string
+		args func(out string) []string
+	}{
+		{"flag after operands", func(out string) []string {
+			return []string{"export", "dot", "testdata/valid.json", "-o", out}
+		}},
+		{"flag before operands", func(out string) []string {
+			return []string{"export", "-o", out, "dot", "testdata/valid.json"}
+		}},
+		{"flag between operands", func(out string) []string {
+			return []string{"export", "dot", "-o", out, "testdata/valid.json"}
+		}},
+	}
+
+	var first []byte
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out.dot")
+			var stdout, stderr bytes.Buffer
+
+			if code := run(tt.args(out), &stdout, &stderr); code != 0 {
+				t.Fatalf("run = %d, want 0\nstdout: %s\nstderr: %s", code, &stdout, &stderr)
+			}
+			if !strings.Contains(stdout.String(), out) {
+				t.Errorf("stdout = %q, want it to name %s", stdout.String(), out)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want empty", stderr.String())
+			}
+
+			got := readDotSource(t, out)
+			if first == nil {
+				first = got
+			} else if !bytes.Equal(first, got) {
+				t.Error("the same document exported to different bytes depending on flag position")
+			}
+		})
+	}
+}
+
+func TestRunExportDotDefaultsToTheInputPath(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "db-design.json")
+	raw, err := os.ReadFile("testdata/valid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "dot", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	readDotSource(t, filepath.Join(dir, "db-design.dot"))
+}
+
+func TestRunExportDotToStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "dot", "testdata/valid.json", "-o", "-"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	checkDotSource(t, stdout.Bytes())
+}
+
+// TestRunExportDotAllowsATerminal is the mirror of
+// TestRunExportRefusesATerminal and is the case the format table's binary
+// field exists for: DOT is text, so writing it to a terminal garbles nothing
+// and is allowed, while a workbook to the same destination is refused.
+func TestRunExportDotAllowsATerminal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /dev/null to stand in for a terminal")
+	}
+	dev, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("cannot open %s: %v", os.DevNull, err)
+	}
+	defer dev.Close()
+	if fi, err := dev.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		t.Skipf("%s is not a character device on this system", os.DevNull)
+	}
+
+	var stderr bytes.Buffer
+	if code := run([]string{"export", "dot", "testdata/valid.json", "-o", "-"}, dev, &stderr); code != 0 {
+		t.Errorf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunExportDotIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	var runs [2][]byte
+	for i := range runs {
+		out := filepath.Join(dir, fmt.Sprintf("run%d.dot", i))
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"export", "dot", "testdata/valid.json", "-o", out}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+		runs[i] = readDotSource(t, out)
+	}
+	if !bytes.Equal(runs[0], runs[1]) {
+		t.Errorf("two exports differ: %d vs %d bytes", len(runs[0]), len(runs[1]))
+	}
+}
+
+// readDotSource reads path and checks that it is DOT source.
+func readDotSource(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	checkDotSource(t, b)
+	return b
+}
+
+// checkDotSource checks that b is the DOT source jjf writes. It is a shape
+// check, not a parse: graphviz is not a dependency of this project and no test
+// may need the dot binary to run.
+func checkDotSource(t *testing.T, b []byte) {
+	t.Helper()
+	if !utf8.Valid(b) {
+		t.Fatal("the output is not valid UTF-8")
+	}
+	src := string(b)
+	if !strings.HasPrefix(src, "// Generated by jjf") {
+		t.Errorf("the output does not open with the generated-by comment:\n%.80s", src)
+	}
+	var opened bool
+	for _, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(line, "digraph ") {
+			opened = true
+			break
+		}
+	}
+	if !opened {
+		t.Errorf("the output has no digraph statement:\n%s", src)
+	}
+	if !strings.HasSuffix(src, "}\n") {
+		t.Errorf("the output does not end with a closing brace and one newline: %q", src[max(0, len(src)-20):])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Usage drift guards
+// ---------------------------------------------------------------------------
+
+// TestExportUsageListsEveryFormat keeps the help text and the format table
+// from drifting apart.
+func TestExportUsageListsEveryFormat(t *testing.T) {
+	usage := exportUsage()
+	for _, f := range exportFormats() {
+		if !strings.Contains(usage, f.name) {
+			t.Errorf("the export usage does not name the format %q:\n%s", f.name, usage)
+		}
+		if !strings.Contains(usage, f.summary) {
+			t.Errorf("the export usage does not carry the summary %q:\n%s", f.summary, usage)
+		}
+	}
+}
+
+// TestRootUsageListsEveryExportFormat guards the one hand-written list of
+// formats, which the root usage keeps as a literal.
+func TestRootUsageListsEveryExportFormat(t *testing.T) {
+	for _, f := range exportFormats() {
+		if !strings.Contains(rootUsage, f.name) {
+			t.Errorf("the root usage does not name the export format %q:\n%s", f.name, rootUsage)
 		}
 	}
 }

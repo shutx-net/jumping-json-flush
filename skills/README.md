@@ -100,8 +100,8 @@ Its frontmatter uses only the fields that every Agent Skills host understands â€
 Anthropic Agent SDK.
 
 `allowed-tools` pre-approves `Read` and the two `jjf` subcommands only â€”
-`validate`, which reads, and `export`, which writes a workbook at a path the user
-supplies. Editing the JSON still goes through the usual permission prompt, on
+`validate`, which reads, and `export`, which writes a workbook or a Graphviz DOT file
+at a path the user supplies. Editing the JSON still goes through the usual permission prompt, on
 purpose: pre-approving `Write` and `Edit` would be a privilege escalation for
 whoever installs the skill.
 

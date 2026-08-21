@@ -7,10 +7,11 @@ Usage:
 
 Formats:
   xlsx  Excel workbook
+  dot   Graphviz DOT entity relationship diagram
 
 Without -o the output goes next to the input, with its extension replaced by
 the one of the chosen format. "-o -" writes to standard output, which must not
-be a terminal.
+be a terminal for a binary format such as xlsx.
 
 Flags:
   -o string

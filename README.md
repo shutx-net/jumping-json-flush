@@ -6,8 +6,8 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 **Jumpin' Json Flush** (`jjf`) is a CLI tool that keeps database design
-information in structured JSON as the single source of truth and turns it into an
-Excel design document people can read.
+information in structured JSON as the single source of truth and turns it into
+design documents people can read: an Excel workbook, and a Graphviz ER diagram.
 
 - **JSON is the only source of truth.** A generated `.xlsx` is a derived artifact
   and is never treated as authoritative data
@@ -22,6 +22,7 @@ Excel design document people can read.
 jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
+jjf export dot db-design.json -o er.dot
 ```
 
 ## Installation
@@ -60,6 +61,9 @@ jjf validate db-design.json
 
 # turn it into an Excel design document
 jjf export xlsx db-design.json -o db-design.xlsx
+
+# turn it into a Graphviz ER diagram
+jjf export dot db-design.json -o er.dot
 ```
 
 An import reads a `pg_dump --schema-only` **file** — `jjf` never connects to a
@@ -177,10 +181,15 @@ The tool's version and the database design format's version are **independent**.
 
 ## Out of scope
 
-Connecting to a running database, DDL generation, ER diagram / Mermaid output,
-Markdown output, semantic consistency validation, migration management, converting
-Excel back into JSON, editing the Excel directly, a GUI, and customising the Excel
+Connecting to a running database, DDL generation, Mermaid output, Markdown
+output, semantic consistency validation, migration management, converting Excel
+back into JSON, editing the Excel directly, a GUI, and customising the Excel
 template are all out of scope.
+
+An entity relationship diagram is generated as Graphviz DOT source (`jjf export
+dot`); see [`docs/usage.md`](docs/usage.md#export). Rendering it to an image is
+not: that is the reader's own `dot`, which is what keeps `jjf` a single binary
+with no runtime dependencies.
 
 Importing a schema **from a `pg_dump --schema-only` file** is supported, for
 PostgreSQL only; see [`docs/usage.md`](docs/usage.md#import). Reading the schema

@@ -57,7 +57,7 @@ The root of the document is pointed at as `(document root)`.
 | `jjf: db-design.json: line 5, column 4: invalid character '}' looking for beginning of object key string` | invalid JSON syntax, such as a trailing comma | fix the reported line and column |
 | `jjf: open db-design.json: no such file or directory` | wrong path | check the path |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | the document uses a newer format than this build | upgrade `jjf`. **Never rewrite the document to get around this** |
-| `jjf: unsupported format "csv"; supported formats: xlsx` | an export format that does not exist | `xlsx` is the only format |
+| `jjf: unsupported format "csv"; supported formats: xlsx, dot` | an export format that does not exist | the formats are `xlsx` and `dot` |
 | `jjf: validate takes exactly one input file, got 0` | no input path given | pass the path |
 | `jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>` | `-o -` with a terminal on standard output | redirect the output or pass a file path |
 

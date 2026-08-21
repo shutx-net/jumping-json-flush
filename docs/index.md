@@ -3,13 +3,14 @@
 [README](https://github.com/shutx-net/jumping-json-flush/blob/main/README.md) · [日本語](index.ja.md)
 
 **Jumpin' Json Flush** (`jjf`) keeps database design information in structured
-JSON as the single source of truth and turns it into an Excel design document
-people can read.
+JSON as the single source of truth and turns it into design documents people can
+read: an Excel workbook, and a Graphviz ER diagram.
 
 ```sh
 jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
+jjf export dot db-design.json -o er.dot
 ```
 
 - **[Installing jjf](install.md)** — the one liner, pinning a version, choosing a
