@@ -9,12 +9,15 @@ import (
 	"strings"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
+	"github.com/shutx-net/jumping-json-flush/internal/export/dot"
 	"github.com/shutx-net/jumping-json-flush/internal/export/xlsx"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
 	"github.com/shutx-net/jumping-json-flush/internal/schema"
 )
 
-const exportUsage = `Generate a design document from a database design document. The input is
+// exportUsageHead is the part of the usage text above the format list. The
+// list itself is generated from the format table so the two cannot drift.
+const exportUsageHead = `Generate a design document from a database design document. The input is
 validated against the jjf database design schema first, so a document that
 fails "jjf validate" produces no output at all.
 
@@ -22,18 +25,95 @@ Usage:
   jjf export <format> <input.json> [-o <output>]
 
 Formats:
-  xlsx  Excel workbook
-
-Without -o the output goes next to the input, with its extension replaced by
-the one of the chosen format. "-o -" writes to standard output, which must not
-be a terminal.
 `
 
-// formatXLSX is the only export format this build supports.
-const formatXLSX = "xlsx"
+// exportUsageTail is the part below the format list. It opens with the blank
+// line that separates it from the list.
+const exportUsageTail = `
+Without -o the output goes next to the input, with its extension replaced by
+the one of the chosen format. "-o -" writes to standard output, which must not
+be a terminal for a binary format such as xlsx.
+`
 
-// extXLSX is the extension used when -o is left out.
-const extXLSX = ".xlsx"
+// exportFormat is one format the export subcommand can produce.
+type exportFormat struct {
+	// name is what the user types as <format>.
+	name string
+	// ext replaces the input's extension when -o is left out.
+	ext string
+	// summary is the one line the usage text prints beside the name.
+	summary string
+	// binary is true when the format's bytes must not be written to a
+	// terminal. The question is not "is this a zip" but "would this garble the
+	// screen": DOT is text, so it says false and may be written to a terminal,
+	// exactly as the JSON of "jjf import" may.
+	binary bool
+	// render writes doc to w in this format.
+	render func(w io.Writer, doc *model.Document) error
+}
+
+// exportFormats lists the formats in the order the usage text prints them.
+//
+// It is a function returning a fresh slice rather than a package-level var,
+// because a package-level slice of structs holding function values is exactly
+// the mutable package-level state AGENTS.md rules out. It is called a handful
+// of times per process, so the allocation is beside the point.
+//
+// xlsx stays first: it is the format every document already describes.
+func exportFormats() []exportFormat {
+	return []exportFormat{
+		{
+			name: "xlsx", ext: ".xlsx", summary: "Excel workbook", binary: true,
+			render: func(w io.Writer, doc *model.Document) error {
+				return xlsx.Export(w, doc, xlsx.DefaultOptions())
+			},
+		},
+		{
+			name: "dot", ext: ".dot", summary: "Graphviz DOT entity relationship diagram",
+			render: dot.Export,
+		},
+	}
+}
+
+// lookupExportFormat finds the format called name.
+//
+// The comparison is exact: XLSX and Dot are unknown formats, just as MySQL is
+// an unknown import dialect today. A slice walk rather than a map, because the
+// table is a handful of entries and its order is meaningful.
+func lookupExportFormat(name string) (exportFormat, bool) {
+	for _, f := range exportFormats() {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return exportFormat{}, false
+}
+
+// exportFormatNames lists the format names for the unsupported-format message.
+func exportFormatNames() string {
+	names := make([]string, 0, len(exportFormats()))
+	for _, f := range exportFormats() {
+		names = append(names, f.name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// exportUsage builds the usage text with one line per format, so that a format
+// added to the table appears in the help without anyone remembering to add it.
+func exportUsage() string {
+	width := 0
+	for _, f := range exportFormats() {
+		width = max(width, len(f.name))
+	}
+
+	var b strings.Builder
+	b.WriteString(exportUsageHead)
+	for _, f := range exportFormats() {
+		fmt.Fprintf(&b, "  %-*s  %s\n", width, f.name, f.summary)
+	}
+	b.WriteString(exportUsageTail)
+	return b.String()
+}
 
 // stdoutPath is the output path that means standard output.
 const stdoutPath = "-"
@@ -41,11 +121,16 @@ const stdoutPath = "-"
 // errStdoutIsTerminal reports that "-o -" was given with a terminal on the other
 // end of standard output. Writing a zip archive there would only garble the
 // screen.
+//
+// The guard applies to the formats whose table entry sets binary, which today
+// is xlsx alone - hence the wording, which is quoted verbatim in the
+// documentation. The day a second binary format is added, this sentence has to
+// be generalised along with those quotations.
 var errStdoutIsTerminal = errors.New("refusing to write a workbook to the terminal; redirect standard output or pass -o <file>")
 
 // runExport implements the export subcommand.
 func runExport(args []string, stdout, stderr io.Writer) error {
-	cmd := newCommand("export", exportUsage)
+	cmd := newCommand("export", exportUsage())
 	out := cmd.fs.String("o", "", `output path, or "-" for standard output`)
 	operands, err := cmd.parse(args, stdout, stderr)
 	if err != nil {
@@ -57,29 +142,36 @@ func runExport(args []string, stdout, stderr io.Writer) error {
 		return exitcode.Wrap(exitcode.InvalidInput, "", errAlreadyReported)
 	}
 	format, input := operands[0], operands[1]
-	if format != formatXLSX {
-		fmt.Fprintf(stderr, "jjf: unsupported format %q; supported formats: %s\n\n", format, formatXLSX)
+	f, ok := lookupExportFormat(format)
+	if !ok {
+		fmt.Fprintf(stderr, "jjf: unsupported format %q; supported formats: %s\n\n", format, exportFormatNames())
 		cmd.printUsage(stderr)
 		return exitcode.Wrap(exitcode.InvalidInput, "", errAlreadyReported)
 	}
 
+	// The order is deliberate: the format is checked before the input is read,
+	// so an unknown format never opens a file, and the document is validated
+	// and decoded before a single output byte is produced, so a document that
+	// fails validation produces no output at all in any format.
 	doc, err := loadDocument(input)
 	if err != nil {
 		return err
 	}
 
 	if *out == stdoutPath {
-		if isTerminal(stdout) {
+		if f.binary && isTerminal(stdout) {
 			return exitcode.Wrap(exitcode.InvalidInput, "", errStdoutIsTerminal)
 		}
-		return xlsx.Export(stdout, doc, xlsx.DefaultOptions())
+		return f.render(stdout, doc)
 	}
 
 	dest := *out
 	if dest == "" {
-		dest = strings.TrimSuffix(input, filepath.Ext(input)) + extXLSX
+		dest = strings.TrimSuffix(input, filepath.Ext(input)) + f.ext
 	}
-	if err := exportToFile(dest, doc); err != nil {
+	// Written atomically, so a failed export leaves nothing behind whichever
+	// format it was.
+	if err := writeFileAtomically(dest, func(w io.Writer) error { return f.render(w, doc) }); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "%s: written\n", dest)
@@ -107,13 +199,6 @@ func loadDocument(input string) (*model.Document, error) {
 	// Decoding checks the one rule the schema cannot express: whether this build
 	// understands the document's format version.
 	return model.Decode(raw)
-}
-
-// exportToFile writes the workbook to path, atomically.
-func exportToFile(path string, doc *model.Document) error {
-	return writeFileAtomically(path, func(w io.Writer) error {
-		return xlsx.Export(w, doc, xlsx.DefaultOptions())
-	})
 }
 
 // isTerminal reports whether w writes to a character device, which is how "-o -"
