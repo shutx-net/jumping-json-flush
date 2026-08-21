@@ -3,7 +3,7 @@
   "name": "jjf",
   "displayName": "Jumpin' Json Flush",
   "version": "0.2.0",
-  "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Requires the jjf CLI on PATH.",
+  "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL schema dump. Requires the jjf CLI on PATH.",
   "author": {
     "name": "shutx-net",
     "url": "https://github.com/shutx-net"
@@ -17,6 +17,8 @@
     "documentation",
     "json-schema",
     "excel",
-    "xlsx"
+    "xlsx",
+    "postgresql",
+    "pg-dump"
   ]
 }
