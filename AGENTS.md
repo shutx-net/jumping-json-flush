@@ -96,7 +96,6 @@ Unless explicitly requested, do not add:
 * migration management
 * ORM functionality
 * DDL generation
-* ER diagram generation
 * Markdown export
 * Excel-to-JSON conversion
 * GUI functionality

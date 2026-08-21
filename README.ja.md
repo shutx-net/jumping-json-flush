@@ -6,7 +6,8 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 **Jumpin' Json Flush**（`jjf`）は、構造化された JSON 形式の DB 設計情報を
-Single Source of Truth として管理し、人間向けの Excel DB 設計書へ変換する CLI ツール。
+Single Source of Truth として管理し、人間向けの設計成果物へ変換する CLI ツール。
+Excel の DB 設計書と、Graphviz の ER 図を生成する。
 
 - **JSON が唯一の正。** 生成された `.xlsx` は派生成果物であり、権威あるデータとして扱わない
 - **決定的な出力。** 同じ入力からは常にバイト同一の `.xlsx` が生成される
@@ -19,6 +20,7 @@ Single Source of Truth として管理し、人間向けの Excel DB 設計書�
 jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
+jjf export dot db-design.json -o er.dot
 ```
 
 ## インストール
@@ -55,6 +57,9 @@ jjf validate db-design.json
 
 # Excel の DB 設計書に変換する
 jjf export xlsx db-design.json -o db-design.xlsx
+
+# Graphviz の ER 図に変換する
+jjf export dot db-design.json -o er.dot
 ```
 
 import が読むのは `pg_dump --schema-only` の**ファイル**であり、`jjf` が
@@ -169,9 +174,14 @@ DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパ�
 
 ## 対象外
 
-稼働中の DB への接続、DDL 生成、ER 図 / Mermaid 出力、Markdown 出力、
+稼働中の DB への接続、DDL 生成、Mermaid 出力、Markdown 出力、
 意味的整合性検証、マイグレーション管理、Excel から JSON への逆変換、
 Excel の直接編集、GUI、Excel テンプレートのカスタマイズは対象外である。
+
+ER 図は Graphviz DOT のソースとして生成する（`jjf export dot`、
+[`docs/usage.ja.md`](docs/usage.ja.md#export)）。画像への変換は対象外であり、
+読み手自身の `dot` で行う。それが `jjf` を実行時依存のない単一バイナリに
+保っている理由である。
 
 **`pg_dump --schema-only` のファイル**からのスキーマ取り込みは PostgreSQL に限り
 対応している（[`docs/usage.ja.md`](docs/usage.ja.md#import)）。稼働中のサーバから

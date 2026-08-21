@@ -1,6 +1,6 @@
 ---
 name: db-design
-description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a PostgreSQL dump with jjf import postgres, JSON Schema validation with jjf validate, and Excel export with jjf export xlsx. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL database or a pg_dump file, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、既存DBからの設計書起こし、pg_dump の取り込み。
+description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a PostgreSQL dump with jjf import postgres, JSON Schema validation with jjf validate, Excel export with jjf export xlsx, and Graphviz DOT ER diagram export with jjf export dot. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL database or a pg_dump file, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、ER図の DOT 出力、既存DBからの設計書起こし、pg_dump の取り込み。
 license: MIT
 compatibility: Requires the jjf CLI on PATH. Uses only portable Agent Skills frontmatter fields, so it also works with claude.ai skill upload and the Anthropic Agent SDK.
 allowed-tools:
@@ -19,9 +19,10 @@ metadata:
 ## Overview
 
 `jjf` keeps a database design in a JSON document — called `db-design.json`
-below — and renders it as an Excel workbook. The JSON is the single source of
-truth. The `.xlsx` is a derived artifact: it is rebuilt from scratch on every
-export and is byte-identical for identical input.
+below — and renders it as an Excel workbook, or as Graphviz DOT source for an
+ER diagram. The JSON is the single source of truth. Every generated file is a
+derived artifact: it is rebuilt from scratch on every export and is
+byte-identical for identical input.
 
 Every design change is therefore a JSON change. "Update the Excel design
 document" means edit the JSON and run `jjf export xlsx` again. A generated
@@ -80,7 +81,8 @@ A generated `.xlsx` is **not** a source. Never read one as input.
 5. Run `jjf validate <input.json>`.
 6. **If validation fails, return to step 4.** One run reports every violation at once, so fix all
    of them before running again. Never report done on a document that still fails.
-7. Run `jjf export xlsx <input.json> -o <output.xlsx>` when a refreshed workbook is wanted.
+7. Run `jjf export xlsx <input.json> -o <output.xlsx>` when a refreshed workbook is wanted,
+   or `jjf export dot <input.json> -o <output.dot>` when an ER diagram is wanted.
    Export validates first, so a failing document produces no output at all.
 8. Report what changed in the JSON, and note that the `.xlsx` still needs
    regenerating if you did not regenerate it.
@@ -119,18 +121,6 @@ db-design.json
         └─ indexes     optional  [ { name, columns[], unique? } ]
 ```
 
-| Object | Required properties |
-| --- | --- |
-| root | `formatVersion`, `database`, `tables` |
-| `database` | `name` |
-| `tables[]` | `name`, `logicalName`, `columns` |
-| `columns[]` | `name`, `logicalName`, `type`, `nullable` |
-| `primaryKey` | `columns` |
-| `uniqueKeys[]` | `columns` |
-| `foreignKeys[]` | `columns`, `references` |
-| `references` | `table`, `columns` |
-| `indexes[]` | `name`, `columns` |
-
 `tables` and `columns` need at least one entry, as does every list of column
 names (`primaryKey.columns`, `indexes[].columns`, ...), which also rejects
 duplicates.
@@ -143,7 +133,8 @@ duplicates.
 | `jjf validate db-design.json` | Validates and prints `db-design.json: OK` |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | Validates, then writes the workbook and prints `db-design.xlsx: written` |
 | `jjf export xlsx db-design.json` | Same, writing next to the input with the extension replaced |
-| `jjf export xlsx db-design.json -o -` | Writes to standard output; refused when that is a terminal |
+| `jjf export xlsx db-design.json -o -` | Writes to standard output; refused when that is a terminal, because a workbook is binary |
+| `jjf export dot db-design.json -o er.dot` | Validates, then writes Graphviz DOT source for an ER diagram; render it yourself with `dot -Tsvg` |
 | `jjf version` | Prints the tool version |
 
 Success goes to standard output; errors and usage go to standard error.
@@ -194,7 +185,8 @@ that pretends otherwise.
 - DDL or SQL generation
 - Connecting to a database. A schema is imported from a `pg_dump` **file**, never from a live server
 - Migrations, schema diffs, breaking-change detection
-- ER diagrams, Mermaid, or Markdown output — `xlsx` is the only format
+- Mermaid or Markdown output. An ER diagram is written as Graphviz DOT source
+  only; `jjf` never renders an image
 - Converting Excel back to JSON, or editing Excel directly
 - Customizing the workbook layout, colours, or template
 - Extending the document with properties the schema does not define

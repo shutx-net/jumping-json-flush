@@ -101,6 +101,7 @@
 6. **検証が失敗したら 4 に戻る。** 1 回の実行で違反が全件出るので、すべて直してから再実行する。
    失敗したままの文書で完了としてはならない。
 7. ブックを作り直すなら `jjf export xlsx <input.json> -o <output.xlsx>` を実行する。
+   ER 図が欲しいなら `jjf export dot <input.json> -o <output.dot>` を実行する。
    エクスポートは先に検証するので、検証を通らない文書からは 1 バイトも出力されない。
 8. JSON の変更点を報告する。ブックを作り直していないなら、`.xlsx` の再生成が必要である
    ことも伝える。
@@ -554,7 +555,8 @@ jjf import postgres schema.sql -o db-design.json
 | `jjf validate db-design.json` | 検証し、`db-design.json: OK` を出力する |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | 検証してからブックを書き、`db-design.xlsx: written` を出力する |
 | `jjf export xlsx db-design.json` | 同じ。入力の隣に、拡張子を置き換えた名前で出力する |
-| `jjf export xlsx db-design.json -o -` | 標準出力へ書く。端末に直接出そうとした場合は拒否される |
+| `jjf export xlsx db-design.json -o -` | 標準出力へ書く。`xlsx` はバイナリなので端末に直接出そうとした場合は拒否される |
+| `jjf export dot db-design.json -o er.dot` | 検証してから Graphviz DOT のソースを書く。画像化は各自の `dot` で行う |
 | `jjf version` | ツールのバージョンを出力する |
 
 成功メッセージは標準出力、エラーと usage は標準エラーに出る。
@@ -627,7 +629,7 @@ db-design.json: does not conform to the jjf database design schema
 | `jjf: db-design.json: line 5, column 4: invalid character '}' looking for beginning of object key string` | JSON 構文エラー（末尾カンマなど） | 指摘された行・桁を直す |
 | `jjf: open db-design.json: no such file or directory` | パスの誤り | パスを確認する |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | この `jjf` より新しいフォーマットの文書 | `jjf` を更新する。**JSON を書き換えて回避しない** |
-| `jjf: unsupported format "csv"; supported formats: xlsx` | 存在しない出力形式 | 形式は `xlsx` のみ |
+| `jjf: unsupported format "csv"; supported formats: xlsx, dot` | 存在しない出力形式 | 形式は `xlsx` と `dot` |
 | `jjf: validate takes exactly one input file, got 0` | 入力パスを渡していない | パスを渡す |
 | `jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>` | 標準出力が端末の状態で `-o -` を使った | リダイレクトする、またはファイルパスを渡す |
 
@@ -728,7 +730,7 @@ CI での比較を可能にするためである。
 - DDL / SQL の生成
 - 実データベースへの接続。スキーマの取り込みは `pg_dump` の**ファイル**からのみで、稼働中のサーバには接続しない
 - マイグレーション管理、スキーマ差分、破壊的変更の検出
-- ER 図 / Mermaid / Markdown の出力 — 形式は `xlsx` のみ
+- Mermaid / Markdown の出力。ER 図は Graphviz DOT のソースを出力するだけで、画像への変換は行わない
 - Excel から JSON への逆変換、Excel の直接編集
 - ブックのレイアウト・配色・テンプレートのカスタマイズ
 - スキーマにないプロパティによる文書の拡張

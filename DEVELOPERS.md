@@ -36,7 +36,7 @@ direnv.
 | run | `go run ./cmd/jjf validate examples/db-design.example.json` |
 | test | `go test ./...` |
 | test (race) | `CGO_ENABLED=1 go test -race ./...` |
-| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/importer/postgres/ -update` |
+| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/dot/ ./internal/importer/postgres/ -update` |
 | coverage | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
 | vet | `go vet ./...` |
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
@@ -56,7 +56,7 @@ direnv.
   raises the `go` directive)
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
-- Only the five packages that own goldens define the `-update` flag, so
+- Only the six packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
 - `internal/importer/postgres/testdata/dump/pg<major>/*.sql` is real

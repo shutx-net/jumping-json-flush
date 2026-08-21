@@ -97,8 +97,8 @@ frontmatter は Agent Skills のどのホストでも解釈できるフィール
 アップロードや Anthropic Agent SDK でもそのまま利用できる。
 
 `allowed-tools` で事前承認しているのは `Read` と `jjf` の 2 サブコマンドだけ
-である。読み取りを行う `validate` と、利用者が指定したパスへブックを書き出す
-`export` の 2 つである。JSON の編集は通常どおり権限確認を経る。`Write` / `Edit` の
+である。読み取りを行う `validate` と、利用者が指定したパスへブックまたは
+Graphviz DOT ファイルを書き出す `export` の 2 つである。JSON の編集は通常どおり権限確認を経る。`Write` / `Edit` の
 事前承認はスキルを入れる利用者にとって権限昇格になるため、意図的に含めていない。
 
 ## プラグインのリリース手順

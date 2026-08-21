@@ -32,17 +32,25 @@ Validation touches no network. The schema is embedded in the binary, so a
 
 ```sh
 jjf export xlsx db-design.json -o db-design.xlsx
+jjf export dot  db-design.json -o er.dot
 ```
+
+Two formats are supported: `xlsx`, an Excel design document, and `dot`, a
+Graphviz entity relationship diagram. Both share the same contract.
 
 - The input is always validated first. **A document that fails validation
   produces no output file at all, not even a single byte**
 - Leave `-o` out and the output goes **next to the input, with the extension
-  replaced by `.xlsx`** (`docs/db-design.json` → `docs/db-design.xlsx`)
-- `-o -` writes to standard output, but it is **refused when standard output is a
-  terminal** (a binary would only garble the screen). A pipe or a redirect is fine
-- The workbook is written to a temporary file and renamed into place, so a failure
+  replaced by the one of the chosen format** (`docs/db-design.json` →
+  `docs/db-design.xlsx` or `docs/db-design.dot`)
+- `-o -` writes to standard output. It is **refused when standard output is a
+  terminal and the format is binary**, which today means `xlsx` alone; a pipe or
+  a redirect is always fine
+- The output is written to a temporary file and renamed into place, so a failure
   part way through never leaves a corrupt file behind
-- `xlsx` is the only format Phase 1 supports
+- **The same input always produces byte-identical output**, in either format
+
+### xlsx
 
 ```sh
 # into a pipe
@@ -53,11 +61,52 @@ jjf export xlsx db-design.json -o -
 # jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>
 ```
 
+The workbook holds a cover sheet, a list of tables, and one sheet per table.
+
+### dot
+
+```sh
+jjf export dot db-design.json -o er.dot
+```
+
+`jjf` writes DOT **source** and never runs graphviz, so it gains no runtime
+dependency. Turning the `.dot` into an image is your own step, with your own
+`dot`:
+
+```text
+db-design.json --[jjf]--> er.dot --[your dot]--> SVG/PNG
+```
+
+```sh
+dot -Tsvg er.dot -o er.svg
+```
+
+- DOT is text, so **`-o -` may be written to a terminal here**, unlike `xlsx`
+- The diagram has one node per table — an HTML-like table of its columns, each
+  row carrying the `PK` / `FK` markers, the physical and logical names and the
+  type — and one edge per foreign key
+- A foreign key naming a table the document does **not** define renders as a
+  dashed stub node rather than failing. Foreign key targets are deliberately
+  never checked: semantic validation is out of scope, so such a document is
+  legal and the diagram shows exactly what the JSON claims
+
+#### Cardinality
+
+The crow's foot notation is **inferred**; the JSON never states a cardinality.
+
+- The child side is **one** when the foreign key's columns, as a set, are
+  constrained to be unique in the child table — by its primary key, by one of
+  its unique keys, or by a unique index — and **many** otherwise
+- The child side is **optional** when any foreign key column is nullable, and
+  **mandatory** when every one of them is `NOT NULL`
+- The parent side is always **one** and **mandatory**: a foreign key names one
+  specific row
+
 #### Byte-for-byte determinism
 
-**The same input always produces a byte-identical `.xlsx`.** No generation
-timestamp is embedded, the ZIP timestamps are fixed, and nothing depends on Go's
-map iteration order.
+**The same input always produces a byte-identical `.xlsx` and `.dot`.** No
+generation timestamp is embedded, no tool version is written into the output, the
+ZIP timestamps are fixed, and nothing depends on Go's map iteration order.
 
 ```sh
 jjf export xlsx db-design.json -o a.xlsx
@@ -170,7 +219,7 @@ module version Go recorded.
 | --- | --- | --- |
 | 0 | success | — |
 | 1 | general error | an internal error that fits none of the other categories |
-| 2 | invalid input | wrong arguments, missing file, JSON syntax error, unsupported `formatVersion`, unknown output format, `-o -` pointed at a terminal, a dump that cannot be parsed, `-strict` with warnings |
+| 2 | invalid input | wrong arguments, missing file, JSON syntax error, unsupported `formatVersion`, unknown output format, `-o -` pointed at a terminal for a binary format such as `xlsx`, a dump that cannot be parsed, `-strict` with warnings |
 | 3 | schema validation error | a JSON Schema violation |
 | 4 | output generation error | the destination cannot be written, the directory does not exist |
 
