@@ -8,14 +8,13 @@
   "plugins": [
     {
       "name": "jjf",
-      "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL schema dump. Requires the jjf CLI on PATH.",
-      "version": "0.2.0",
+      "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL schema dump, and draw it as an ER diagram in Graphviz DOT. Requires the jjf CLI on PATH.",
+      "version": "0.3.0",
       "license": "MIT",
       "homepage": "https://github.com/shutx-net/jumping-json-flush",
       "source": {
         "source": "archive",
-        "url": "https://github.com/shutx-net/jumping-json-flush/releases/download/v0.2.0/jjf-plugin-v0.2.0.zip",
-        "sha256": "3d6cadb9c74630b08d6290b99aaf557bef38746ba31e6a1d9e8936d06164c33a"
+        "url": "https://github.com/shutx-net/jumping-json-flush/releases/download/v0.3.0/jjf-plugin-v0.3.0.zip"
       }
     }
   ]
