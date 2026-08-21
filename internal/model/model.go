@@ -93,8 +93,11 @@ type Column struct {
 	// Required by the schema, therefore always present: a plain bool is safe.
 	Nullable bool `json:"nullable"`
 
-	// Optional. Pointer because "absent" (no DEFAULT clause) differs from the
-	// empty string (DEFAULT '').
+	// Optional. Pointer because "absent" - the column has no DEFAULT clause at
+	// all - differs from an explicit empty string, which is a DEFAULT clause
+	// with nothing in it. The two are different mistakes and jjf has to be able
+	// to tell them apart: internal/check reports the second. A default OF the
+	// empty SQL string is written "''", never "".
 	Default *string `json:"default,omitempty"`
 
 	// Optional with a schema default of false: absent and false mean the same

@@ -101,9 +101,11 @@ func renderColumn(s *sml.Sheet, th *theme, c *model.Column, row, no int) {
 	s.SetString(defColType, row, c.Type, text)
 	putOptional(s, one(defColLength), row, sizeOf(c), center)
 	putOptional(s, one(defColNullable), row, mark(c.Nullable), center)
-	// A default of "" is a DEFAULT '' clause, which is not the same thing as
-	// having no default at all, so the two are written as different kinds of
-	// cell: an empty string and a blank cell.
+	// A default of "" is a DEFAULT clause with nothing in it - which is a
+	// mistake, and one internal/check reports - while no default at all is no
+	// DEFAULT clause. The two are therefore written as different kinds of cell,
+	// an empty string and a blank cell: rendering both as blank would hide the
+	// mistake in the very artifact the author reads to find it.
 	if c.Default != nil {
 		s.SetString(defColDefault, row, *c.Default, text)
 	} else {

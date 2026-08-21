@@ -50,7 +50,7 @@ The root of the document is pointed at as `(document root)`.
 | `properties 'precision' required, if 'scale' exists` | `scale` was written without `precision` | add `precision`, or drop `scale` |
 | `got array, want object` | the document root is an array | the root is a `{ }` object |
 
-## Referential warnings (exit code 0, or 2 with `-strict`)
+## Self-consistency warnings (exit code 0, or 2 with `-strict`)
 
 A document that conforms to the schema is then checked against itself. Each
 finding is one line on standard error, shaped `<input>: warning: <what>: <the
@@ -60,13 +60,14 @@ problem>` — `<what>` names the object, because there is no line number to give
 db-design.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
 db-design.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
 db-design.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+db-design.json: warning: column created_at on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'
 ```
 
-The run still **succeeds**: standard output says `db-design.json: OK, 3
+The run still **succeeds**: standard output says `db-design.json: OK, 4
 warning(s)` and the exit code is 0. `jjf validate -strict` prints the same
-warnings and then fails with `jjf: 3 warning(s) with -strict` and exit code
+warnings and then fails with `jjf: 4 warning(s) with -strict` and exit code
 **2, not 3** — code 3 means the document does not conform to the JSON Schema
-and nothing else, and a referential finding is not a schema violation.
+and nothing else, and a self-consistency finding is not a schema violation.
 
 | Message | Cause | Fix |
 | --- | --- | --- |
@@ -77,11 +78,18 @@ and nothing else, and a referential finding is not a schema violation.
 | `names column "id", which the table declares nullable` | a primary key column has `"nullable": true` | set `"nullable": false`; SQL forces a primary key column NOT NULL anyway |
 | `defines column "email" more than once` | one table has two `columns[]` entries with the same `name` | remove or rename one of them |
 | `declares more than one constraint or index called "pk_accounts"` | one table uses the same name for two of its `primaryKey` / `uniqueKeys[]` / `foreignKeys[]` / `indexes[]` | rename one; unnamed constraints never collide |
+| `declares an empty default; omit the "default" key when the column has no DEFAULT clause` | a column has `"default": ""`, which is a DEFAULT clause with nothing in it | delete the key when there is no DEFAULT clause; write `"''"` for a default of the empty string |
+| `declares the default "now", in which "now" is a bare word; a string literal is written 'now'` | an unquoted word was written where a SQL string literal was meant; in SQL it is a column reference | add the SQL quotes: `"default": "'now'"`. A function keeps its parentheses (`"now()"`); a keyword constant such as `CURRENT_TIMESTAMP` needs nothing |
+| `declares the default "it's", which has an unbalanced single quote` | a quote in a `default` opens a string that is never closed — usually an apostrophe inside an unquoted word | double the apostrophe inside the literal: `"'it''s'"` |
+| `declares the default "(1 + 2", which has an unbalanced parenthesis` | a `default` opens a parenthesis it never closes, or closes one it never opened | balance them |
 
 Whether the design is a *good* one is not checked, so do not offer normalization,
 index-strategy or type advice as though `jjf` had asked for it. Duplicate table
 names across a document, type compatibility across a foreign key, and the
-uniqueness of index names across a schema are not checked either.
+uniqueness of index names across a schema are not checked either. A `default` is
+only read as an expression, never evaluated: `jjf` does not run it, does not
+check it against the column's `type`, and does not object to a function it has
+never heard of.
 
 ## Failures before validation (exit code 2)
 

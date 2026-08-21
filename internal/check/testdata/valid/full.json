@@ -163,6 +163,156 @@
           }
         }
       ]
+    },
+    {
+      "name": "settings",
+      "logicalName": "設定",
+      "description": "Every shape of default that must not produce a finding: literals, an empty SQL string, casts, a qualified type, a function call, an array constructor and a typed literal.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "設定ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "retry_count",
+          "logicalName": "再試行回数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "rate",
+          "logicalName": "レート",
+          "type": "NUMERIC",
+          "nullable": false,
+          "default": "0.00"
+        },
+        {
+          "name": "threshold",
+          "logicalName": "しきい値",
+          "type": "NUMERIC",
+          "nullable": false,
+          "default": "1e3"
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "closed_at",
+          "logicalName": "終了日時",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "NULL"
+        },
+        {
+          "name": "enabled",
+          "logicalName": "有効",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true"
+        },
+        {
+          "name": "updated_at",
+          "logicalName": "更新日時",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "token",
+          "logicalName": "トークン",
+          "type": "UUID",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "state",
+          "logicalName": "状態",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "note",
+          "logicalName": "備考",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "''"
+        },
+        {
+          "name": "label",
+          "logicalName": "ラベル",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "''::text"
+        },
+        {
+          "name": "owner",
+          "logicalName": "所有者",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "'it''s'::text"
+        },
+        {
+          "name": "greeting",
+          "logicalName": "あいさつ",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "'hello  world'::text"
+        },
+        {
+          "name": "payload",
+          "logicalName": "ペイロード",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "status",
+          "logicalName": "受注状態",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "'pending'::public.order_status"
+        },
+        {
+          "name": "slots",
+          "logicalName": "スロット数",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "(1 + 2)"
+        },
+        {
+          "name": "tags",
+          "logicalName": "タグ",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "ARRAY[]::text[]"
+        },
+        {
+          "name": "escaped",
+          "logicalName": "エスケープ",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "E'a\\b'"
+        },
+        {
+          "name": "grace",
+          "logicalName": "猶予",
+          "type": "INTERVAL",
+          "nullable": false,
+          "default": "INTERVAL '1 day'"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_settings",
+        "columns": ["id"]
+      }
     }
   ]
 }

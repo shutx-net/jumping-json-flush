@@ -161,13 +161,14 @@ reordering.
 - Make it NOT NULL: set `nullable` to `false`. Check first that the column is not
   the NULL side of a `SET NULL` foreign key, and note in `description` what
   happens to existing NULL rows
-- Drop the default: **delete the `default` key**. Do not set it to `""`
+- Drop the default: **delete the `default` key**. Do not set it to `""`, which
+  `jjf validate` warns about
 
 ## Remove a column
 
 After deleting the entry from `columns`, **delete every reference to that column
-name**. `jjf` does not check referential integrity, so a leftover reference
-still validates.
+name**. `jjf validate` warns about a leftover reference, but a warning leaves the
+exit code successful, so the run still passes without `-strict`.
 
 Places to check:
 

@@ -35,7 +35,10 @@ Headings, left to right: `No`, `物理カラム名`, `論理カラム名`, `型`
   when both are set (`10,2`). It is empty when none of the three is set
 - `既定値` distinguishes two states that look similar but are not: a `default` of
   the empty string produces an **empty-string cell**, while **no `default` key at
-  all** produces a **blank cell**
+  all** produces a **blank cell**. The first is not a spelling to choose — it is a
+  mistake `jjf validate` warns about, and the workbook keeps it visible rather
+  than hiding it behind a blank cell. A default OF the empty SQL string is
+  written `"''"`
 - `説明` wraps
 
 ## Constraint blocks

@@ -7,7 +7,8 @@ The document is then checked against itself: whether the columns named by
 its keys and indexes exist, whether every foreign key names a table this
 document defines, matches it column for column and targets columns that
 table constrains to be unique, whether a primary key column is declared
-nullable, and whether one table uses a column or constraint name twice.
+nullable, whether one table uses a column or constraint name twice, and
+whether a column's default is empty or does not read as a SQL expression.
 Those are reported as warnings on standard error and leave the exit code
 successful; -strict turns them into an error.
 

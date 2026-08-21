@@ -93,7 +93,8 @@ Tool versions and specification format versions are independent.
 itself: whether the columns named by keys and indexes exist, whether every
 foreign key names a table the document defines, matches it column for column
 and targets columns that table constrains to be unique, whether a primary key
-column is nullable, and whether one table reuses a column or constraint name.
+column is nullable, whether one table reuses a column or constraint name, and
+whether a column's default is empty or does not read as a SQL expression.
 Those findings are warnings; `-strict` makes them a failure.
 
 Unless explicitly requested, do not add:

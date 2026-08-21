@@ -1,7 +1,8 @@
 // Package check reports the ways a decoded database design document
 // contradicts itself: keys and indexes naming columns their table does not
 // define, foreign keys pointing at nothing, a primary key column declared
-// nullable, and names a single table uses twice.
+// nullable, names a single table uses twice, and defaults that are empty or do
+// not read as a SQL expression.
 //
 // The line this package draws is deliberate: a foreign key with no target is
 // not a bad design, it is not a document. Whether the design is a good one is
@@ -80,6 +81,11 @@ func checkTable(t *model.Table, defined map[string]*model.Table, f *findingList)
 		if columnNames.add(t.Columns[i].Name) {
 			f.addf(label, "defines column %q more than once", t.Columns[i].Name)
 		}
+		// C7 and C8 - a column's default is the one thing about a column that
+		// can disagree with itself rather than with something else, so it is
+		// asked about here, inside the walk that already visits the columns in
+		// document order.
+		checkColumnDefault(&t.Columns[i], i+1, t.Name, f)
 	}
 
 	// C6b - constraint and index names share one namespace per table, and the
@@ -288,12 +294,15 @@ func (u *usedNames) add(name string) bool {
 // check are properties of the table rather than of any one constraint.
 func tableLabel(name string) string { return "table " + name }
 
-// constraintLabel names a constraint or an index in a finding, always in the
-// shape "<kind> <who> on table <table>".
+// constraintLabel names a constraint, an index or a column in a finding, always
+// in the shape "<kind> <who> on table <table>". A column fits that shape
+// exactly, so it is labelled here rather than by a second function that would
+// differ from this one in nothing.
 //
-// An unnamed constraint falls back to its 1-based position in the array that
-// holds it, because the reader is counting entries in a JSON array by eye and
-// starts at one - unlike the JSON Pointers internal/schema reports, which are
+// An unnamed constraint - or a column whose name the document left out, which
+// is reachable because this package is total over unvalidated documents - falls
+// back to its 1-based position in the array that holds it, because the reader
+// is counting entries in a JSON array by eye and starts at one - unlike the JSON Pointers internal/schema reports, which are
 // 0-based because that is what the pointer syntax means. Pass pos 0 for an
 // object a table can only have one of, which needs no position at all.
 func constraintLabel(kind, name string, pos int, table string) string {
