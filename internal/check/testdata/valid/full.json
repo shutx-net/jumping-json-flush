@@ -1,0 +1,168 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "logistics",
+    "logicalName": "物流",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "regions",
+      "logicalName": "地域",
+      "description": "A composite primary key, and a non-unique index no foreign key targets.",
+      "columns": [
+        {
+          "name": "country_code",
+          "logicalName": "国コード",
+          "type": "CHAR",
+          "length": 2,
+          "nullable": false
+        },
+        {
+          "name": "region_code",
+          "logicalName": "地域コード",
+          "type": "VARCHAR",
+          "length": 16,
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "名称",
+          "type": "VARCHAR",
+          "length": 128,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_regions",
+        "columns": ["country_code", "region_code"]
+      },
+      "indexes": [
+        {
+          "name": "ix_regions_name",
+          "columns": ["name"]
+        }
+      ]
+    },
+    {
+      "name": "warehouses",
+      "logicalName": "倉庫",
+      "description": "An unnamed primary key, an unnamed unique key and an unnamed foreign key in one table.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "倉庫ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "region_code",
+          "logicalName": "地域コード",
+          "type": "VARCHAR",
+          "length": 16,
+          "nullable": false
+        },
+        {
+          "name": "country_code",
+          "logicalName": "国コード",
+          "type": "CHAR",
+          "length": 2,
+          "nullable": false
+        },
+        {
+          "name": "code",
+          "logicalName": "倉庫コード",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        },
+        {
+          "name": "slot",
+          "logicalName": "スロット",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        },
+        {
+          "name": "parent_id",
+          "logicalName": "親倉庫ID",
+          "type": "BIGINT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "columns": ["code"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "columns": ["region_code", "country_code"],
+          "references": {
+            "table": "regions",
+            "columns": ["region_code", "country_code"]
+          },
+          "onDelete": "RESTRICT"
+        },
+        {
+          "name": "fk_warehouses_parent",
+          "columns": ["parent_id"],
+          "references": {
+            "table": "warehouses",
+            "columns": ["id"]
+          },
+          "onDelete": "SET NULL"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_warehouses_slot",
+          "columns": ["slot"],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "shipments",
+      "logicalName": "出荷",
+      "description": "No primary key at all, and two unnamed foreign keys that do not collide.",
+      "columns": [
+        {
+          "name": "warehouse_code",
+          "logicalName": "倉庫コード",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        },
+        {
+          "name": "slot_key",
+          "logicalName": "スロットキー",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "columns": ["warehouse_code"],
+          "references": {
+            "table": "warehouses",
+            "columns": ["code"]
+          }
+        },
+        {
+          "columns": ["slot_key"],
+          "references": {
+            "table": "warehouses",
+            "columns": ["slot"]
+          }
+        }
+      ]
+    }
+  ]
+}

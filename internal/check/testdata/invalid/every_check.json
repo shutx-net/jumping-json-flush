@@ -1,0 +1,110 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "shop",
+    "logicalName": "オンラインショップ",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "accounts",
+      "logicalName": "アカウント",
+      "description": "Defines email twice, declares a nullable primary key column, and reuses pk_accounts for an index.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "アカウントID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス（重複定義）",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_accounts",
+        "columns": ["id"]
+      },
+      "indexes": [
+        {
+          "name": "pk_accounts",
+          "columns": ["email"]
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "description": "One foreign key with no target table, one with mismatched arity, one onto columns nothing constrains, and an index on a column that does not exist.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "account_id",
+          "logicalName": "アカウントID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "code",
+          "logicalName": "受注コード",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_orders_ghost",
+          "columns": ["account_id"],
+          "references": {
+            "table": "ghosts",
+            "columns": ["id"]
+          }
+        },
+        {
+          "name": "fk_orders_arity",
+          "columns": ["account_id"],
+          "references": {
+            "table": "accounts",
+            "columns": ["id", "email"]
+          }
+        },
+        {
+          "name": "fk_orders_code",
+          "columns": ["code"],
+          "references": {
+            "table": "accounts",
+            "columns": ["email"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_missing",
+          "columns": ["shipped_at"]
+        }
+      ]
+    }
+  ]
+}
