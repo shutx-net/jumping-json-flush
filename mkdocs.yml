@@ -87,8 +87,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.details
 
-# The page map. pages_test.go keeps it and docs/ in agreement in both directions:
-# no document is left out, and no entry points at a file that is not there.
+# The page map. internal/repo/pages_test.go keeps it and docs/ in agreement in
+# both directions: no document is left out, and no entry points at a file that is
+# not there.
 nav:
   - Home: index.md
   - Installing jjf: install.md

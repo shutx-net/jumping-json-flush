@@ -1,6 +1,11 @@
-// Package jjf holds no Go code. The tests here guard install.sh, the one liner
-// installer served from the default branch, against the release workflow whose
-// assets it downloads.
+// Package repo holds no Go code. The tests here guard the files this repository
+// publishes about itself, which sit at its root and belong to no Go package:
+// install.sh, the release workflow, mkdocs.yml and the documentation they are
+// described in. The package lives here rather than at the root so that those
+// files are the only things the root directory holds.
+//
+// This file guards install.sh, the one liner installer served from the default
+// branch, against the release workflow whose assets it downloads.
 //
 // The script itself is shell and is linted by shellcheck in CI; nothing in it is
 // executed from Go. What is checked here is the handful of facts the two files
@@ -16,7 +21,7 @@
 // published to people rather than to machines. The detail lives under docs/, away
 // from the READMEs, which is one more place for the script and what is written
 // about it to drift apart.
-package jjf
+package repo
 
 import (
 	"fmt"
@@ -28,11 +33,31 @@ import (
 	"testing"
 )
 
+// root is the repository root, reached from this package's directory, which is
+// where a Go test runs. Everything below names a file the way the repository
+// names it, and repoPath is the single place that turns such a name into a path
+// this process can open.
+const root = "../.."
+
 const (
 	installScript   = "install.sh"
 	releaseWorkflow = ".github/workflows/release.yml"
 	goMod           = "go.mod"
 )
+
+// repoPath resolves a repository relative name against root.
+func repoPath(name ...string) string {
+	return filepath.Join(append([]string{root}, name...)...)
+}
+
+// exists reports whether a repository relative name is present in the working
+// tree. The error os.Stat returns is deliberately dropped rather than reported:
+// it spells the path the way this package reaches it, "../../docs/install.md",
+// and the failures that call this are about a name a document wrote.
+func exists(name ...string) bool {
+	_, err := os.Stat(repoPath(name...))
+	return err == nil
+}
 
 // Every document that shows the install command. The READMEs keep the one liner
 // because it is the first thing a reader looks for; the pair below carries the
@@ -288,13 +313,13 @@ func TestInstallDocsCoverEveryOption(t *testing.T) {
 	}
 }
 
-// read returns the whole file at path.
+// read returns the whole file at path, which names it relative to the repository.
 func read(t *testing.T, path string) string {
 	t.Helper()
 
-	src, err := os.ReadFile(path)
+	src, err := os.ReadFile(repoPath(path))
 	if err != nil {
-		t.Fatalf("%v", err)
+		t.Fatalf("%s: %v", path, err)
 	}
 	return string(src)
 }
