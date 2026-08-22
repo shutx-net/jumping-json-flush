@@ -1,30 +1,55 @@
 # DDL generation — design record
 
-**Status: not adopted.** `AGENTS.md` lists DDL generation as out of scope, and
-this document does not change that. It records the decisions that would govern
-an implementation, and what adopting one would commit this project to, so that
-neither has to be derived again. Merging it settles the design; it does not
-start the work.
+**Status: adopted; not yet implemented.** This document is the specification an
+implementation follows. The choices in it were settled before any code because
+several of them are expensive to revisit once output has been shipped.
 
-## What adoption commits us to
+## Why jjf generates DDL
 
-This is the whole of the decision. Everything below it is cheap by comparison.
+`AGENTS.md` carries the reason in full: the JSON is the representation an agent
+authors, and everything else is derived from it. Without DDL that principle only
+half holds. A design can be imported from a database and rendered for people,
+but a design *written* in JSON cannot become a database unless someone writes
+the SQL by hand — and that hand-written SQL immediately becomes a second source
+of truth, which is the thing the whole tool exists to prevent.
 
-Generated DDL is *code*. People diff it, commit it, and feed it to migration
-tools. The moment someone commits a generated `schema.sql`, every later
-improvement to the generator — a better type mapping, a corrected quoting rule,
-a switch from `SERIAL` to identity columns — produces a diff in *their* file
-that is not a schema change.
+The value is not saved typing. It is that the mistakes made when DDL is written
+directly — a foreign key with no target, a nullable primary key column, a bare
+word where a string literal belongs, statements in an order the database rejects
+— stop being mistakes anyone can make. The document is checked, and the
+generator is the only thing that writes SQL.
 
-The two existing exporters do not have this problem. Nobody diffs an `.xlsx`,
-and a `.dot` file is a picture. DDL is the first artifact jjf would produce
-whose *formatting* is part of its contract. Adopting it means the generator's
-output format becomes a compatibility surface that can never again be changed
-freely.
+## What this commits us to
 
-The choices in the next section are therefore effectively irreversible from the
-first release that ships them. That is why they are written down before any code
-exists, rather than discovered while writing it.
+Generated DDL is the first artifact jjf produces that is *code*: text a database
+executes, and text a reader will be tempted to keep. That tempts a reader into
+treating it as a file to edit and commit, at which point every later improvement
+to the generator — a better type mapping, a corrected quoting rule — shows up in
+their repository as a diff that is not a schema change.
+
+The resolution is not to freeze the format. It is to be explicit that the `.sql`
+is a build artifact, exactly like the `.xlsx` and the `.dot`: regenerate it,
+never edit it, and do not treat it as the design. The generated file says so in
+its own header, the way the DOT exporter already does. What that buys is the
+right to improve the generator — announced, and batched into a release — instead
+of a format frozen by the first person who committed its output.
+
+That is a weaker promise than "the bytes never change", and it is the same
+promise the other two exporters already make. The choices below are still
+written down in advance, because changing one is a release note and a
+regeneration for every user, which is a cost worth incurring deliberately rather
+than by accident.
+
+## What it does not commit us to
+
+The generated DDL creates a schema from nothing. Applying it to a database that
+already has one is not a supported operation and will not become one: knowing
+how to move an existing schema from one state to another requires knowing the
+state it is in, which means introspection, which is a different tool.
+
+This is a deliberate simplification, not an omission awaiting work. A design
+that has already been applied somewhere is changed by writing the migration by
+hand.
 
 ## Scope of the generator
 
@@ -58,7 +83,7 @@ rather than guess.
 | 5 | Column types | Reconstruct from `type` plus `length` / `precision` / `scale`. | The reverse of the importer's normalisation. The type name is passed through as written: jjf does not maintain a per-system type catalogue, and inventing one would be database-design judgement. |
 | 6 | `default` | Emitted verbatim after `DEFAULT `. | The field is defined as SQL expression text. An ambiguous or malformed value does not corrupt silently — PostgreSQL forbids column references in `DEFAULT`, so a bare identifier is always rejected. `jjf validate` (C7/C8) catches the same mistakes before the database sees them. |
 | 7 | `logicalName` / `description` | `COMMENT ON TABLE` and `COMMENT ON COLUMN`. | Closes the round trip: the importer already reads these back into the same two fields. |
-| 8 | Header metadata | None. No timestamp, no tool version, no input path. | A version in the output makes two builds of jjf disagree about the same document. Both existing exporters already state this rule in their own comments; DDL is the artifact where it matters most, because it is the one that gets diffed. |
+| 8 | Header | A fixed comment naming the JSON as the source of truth, as the DOT exporter already writes. No timestamp, no tool version, no input path. | The static line is what makes the build-artifact policy visible at the point a reader is deciding whether to keep the file. The omissions are determinism: a version or a timestamp in the output makes two builds of jjf disagree about the same document, and DDL is the artifact where that matters most, because it is the one that gets diffed. |
 | 9 | Failure policy | All or nothing. Validate the whole document, then write. | The opposite of the importer, deliberately. A partially written DDL file that fails on statement 40 after creating twelve tables is worse than no file. |
 | 10 | Target-version flag | None. | Every construct the schema can express predates PostgreSQL 13 — the newest is identity columns, from 10 — so a `-pg-version` flag would have nothing to switch on. A flag that changes no output is a lie and a permanent interface. Revisit only when a construct that genuinely diverges enters the schema; `NULLS NOT DISTINCT` (PostgreSQL 15+) would be the first. |
 
@@ -130,9 +155,16 @@ generator.
 
 ## Output stability policy
 
-No `--compat` or output-version flag. Maintaining every past renderer costs more
-than the diff churn it would avoid.
+The `.sql` is a build artifact. It is generated, not authored; it carries a
+header saying so; and the supported way to get the current one is to run the
+exporter again. jjf does not promise that two releases emit identical bytes for
+the same document.
 
-The discipline instead is the one `gofmt` uses: pin the output with golden files,
-treat a format change as a breaking change, announce it in the release notes, and
-batch such changes into a single release rather than dribbling them out.
+That is not a licence to churn. Pin the output with golden files, treat a change
+in what is emitted as a change worth a release note, and batch such changes into
+one release rather than dribbling them out — the discipline `gofmt` uses, minus
+the promise `gofmt` makes.
+
+No `--compat` or output-version flag. Maintaining every past renderer costs more
+than the regeneration it would save, and the header already tells a reader what
+to do instead.

@@ -2,9 +2,21 @@
 
 ## Project Overview
 
-**Jumpin' Json Flush** (`jjf`) is a Go CLI for managing database design specifications as structured JSON and generating human-readable artifacts such as Excel workbooks.
+**Jumpin' Json Flush** (`jjf`) is a Go CLI that keeps a database design as
+structured JSON and derives every other representation from it.
 
-The canonical source is JSON. Generated `.xlsx` files are derived artifacts and must never be treated as authoritative data.
+The JSON is the part that gets authored, and it is meant to be authorable by an
+AI agent. A schema-validated tree is something an agent can write, check and
+revise reliably; hand-written SQL is something it can only get approximately
+right, in the specific ways this tool's own checks enumerate — a foreign key
+with no target, a nullable primary key column, a bare word where a string
+literal belongs. Keeping the design in JSON moves those from mistakes an agent
+might make into states a document cannot reach.
+
+Everything else is derived: Excel workbooks and ER diagrams for people, DDL for
+a database. The canonical source is the JSON. Every generated file — `.xlsx`,
+`.dot`, `.sql` — is a derived artifact, must never be treated as authoritative
+data, and is meant to be regenerated rather than edited or kept.
 
 Initial scope:
 
@@ -97,19 +109,25 @@ column is nullable, whether one table reuses a column or constraint name, and
 whether a column's default is empty or does not read as a SQL expression.
 Those findings are warnings; `-strict` makes them a failure.
 
+`jjf export` derives the artifacts. The DDL it writes creates a schema from
+nothing. Evolving a schema that already exists is deliberately not in scope:
+that requires knowing the state the database is currently in, which is
+introspection, which is a different tool. A design that has already been applied
+somewhere is changed by writing the migration by hand.
+
 Unless explicitly requested, do not add:
 
 * database design judgement: normalization, index strategy, type suitability,
   naming conventions, or anything else that is an opinion about a design rather
   than a statement about the document
-* checks that depend on a particular database system, such as the uniqueness of
-  index names across a schema
+* checks in `jjf validate` that depend on a particular database system, such as
+  the uniqueness of index names across a schema. An exporter may check what its
+  own target requires before it writes; `validate` speaks about the document
+  alone
 * database connections or introspection
-* migration management
+* migration management. Generated DDL creates a schema from nothing; moving an
+  existing schema from one state to another needs to know the state it is in
 * ORM functionality
-* DDL generation. `design/ddl-export.md` records the decisions an
-  implementation would follow and what adopting one would commit this project
-  to; it settles the design without adopting the feature
 * Markdown export
 * Excel-to-JSON conversion
 * GUI functionality
