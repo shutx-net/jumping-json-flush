@@ -143,8 +143,8 @@ direnv.
   `.github/workflows/release.yml`, and its options against `docs/install.md`.
   shellcheck comes from the nix shell and from the CI runner; the devcontainer
   image does not carry it
-- `design/` holds decision records for work that is not adopted: what an
-  implementation would commit the project to, and the choices it would be bound
-  by. It is deliberately outside `docs/`, which is the published site — a page
+- `design/` holds decision records: the choices an implementation is bound by,
+  and what they commit the project to, settled before the code exists so that
+  they are decided deliberately rather than discovered. It is deliberately outside `docs/`, which is the published site — a page
   there describing a feature the tool does not have would mislead its readers,
   and `mkdocs build --strict` rejects a file that is not in the `nav` map anyway

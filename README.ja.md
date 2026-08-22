@@ -185,10 +185,15 @@ DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパ�
 
 ## 対象外
 
-稼働中の DB への接続、DDL 生成、Mermaid 出力、Markdown 出力、
+稼働中の DB への接続、Mermaid 出力、Markdown 出力、
 設計の良し悪しの判断（正規化・インデックス設計・型選択）、
 マイグレーション管理、Excel から JSON への逆変換、
 Excel の直接編集、GUI、Excel テンプレートのカスタマイズは対象外である。
+
+PostgreSQL の DDL 出力は採用済みだが未実装である。設計は
+[`design/ddl-export.md`](design/ddl-export.md) で確定している。生成する DDL は
+スキーマを一から作るものであり、既にスキーマを持つデータベースへ適用することは
+対象外のままである。その状態を知る必要があるためである。
 
 ER 図は Graphviz DOT のソースとして生成する（`jjf export dot`、
 [`docs/usage.ja.md`](docs/usage.ja.md#export)）。画像への変換は対象外であり、

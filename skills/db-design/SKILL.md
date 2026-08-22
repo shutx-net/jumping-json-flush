@@ -187,7 +187,8 @@ that pretends otherwise.
   and naming conventions are the author's, and so are type compatibility across a
   foreign key and duplicate table names — those stay unchecked. What `jjf
   validate` does check is in [references/errors.md](references/errors.md).
-- DDL or SQL generation
+- DDL or SQL generation. The design is settled but nothing implements it yet, so
+  there is no subcommand to call and none should be offered
 - Connecting to a database. A schema is imported from a `pg_dump` **file**, never from a live server
 - Migrations, schema diffs, breaking-change detection
 - Mermaid or Markdown output. An ER diagram is written as Graphviz DOT source

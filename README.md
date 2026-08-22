@@ -192,10 +192,15 @@ The tool's version and the database design format's version are **independent**.
 
 ## Out of scope
 
-Connecting to a running database, DDL generation, Mermaid output, Markdown
-output, judging a database design (normalization, index strategy, type choice),
-migration management, converting Excel back into JSON, editing the Excel
-directly, a GUI, and customising the Excel template are all out of scope.
+Connecting to a running database, Mermaid output, Markdown output, judging a
+database design (normalization, index strategy, type choice), migration
+management, converting Excel back into JSON, editing the Excel directly, a GUI,
+and customising the Excel template are all out of scope.
+
+PostgreSQL DDL export is decided but not yet implemented; the design is settled
+in [`design/ddl-export.md`](design/ddl-export.md). It will create a schema from
+nothing. Applying a design to a database that already has one stays out of
+scope, because that needs to know the state that database is in.
 
 An entity relationship diagram is generated as Graphviz DOT source (`jjf export
 dot`); see [`docs/usage.md`](docs/usage.md#export). Rendering it to an image is
