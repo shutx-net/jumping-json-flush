@@ -1,0 +1,44 @@
+-- Applied to the empty database before the DDL generated from edge.json, by
+-- roundtrip.sh and by nothing else.
+--
+-- WHY THIS FILE EXISTS. edge.json gives one column the type ORDER_STATUS.
+-- Column types in the design format are opaque strings, so a document may name
+-- a type the format itself has no way to define: the generated script
+-- references ORDER_STATUS and creates nothing, which is syntactically valid SQL
+-- that fails on execution. design/ddl-export.md states this plainly under "What
+-- is deliberately not emitted", and calls it a limitation of the format rather
+-- than a bug in the generator. edge.json's own column description says the same
+-- thing.
+--
+-- WHAT THIS FILE IS NOT. It is not a gap the generator should close, and a
+-- green round trip says nothing about CREATE TYPE. The project's instruction to
+-- an author who hits this is already written down, in
+-- skills/db-design/references/ddl-output.md: "Do not fabricate a CREATE TYPE to
+-- paper over it - tell the user the type has to exist in the target database."
+-- This file IS the type existing in the target database. The harness is playing
+-- the part the documentation assigns to the user, not compensating for the
+-- generator.
+--
+-- Dropping edge.json from the round trip to avoid one CREATE TYPE would cost
+-- most of the round trip's value: it is the document carrying the reserved-word
+-- table and column names, the mutual reference cycle, the self-reference, all
+-- five referential actions, the array types, FLOAT(24), a length a known type
+-- cannot take, and TIMESTAMP(3) WITH TIME ZONE spelled infix - which is to say
+-- every place PostgreSQL's normalisation and pg_dump's rendering are most
+-- likely to disagree with the importer.
+--
+-- HOW ANOTHER DOCUMENT GETS ONE: roundtrip.sh applies <name>.prelude.sql when
+-- it finds one beside <name>.json, and names it in the log every time it does.
+-- Needing one at all is worth a moment's thought before writing it: it means
+-- the document says something the generated script cannot.
+--
+-- The type is unqualified on purpose. The generated DDL writes ORDER_STATUS
+-- unquoted, PostgreSQL folds that to order_status, and the connection's default
+-- search_path puts it in public - which is where pg_dump then finds it and
+-- writes it back as public.order_status. edge.json's default expression,
+-- 'pending'::order_status, resolves the same way.
+--
+-- The values are the ones internal/importer/postgres/testdata/source/ecshop.sql
+-- already uses for a type of this name, so the two halves of the repository
+-- describe the same enum.
+CREATE TYPE order_status AS ENUM ('pending', 'paid', 'shipped', 'cancelled');
