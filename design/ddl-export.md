@@ -156,7 +156,7 @@ Golden files alone are insufficient: they prove only that the generator emits
 what it emitted. The real oracle is the database.
 
 ```
-document.json → jjf ddl → live PostgreSQL → pg_dump → jjf import → document.json
+document.json → jjf export ddl → live PostgreSQL → pg_dump → jjf import → document.json
 ```
 
 The comparison is at the document level, never at the SQL level: `pg_dump`
@@ -174,9 +174,29 @@ Two properties this pins that nothing else can:
 
 This needs live PostgreSQL in CI, which is the expensive part of adopting DDL
 generation and the reason the infrastructure is worth building before the
-generator. It is not yet wired in: the change that added the generator
-deliberately left CI alone, and `.github/workflows/pg-fixtures.yml`, which
-already starts a real server per PostgreSQL major, is where it belongs.
+generator. It is wired into the `verify` leg of
+`.github/workflows/pg-fixtures.yml`, which already starts a real server per
+PostgreSQL major — so the generator is answered by every renderer the importer
+claims to read, and not by one of them. The documents are the three under
+`internal/export/ddl/testdata/` that the golden test already calls the shapes
+the generator has to survive.
+
+Applying the generated script under `psql -v ON_ERROR_STOP=1` is a gate in its
+own right, and the first fact no golden file could ever establish: that what the
+generator emits is something a database accepts.
+
+`edge.json` is applied after a per-document prelude that creates its
+user-defined type. That is the remedy the section above prescribes — the type
+has to exist in the target database — and not a softening of the rule that the
+generator emits no `CREATE TYPE`; a green round trip says nothing whatever about
+type definitions.
+
+The first pass against the input document is written into the job summary and
+deliberately not gated. Every difference it shows belongs to PostgreSQL rather
+than to jjf, so freezing them would make a PostgreSQL release a jjf failure with
+no jjf change to make. Naming the known classes in the report is what buys the
+value the pinning would have — a reader can tell documented drift from news —
+without the false red.
 
 ## Output stability policy
 
