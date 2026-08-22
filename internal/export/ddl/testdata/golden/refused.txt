@@ -1,0 +1,8 @@
+column created_at on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'
+primary key pk_orders on table orders: names column "id", which the table declares nullable
+foreign key fk_parent on table orders: references table "customers", which this document does not define
+column seq on table order_items: is autoIncrement and also declares a default; PostgreSQL refuses a column that is both an identity column and has a DEFAULT
+column qty on table order_items: is autoIncrement and declared nullable; PostgreSQL makes an identity column NOT NULL, so the database would not match the document
+table order_items: declares index "ix_created", a name already used by index ix_created on table orders; PostgreSQL puts tables, indexes and the indexes behind PRIMARY KEY and UNIQUE in one namespace per schema
+table order_items: declares index "settings", a name already used by table settings; PostgreSQL puts tables, indexes and the indexes behind PRIMARY KEY and UNIQUE in one namespace per schema
+table orders: is the second table this document calls "orders"; PostgreSQL cannot create two tables of one name in a schema

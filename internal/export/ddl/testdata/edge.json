@@ -1,0 +1,261 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "edge",
+    "logicalName": "境界",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "order",
+      "logicalName": "受注",
+      "description": "A table named after a reserved word. Its description carries an apostrophe - it's here on purpose -\nand a newline, so the COMMENT ON literal has to survive both.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "user",
+          "logicalName": "利用者ID",
+          "description": "A column named after a reserved word, in a table named after another one.",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "受注状態",
+          "description": "A user-defined type. Nothing in the generated script creates it, which is the documented limitation.",
+          "type": "ORDER_STATUS",
+          "nullable": false,
+          "default": "'pending'::order_status"
+        },
+        {
+          "name": "total",
+          "logicalName": "合計金額",
+          "type": "NUMERIC",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "0.00"
+        },
+        {
+          "name": "rate",
+          "logicalName": "レート",
+          "type": "NUMERIC",
+          "precision": 8,
+          "nullable": true
+        },
+        {
+          "name": "placed_at",
+          "logicalName": "受注日時",
+          "description": "The spelled-out type name with a precision, which PostgreSQL only accepts infixed.",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "precision": 3,
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "shipped_at",
+          "logicalName": "出荷日時",
+          "type": "TIMESTAMPTZ",
+          "nullable": true
+        },
+        {
+          "name": "flags",
+          "logicalName": "フラグ",
+          "description": "A length a known type cannot take, which is dropped without a word.",
+          "type": "INTEGER",
+          "length": 11,
+          "nullable": true
+        },
+        {
+          "name": "payload",
+          "logicalName": "ペイロード",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'{}'::jsonb"
+        },
+        {
+          "name": "label",
+          "logicalName": "ラベル's",
+          "type": "TEXT",
+          "nullable": false,
+          "default": "'it''s'::text"
+        },
+        {
+          "name": "note",
+          "logicalName": "note",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "columns": ["user", "placed_at"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "columns": ["user"],
+          "references": {
+            "table": "user",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_status",
+          "columns": ["status"]
+        }
+      ]
+    },
+    {
+      "name": "user",
+      "logicalName": "利用者",
+      "description": "The other half of a cycle: order references user and user references order, which the four fixed phases need no topological sort to survive.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "利用者ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "tags",
+          "logicalName": "タグ",
+          "type": "TEXT ARRAY",
+          "nullable": true
+        },
+        {
+          "name": "aliases",
+          "logicalName": "別名",
+          "description": "An array whose element carries a length, so the parameter goes inside the brackets.",
+          "type": "VARCHAR ARRAY",
+          "length": 32,
+          "nullable": true
+        },
+        {
+          "name": "score",
+          "logicalName": "スコア",
+          "description": "A type this exporter's table does not list, whose parameter is reproduced in the order the rest of jjf displays one.",
+          "type": "FLOAT",
+          "length": 24,
+          "nullable": true
+        },
+        {
+          "name": "home_order_id",
+          "logicalName": "既定受注ID",
+          "type": "BIGINT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_user",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_user_email",
+          "columns": ["email"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_user_home_order",
+          "columns": ["home_order_id"],
+          "references": {
+            "table": "order",
+            "columns": ["id"]
+          },
+          "onDelete": "SET NULL"
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "logicalName": "分類",
+      "description": "A self-referencing foreign key, and the two referential actions the other tables do not use.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "分類ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "parent_id",
+          "logicalName": "親分類ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "logicalName": "名称",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_categories",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_categories_parent",
+          "columns": ["parent_id"],
+          "references": {
+            "table": "categories",
+            "columns": ["id"]
+          },
+          "onUpdate": "NO ACTION",
+          "onDelete": "SET DEFAULT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_categories_name",
+          "columns": ["name"],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "audit",
+      "logicalName": "監査",
+      "columns": [
+        {
+          "name": "at",
+          "logicalName": "at",
+          "type": "TIMESTAMPTZ",
+          "nullable": false
+        },
+        {
+          "name": "who",
+          "logicalName": "who",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

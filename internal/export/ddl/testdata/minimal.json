@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "minimal",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "notes",
+      "logicalName": "notes",
+      "columns": [
+        {
+          "name": "body",
+          "logicalName": "body",
+          "type": "TEXT",
+          "nullable": true
+        }
+      ]
+    }
+  ]
+}
