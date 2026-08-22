@@ -18,7 +18,8 @@ a PostgreSQL DDL script.
   musl/alpine
 - **Built for AI agents.** Structural validation through JSON Schema and an Agent
   Skill let an agent edit the design JSON safely. The skill is distributed as a
-  Claude Code plugin (`/plugin install jjf@jjf-tools`)
+  Claude Code plugin (`/plugin install jjf@jjf-tools`) and, following the Agent
+  Skills specification, installs into Codex and GitHub Copilot as well
 
 ```sh
 jjf import postgres schema.sql -o db-design.json
@@ -150,7 +151,11 @@ Claude Code as a plugin, with **no git, no npm and no Node**.
 /plugin install jjf@jjf-tools
 ```
 
-Invoke it with `/jjf:db-design`. Installing it without the plugin and the release
+Invoke it with `/jjf:db-design`. It is not tied to Claude Code: the skill follows
+the [Agent Skills](https://agentskills.io) specification and uses nothing outside
+it, so `gh skill install shutx-net/jumping-json-flush db-design --agent codex`
+puts the same directory where Codex, GitHub Copilot or another conforming host
+looks for it. Those routes, installing without the plugin, and the release
 procedure are in [`skills/README.md`](skills/README.md). The skill is written in
 English; the same material in Japanese, for a person to read rather than an agent
 to execute, is [`docs/db-design-guide.ja.md`](docs/db-design-guide.ja.md).

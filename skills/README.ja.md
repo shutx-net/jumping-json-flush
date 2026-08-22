@@ -79,6 +79,48 @@ cp -r skills/db-design ~/.claude/skills/
 この方法で入れた場合、呼び出しは `jjf:` の付かない `/db-design` になり、
 更新は届かない。
 
+## Codex・GitHub Copilot ほかのホストへ導入する
+
+スキルは [Agent Skills](https://agentskills.io) 仕様に従い、仕様外のものを
+使っていない。そのため同じディレクトリが、仕様を実装したどのホストでも
+そのまま読み込まれる。GitHub CLI v2.90.0 以降の `gh skill` が、指定した
+ホストが見るディレクトリへ配置してくれる。
+
+```sh
+gh skill install shutx-net/jumping-json-flush db-design                   # GitHub Copilot
+gh skill install shutx-net/jumping-json-flush db-design --agent codex
+gh skill install shutx-net/jumping-json-flush db-design --agent claude-code
+```
+
+スキルの発見は `skills/*/SKILL.md` の規約による。このリポジトリは既にその配置に
+なっている。既定のプロジェクトスコープでは GitHub Copilot・Codex・Cursor・
+Gemini CLI ほかが同じ `.agents/skills/` に解決されるため、1 回の導入でまとめて
+行き渡る。`--scope user` ならホームディレクトリに入り、そのマシンの全プロジェクトで
+使える。
+
+バージョンを指定しない場合、`gh skill` はまず**最新のタグ付きリリース**に解決し、
+リリースが無いときだけデフォルトブランチにフォールバックする。つまり導入されるのは
+`main` の内容ではなくリリース時点のスキルである。別のものを固定するには `@<tag>`
+または `--pin` を使う。
+
+導入されたコピーには取得元の追跡情報が入るが、`gh skill` はそれを `metadata`
+マップの中に書く。仕様がホスト独自のキーのために空けている場所であり、6 つの
+フィールドの外には何も足さない。なお `gh skill` はプレビュー段階で、
+フラグが変わる可能性がある。
+
+ディレクトリのコピーでも入る。`.agents/skills/` は Codex と GitHub Copilot の
+両方が読む。
+
+```sh
+mkdir -p /path/to/your-repo/.agents/skills
+cp -r skills/db-design /path/to/your-repo/.agents/skills/
+```
+
+Codex は `~/.agents/skills/` も読む。GitHub Copilot は `.github/skills/`・
+`.claude/skills/`・`~/.copilot/skills/` も読む。呼び出しは Codex CLI で
+`$db-design`、ChatGPT で `@db-design`。やりたいことを普通に書いて、
+description から読み込ませてもよい。
+
 ## 導入を確認する
 
 `/plugin` で導入済みプラグインの一覧と有効・無効の切り替えができる。`/skills` は
@@ -91,15 +133,25 @@ cp -r skills/db-design ~/.claude/skills/
 バイナリを同梱しない（スキルであってインストーラではない）。導入方法は
 リポジトリの [README](../README.ja.md) を参照。
 
-frontmatter は Agent Skills のどのホストでも解釈できるフィールド
-（`name` / `description` / `license` / `compatibility` / `allowed-tools` /
-`metadata`）だけを使っているため、同じディレクトリを claude.ai のスキル
-アップロードや Anthropic Agent SDK でもそのまま利用できる。
+frontmatter は Agent Skills 仕様が定める 6 フィールド（`name` / `description` /
+`license` / `compatibility` / `allowed-tools` / `metadata`）だけを使っている。
+上に挙げたどのホストでも、claude.ai のスキルアップロードでも、Anthropic Agent SDK
+でも同じディレクトリがそのまま通るのはそのためである。検証は仕様自身の
+バリデータ
+[`skills-ref`](https://github.com/agentskills/agentskills/tree/main/skills-ref)
+で行える: `skills-ref validate skills/db-design`。
 
-`allowed-tools` で事前承認しているのは `Read` と `jjf` の 2 サブコマンドだけ
-である。読み取りを行う `validate` と、利用者が指定したパスへブックまたは
-Graphviz DOT ファイルを書き出す `export` の 2 つである。JSON の編集は通常どおり権限確認を経る。`Write` / `Edit` の
-事前承認はスキルを入れる利用者にとって権限昇格になるため、意図的に含めていない。
+`allowed-tools` で事前承認しているのは `Read` と `jjf` の 3 サブコマンドだけ
+である。ダンプを読んで設計書を書き出す `import`、読み取りを行う `validate`、
+ブック・Graphviz DOT ファイル・DDL スクリプトを書き出す `export` の 3 つ。
+書き込む 2 つはいずれもパスを利用者から受け取る。JSON の編集は通常どおり
+権限確認を経る。`Write` / `Edit` の事前承認はスキルを入れる利用者にとって
+権限昇格になるため、意図的に含めていない。
+
+仕様は `allowed-tools` をスペース区切りの文字列と定めている。このスキルは YAML
+リストで書いている。パターンが `Bash(jjf import:*)` のようにスペースを含み、
+スペース区切りの文字列では表現できないためである。Claude Code は両方の形式を
+文書化しており、仕様のリファレンス実装もリストを受け付ける。
 
 ## プラグインのリリース手順
 
@@ -131,5 +183,7 @@ Graphviz DOT ファイルを書き出す `export` の 2 つである。JSON の�
 ## 参考
 
 - Agent Skills のドキュメント: <https://code.claude.com/docs/en/skills.md>
+- Agent Skills の仕様: <https://agentskills.io/specification>
+- `gh skill`: <https://cli.github.com/manual/gh_skill>
 - プラグインのリファレンス: <https://code.claude.com/docs/en/plugins-reference.md>
 - プラグインマーケットプレース: <https://code.claude.com/docs/en/plugin-marketplaces.md>

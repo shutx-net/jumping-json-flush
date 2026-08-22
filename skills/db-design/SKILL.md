@@ -2,7 +2,7 @@
 name: db-design
 description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a PostgreSQL dump with jjf import postgres, JSON Schema validation with jjf validate, Excel export with jjf export xlsx, Graphviz DOT ER diagram export with jjf export dot, and PostgreSQL DDL export with jjf export ddl. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL database or a pg_dump file, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、ER図の DOT 出力、PostgreSQL の DDL 出力、既存DBからの設計書起こし、pg_dump の取り込み。
 license: MIT
-compatibility: Requires the jjf CLI on PATH. Uses only portable Agent Skills frontmatter fields, so it also works with claude.ai skill upload and the Anthropic Agent SDK.
+compatibility: Requires the jjf CLI on PATH. Follows the Agent Skills specification and uses only the frontmatter fields it defines, so the same directory loads unchanged in Claude Code, Codex, GitHub Copilot and other conforming hosts, as a claude.ai skill upload, and from the Anthropic Agent SDK.
 allowed-tools:
   - Read
   - Bash(jjf import:*)
