@@ -44,6 +44,7 @@ direnv.
 | staticcheck | `staticcheck ./...` |
 | lint install.sh | `shellcheck --shell=sh install.sh` |
 | regenerate the pg_dump fixtures | `sh internal/importer/postgres/testdata/generate.sh` |
+| regenerate one major | `PGBIN=/usr/lib/postgresql/17/bin sh internal/importer/postgres/testdata/generate.sh` |
 | cross-build check | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
 
 ## Things to watch out for
@@ -67,12 +68,41 @@ direnv.
   `TestImportAgreesAcrossPgDumpMajors` holds all of them to the same goldens, which
   are built from pg16. The script starts a throwaway PostgreSQL cluster under
   `/tmp` for each major it finds under `/usr/lib/postgresql/*/bin` — `PGBIN`
-  narrows it to one — and needs root or the `postgres` user, because the server
-  refuses to run as root. The majors beside the distribution's own come from the
-  PGDG repository at apt.postgresql.org; the script header carries the commands.
-  The clusters are deleted afterwards and never committed. A regenerated dump
-  always differs in the `\restrict` / `\unrestrict` line: pg_dump puts a random
-  token there
+  narrows it to one. The server refuses to run as root, so as root the script
+  runs every server command through `su postgres`, which then has to be able to
+  read `testdata/source/` and traverse the path above it; as any ordinary user it
+  runs them directly and the question never comes up, which is what CI does. The
+  majors beside the distribution's own come from the PGDG repository at
+  apt.postgresql.org; the script header carries the commands.
+  The clusters are deleted afterwards and never committed. Four lines of a
+  regenerated dump never match the committed one: the `\restrict` /
+  `\unrestrict` lines, where pg_dump puts a random token, and the two
+  `-- Dumped ... version` banners, which move with every PostgreSQL minor release
+  and with the packaging. Nothing else does — everything below those four lines
+  is the schema
+- `.github/workflows/pg-fixtures.yml` is the other half of that script. Nothing in
+  `go test` starts a database, so nothing would notice a `pg_dump` that stopped
+  writing what was captured; this workflow installs one PostgreSQL major per matrix
+  leg, runs `generate.sh` unchanged against a live server, and holds the
+  regenerated dumps to the committed goldens with the importer's own test suite. It
+  runs weekly, on pull requests that touch `internal/importer/postgres/**`, and on
+  demand with `gh workflow run pg-fixtures.yml`. It never commits what it
+  regenerates: the dumps leave the runner as the `dump-pg<major>` artifact and
+  nothing else. Three things turn it red, and the job summary says which. A dump no
+  longer imports to its golden — a real divergence, and the summary carries the
+  diff of the document, not of the SQL. Or the dump text changed in something other
+  than those four lines — `pg_dump` writes something new and the committed capture
+  is stale. Both are fixed by regenerating locally and committing the result,
+  re-running the package with `-update` only when the goldens should move with it;
+  the pg16 leg is the one that can also fail on `edge.warnings.txt`, because those
+  warnings carry line numbers and the goldens are built from pg16. Or
+  `upstream majors` failed, the job that notices a PostgreSQL major newer than
+  anything captured here — it writes the steps it wants into its own log and
+  summary, and stays red every week until the repository says something about that
+  major either way. Do not make any of these jobs a required status check: they are
+  path filtered, and a required check that never runs blocks the merge for ever.
+  GitHub also disables a scheduled workflow after 60 days without a commit to the
+  repository, so a long quiet stretch ends with this one silently switched off
 - `internal/importer/postgres/testdata/dump/synthetic/*.sql` is hand-written, says
   so in its own headers, and is not produced by the script. It covers dump shapes
   no installed pg_dump writes any more — unqualified names, `WITH (oids = false)` —
