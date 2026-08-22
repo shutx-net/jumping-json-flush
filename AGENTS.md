@@ -107,7 +107,9 @@ Unless explicitly requested, do not add:
 * database connections or introspection
 * migration management
 * ORM functionality
-* DDL generation
+* DDL generation. `design/ddl-export.md` records the decisions an
+  implementation would follow and what adopting one would commit this project
+  to; it settles the design without adopting the feature
 * Markdown export
 * Excel-to-JSON conversion
 * GUI functionality
