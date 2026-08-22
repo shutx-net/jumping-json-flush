@@ -1,0 +1,465 @@
+name: PostgreSQL fixtures
+
+# The pg_dump captures under internal/importer/postgres/testdata/dump/ are static
+# files. go test reads them and never starts a database, which is what keeps the
+# test suite free of a database and a network - testdata/generate.sh says so in
+# its own header. The price of that arrangement is that nothing notices when a
+# real pg_dump stops writing what was captured, or when a PostgreSQL major nobody
+# has looked at appears. This workflow is the missing half: it regenerates the
+# fixtures against live servers, one major per leg, and holds the result to the
+# committed goldens.
+#
+# What it cannot do is compare the regenerated files with the committed ones byte
+# for byte. Four lines of a pg_dump can never match a previous run: the
+# "\restrict" and "\unrestrict" tokens, which are random per run, and the two
+# "-- Dumped ... version" banners, which move with every PostgreSQL minor release.
+# So the assertion is at the document level - the one
+# TestImportAgreesAcrossPgDumpMajors already makes - and the dump text is compared
+# separately with those four lines ignored.
+#
+# Nothing here is ever committed. The regenerated dumps live in the runner's
+# checkout for the length of the job and leave it only as a build artifact.
+
+on:
+  # The schedule is the reason this workflow exists. Everything it looks for
+  # happens upstream and is never announced by a commit here: a PostgreSQL minor
+  # release that changes pg_dump's output, or a new major. Weekly bounds the
+  # discovery delay to seven days. The minute is not zero on purpose - schedules
+  # on the hour queue behind everybody else's.
+  #
+  # GitHub runs a schedule only from the default branch, and disables it after 60
+  # days without a commit to the repository.
+  schedule:
+    - cron: '23 4 * * 1'
+  # Not every pull request: this one installs a PostgreSQL server and takes
+  # minutes, and only the importer's own directory can invalidate the
+  # relationship between a dump, the importer and a golden. This file is in the
+  # list so that a pull request which changes the job runs the job - including
+  # the one that introduces it, which is the only way to rehearse it before it
+  # reaches the default branch, because workflow_dispatch does not appear until
+  # then.
+  #
+  # These jobs must not be made required status checks. A path filtered workflow
+  # does not run for an unrelated pull request, and a required check that never
+  # runs blocks the merge for ever.
+  pull_request:
+    paths:
+      - 'internal/importer/postgres/**'
+      - '.github/workflows/pg-fixtures.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A pull request cancels its own earlier run. A scheduled run cancels nothing: a
+# weekly answer that was cancelled is a week without an answer.
+concurrency:
+  group: pg-fixtures-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  majors:
+    name: majors
+    runs-on: ubuntu-24.04
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: read
+        name: read the captured majors
+        # The matrix is derived from the committed fixtures instead of being
+        # written out here, so that this workflow cannot disagree with the
+        # repository about which majors exist. testdata/dump/pg<major>/ is the
+        # list, and TestCapturedMajorsCoverTheSupportedRange already holds that
+        # list to minSupportedMajor..maxSupportedMajor in
+        # internal/importer/postgres. Committing a pg19 capture therefore extends
+        # this job by itself, and no edit here can be forgotten.
+        run: |
+          majors="$(ls -d internal/importer/postgres/testdata/dump/pg[0-9][0-9] 2>/dev/null |
+            sed 's#.*/pg##' | sort -n)"
+          if [ -z "$majors" ]; then
+            echo "::error::no testdata/dump/pg<major> directory found; this job is reading the wrong path"
+            exit 1
+          fi
+          list="$(printf '%s\n' "$majors" | jq -R . | jq -sc .)"
+          printf 'majors: %s\n' "$list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: verify (pg${{ matrix.major }})
+    needs: majors
+    # Pinned, where the rest of this repository's CI runs on ubuntu-latest.
+    # ubuntu-latest is being migrated to 26.04, the PGDG repository line below is
+    # built from the runner's own $VERSION_CODENAME, and the captures this job
+    # compares against were taken on 24.04. Everywhere else a moving runner is
+    # fine; here the environment is part of what is being compared.
+    runs-on: ubuntu-24.04
+    # This is the only job in the repository that starts a server. A cluster that
+    # never comes up would otherwise sit on the six hour default.
+    timeout-minutes: 20
+    strategy:
+      # One major that cannot be installed, or that diverged, must not hide the
+      # state of the other five. PostgreSQL 13 will leave apt.postgresql.org for
+      # the archive repository one day, and that day has to cost exactly one red
+      # leg.
+      fail-fast: false
+      matrix:
+        major: ${{ fromJSON(needs.majors.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # The go directive of go.mod is the single source of the Go version.
+          go-version-file: go.mod
+
+      - name: install PostgreSQL ${{ matrix.major }}
+        # These are the commands the header of testdata/generate.sh documents,
+        # with one deliberate difference: the header omits postgresql-16, because
+        # a distribution ships one and on 24.04 that one is 16. This job installs
+        # 16 from PGDG as well, so that no leg depends on which PostgreSQL the
+        # runner image happens to carry. The cost is that the committed pg16
+        # capture came from Ubuntu's build and this runs PGDG's; measured, the two
+        # write the same DDL and differ only in the banner line, which the
+        # comparison below ignores anyway.
+        #
+        # The runner image may already have apt.postgresql.org configured. Writing
+        # the same file again is harmless; a duplicate configuration elsewhere
+        # only makes apt say so.
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" |
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-${{ matrix.major }}
+          # postgresql-<major> depends on postgresql-client-<major>, which is
+          # where pg_dump, psql and createdb live. The version this run used is
+          # part of the record.
+          /usr/lib/postgresql/${{ matrix.major }}/bin/pg_dump --version
+
+      - id: regenerate
+        name: regenerate the pg${{ matrix.major }} fixtures
+        # generate.sh, unchanged, driven exactly the way its header documents.
+        # PGBIN narrows it to one major, which matters here: the runner image
+        # ships a PostgreSQL of its own under /usr/lib/postgresql and the
+        # unguided loop would dump with that one too.
+        #
+        # Deliberately not under sudo. As root the script runs every server
+        # command through "su postgres", which then has to be able to read the
+        # checkout; as the ordinary runner user it runs them directly and the
+        # server's refusal to run as root never comes up. The cluster it starts
+        # listens on a unix socket inside its own scratch directory and on no TCP
+        # port at all ("-h ''"), so neither the runner's own PostgreSQL on 5432
+        # nor the cluster apt just created can collide with it, and PGPORT can
+        # stay at its default.
+        #
+        # The id is what the steps below read: after a failed apt or a failed
+        # regeneration there are no fresh dumps, and an empty diff would read as
+        # "ok".
+        env:
+          PGBIN: /usr/lib/postgresql/${{ matrix.major }}/bin
+        run: sh internal/importer/postgres/testdata/generate.sh
+
+      - name: the regenerated dumps still import to the committed goldens
+        # The assertion, and not a new one: this is the importer's own test suite
+        # reading the dumps that were just written, which is exactly what
+        # TestImportAgreesAcrossPgDumpMajors does for the committed ones. Only
+        # this leg's major is fresh; the other five directories are the committed
+        # captures and pass here as they do in CI.
+        #
+        # -count=1 because setup-go restores the build cache, and a cached test
+        # result is not an answer about files this job has just written.
+        run: go test -count=1 ./internal/importer/postgres/
+
+      - name: nothing outside testdata/dump was written
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # generate.sh promises in its header that nothing outside its scratch
+        # directory and testdata/dump/ is written. This is where that promise is
+        # checked, on the one machine that runs the script with nobody watching.
+        # git status exits 0 whether or not it printed anything, so the output
+        # has to be the gate - the same shape as the gofmt check in ci.yml.
+        run: |
+          out="$(git status --porcelain -- . ':(exclude)internal/importer/postgres/testdata/dump')"
+          if [ -n "$out" ]; then
+            echo "::error::the regeneration wrote outside testdata/dump/"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "ok  the regeneration stayed inside testdata/dump/"
+
+      - name: the dump text, ignoring what cannot be stable
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # Four lines of a pg_dump can never match a previous run: the "\restrict"
+        # and "\unrestrict" tokens, which are random per run, and the two
+        # "-- Dumped ... version" banners, which move with every minor release and
+        # with the packaging. Everything else is the schema, and a change there
+        # means pg_dump has started writing something different for the same
+        # input. That is news even when the imported document survived it, which
+        # is why this is a gate of its own and not part of the step above: the
+        # documents can agree while the fixture has gone stale.
+        #
+        # git diff -I takes a POSIX extended regular expression and wants git 2.30
+        # or newer.
+        run: |
+          if git diff --exit-code \
+               -I '^\\(un)?restrict ' \
+               -I '^-- Dumped (from database|by pg_dump) version ' \
+               -- "internal/importer/postgres/testdata/dump/pg${{ matrix.major }}"; then
+            echo "ok  pg_dump ${{ matrix.major }} still writes the committed fixture"
+            exit 0
+          fi
+          echo "::error::pg_dump ${{ matrix.major }} no longer writes the committed fixture; regenerate it and commit the result"
+          exit 1
+
+      - name: what changed
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # A failed golden comparison above prints both documents in full - the
+        # authoritative answer, and an unreadable one: ecshop alone is some eight
+        # hundred lines of JSON. This step says the same thing as a diff, per
+        # fixture, and puts it in the job summary next to the pg_dump this run
+        # used and the one the fixture was captured with.
+        #
+        # It is not a gate. The two steps above are, and a document that differs
+        # here has already failed one of them; the annotations it writes are the
+        # readable half of that failure.
+        env:
+          MAJOR: ${{ matrix.major }}
+        run: |
+          base=internal/importer/postgres/testdata
+          dumpdir="$base/dump/pg$MAJOR"
+          work="$RUNNER_TEMP/pg$MAJOR"
+          mkdir -p "$work"
+
+          # A built binary and not "go run": go run reports its own exit status,
+          # and this step reads jjf's.
+          go build -o "$work/jjf" ./cmd/jjf
+
+          # emit <heading> <file>: a fenced block in the job summary, bounded so
+          # that a wholesale divergence cannot overflow it. Tilde fences, because
+          # a diff may legitimately contain backticks.
+          emit() {
+            {
+              printf '### %s\n\n~~~diff\n' "$1"
+              sed -n '1,400p' "$2"
+              [ "$(wc -l < "$2")" -le 400 ] && : || printf '... truncated; the artifact has the whole file\n'
+              printf '~~~\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          {
+            printf '## pg%s\n\n' "$MAJOR"
+            printf '| | pg_dump |\n| --- | --- |\n'
+            printf '| this run | %s |\n' \
+              "$(sed -n 's/^-- Dumped by pg_dump version //p' "$dumpdir/ecshop.sql" | head -1)"
+            printf '| the committed capture | %s |\n\n' \
+              "$(git show "HEAD:$dumpdir/ecshop.sql" | sed -n 's/^-- Dumped by pg_dump version //p' | head -1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! git diff --exit-code \
+                 -I '^\\(un)?restrict ' \
+                 -I '^-- Dumped (from database|by pg_dump) version ' \
+                 -- "$dumpdir" > "$work/dump.diff"; then
+            emit "what pg_dump writes has changed" "$work/dump.diff"
+          fi
+
+          # source/ is the fixture list, read exactly the way generate.sh reads
+          # it, so the two can never disagree about which fixtures exist.
+          for src in "$base"/source/*.sql; do
+            name="$(basename "$src" .sql)"
+            status=0
+            "$work/jjf" import postgres "$dumpdir/$name.sql" -o "$work/$name.json" \
+              >/dev/null 2>"$work/$name.warn" || status=$?
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::pg${MAJOR}/${name}: jjf import failed with exit ${status}"
+              sed 's/^/    /' "$work/$name.warn"
+              emit "$name no longer imports" "$work/$name.warn"
+              continue
+            fi
+
+            # jjf import writes exactly the bytes model.Encode produces, which is
+            # exactly what testdata/golden/<name>.json holds, so this diff is the
+            # document level divergence itself and not an approximation of it.
+            if diff -u \
+                 --label "golden/$name.json" \
+                 --label "pg$MAJOR/$name.sql imported by this run" \
+                 "$base/golden/$name.json" "$work/$name.json" > "$work/$name.diff"; then
+              echo "ok  pg${MAJOR}/${name} imports to the committed golden"
+            else
+              echo "::error::pg${MAJOR}/${name}: the imported document is not the committed golden"
+              cat "$work/$name.diff"
+              emit "$name imports to a different document" "$work/$name.diff"
+            fi
+
+            # The warnings are printed, never compared: they carry line numbers,
+            # which move with the dump header, so they legitimately differ
+            # between majors. TestImportFixtures pins them for pg16 alone.
+            if [ -s "$work/$name.warn" ]; then
+              {
+                printf '<details><summary>%s: warnings from this run</summary>\n\n~~~\n' "$name"
+                cat "$work/$name.warn"
+                printf '~~~\n\n</details>\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          printf 'The regenerated dumps are in the dump-pg%s artifact. ' "$MAJOR" >> "$GITHUB_STEP_SUMMARY"
+          printf 'jjf import postgres <file>.sql -o - reproduces the document above from one.\n\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        with:
+          # The dumps this run produced, so that a divergence can be read in full
+          # rather than through a diff, and so that a maintainer can drop them
+          # into a checkout to reproduce it. This is the only way they leave the
+          # runner: nothing here commits them.
+          name: dump-pg${{ matrix.major }}
+          path: internal/importer/postgres/testdata/dump/pg${{ matrix.major }}
+          if-no-files-found: error
+
+  upstream:
+    name: upstream majors
+    # The matrix above is derived from the captures this repository already has,
+    # so by itself it can never notice a major nobody has looked at - and that is
+    # the main thing the weekly schedule is here to catch. This job is that half:
+    # it asks apt.postgresql.org what exists and compares it with what is
+    # captured. It needs no server and no Go.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: what apt.postgresql.org offers
+        # The PGDG lines are the same ones the verify job runs and the same ones
+        # the header of testdata/generate.sh documents. They are repeated rather
+        # than shared: a composite action for eight lines of apt would be more
+        # machinery than the duplication costs, and ci.yml already repeats its
+        # expect() helper across two jobs for the same reason.
+        #
+        # Only the stable suite is added, never -testing or -snapshot, so a beta
+        # of the next major does not trip this. The moment that matters is
+        # general availability.
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" |
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+
+          captured="$(ls -d internal/importer/postgres/testdata/dump/pg[0-9][0-9] |
+            sed 's#.*/pg##' | sort -n)"
+          available="$(apt-cache search --names-only '^postgresql-[0-9]+$' |
+            sed 's/^postgresql-//;s/ .*//' | sort -n)"
+
+          # Both lists are the whole basis of this job, and an empty one would
+          # otherwise sail through as "nothing newer than the newest capture".
+          # set -e does not catch that: the comparison below is the condition of
+          # an if, where a failing command never aborts the script.
+          if [ -z "$captured" ]; then
+            echo "::error::no testdata/dump/pg<major> directory found; this job is reading the wrong path"
+            exit 1
+          fi
+          if [ -z "$available" ]; then
+            echo "::error::apt-cache offers no postgresql-<major> package at all; the PGDG suite above is not the one this job expects"
+            exit 1
+          fi
+
+          oldest_captured="$(printf '%s\n' "$captured" | head -1)"
+          newest_captured="$(printf '%s\n' "$captured" | tail -1)"
+          newest_available="$(printf '%s\n' "$available" | tail -1)"
+
+          {
+            printf '## PostgreSQL majors\n\n'
+            printf '| | |\n| --- | --- |\n'
+            printf '| captured here | %s |\n' \
+              "$(printf '%s\n' "$captured" | tr '\n' ' ' | sed 's/ $//')"
+            printf '| offered by apt.postgresql.org | %s |\n\n' \
+              "$(printf '%s\n' "$available" | tr '\n' ' ' | sed 's/ $//')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A captured major that can no longer be installed is a warning, not a
+          # failure: the fixture is still valid, it just cannot be regenerated
+          # from the main suite any more. PostgreSQL 13 is the one to expect
+          # here; apt.postgresql.org moves majors past their final release to
+          # apt-archive.postgresql.org eventually.
+          for major in $captured; do
+            candidate="$(apt-cache policy "postgresql-$major" | sed -n 's/^  Candidate: //p')"
+            if [ -z "$candidate" ] || [ "$candidate" = "(none)" ]; then
+              echo "::warning::postgresql-${major} has no installation candidate; pg${major} can no longer be regenerated from ${VERSION_CODENAME}-pgdg"
+              printf 'postgresql-%s is gone from the main suite; the verify (pg%s) leg will fail on apt.\n\n' \
+                "$major" "$major" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            echo "ok  postgresql-${major}: ${candidate}"
+          done
+
+          # A major above the newest capture is a failure. A scheduled workflow
+          # has exactly one way to tell anybody anything, and it is going red;
+          # a warning on a green weekly run reaches nobody.
+          #
+          # It then stays red every week until somebody acts, which is the point
+          # - and which is also why the remedy is written out in full rather than
+          # left to whoever opens the run. A recurring red job that does not say
+          # what it wants teaches people to ignore it. The text is built once and
+          # printed twice: to the log, which is where the red X leads, and to the
+          # job summary, which is what the notification mail links.
+          if [ "$newest_available" -gt "$newest_captured" ]; then
+            echo "::error::apt.postgresql.org offers PostgreSQL ${newest_available} and this repository has no capture for it; the newest one committed here is pg${newest_captured}. What to do about it is written out in this step's log and in the job summary"
+
+            {
+              printf '### PostgreSQL %s is out, and pg%s is the newest capture here\n\n' \
+                "$newest_available" "$newest_captured"
+              printf 'The importer claims pg_dump %s to %s - minSupportedMajor and ' \
+                "$oldest_captured" "$newest_captured"
+              printf 'maxSupportedMajor in internal/importer/postgres/postgres.go - and commits '
+              printf 'one pg_dump --schema-only capture per major under '
+              printf 'internal/importer/postgres/testdata/dump/pg<major>/. apt.postgresql.org '
+              printf 'now offers PostgreSQL %s, and nothing in this repository mentions it. ' \
+                "$newest_available"
+              printf 'That is what this job is failing about, and it will fail again every '
+              printf 'week until the repository answers one way or the other.\n\n'
+              printf 'To capture it, on a machine with the PGDG apt repository configured - '
+              printf 'the header of internal/importer/postgres/testdata/generate.sh carries '
+              printf 'those commands:\n\n'
+              printf '~~~sh\n'
+              printf 'sudo apt-get install -y postgresql-%s\n' "$newest_available"
+              printf 'PGBIN=/usr/lib/postgresql/%s/bin sh internal/importer/postgres/testdata/generate.sh\n' \
+                "$newest_available"
+              printf '# writes testdata/dump/pg%s/ecshop.sql and testdata/dump/pg%s/edge.sql\n' \
+                "$newest_available" "$newest_available"
+              printf '~~~\n\n'
+              printf 'Then raise maxSupportedMajor to %s in ' "$newest_available"
+              printf 'internal/importer/postgres/postgres.go: '
+              printf 'TestCapturedMajorsCoverTheSupportedRange fails for as long as the '
+              printf 'constant and the directories disagree. Run '
+              printf 'go test ./internal/importer/postgres/ - '
+              printf 'TestImportAgreesAcrossPgDumpMajors now holds the new capture to the same '
+              printf 'goldens as every other major, and a failure there is the importer '
+              printf 'meeting something pg_dump %s writes differently, which is the work ' \
+                "$newest_available"
+              printf 'this job exists to find early. Commit testdata/dump/pg%s/ together ' \
+                "$newest_available"
+              printf 'with the constant; the matrix of this workflow is derived from those '
+              printf 'directories, so verify (pg%s) appears by itself on the next run.\n\n' \
+                "$newest_available"
+              printf 'Deciding not to follow %s is a legitimate answer, but it has to be ' \
+                "$newest_available"
+              printf 'written down in the repository rather than expressed by ignoring a red '
+              printf 'job.\n\n'
+            } > "$RUNNER_TEMP/upstream.md"
+
+            cat "$RUNNER_TEMP/upstream.md"
+            cat "$RUNNER_TEMP/upstream.md" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          printf 'Nothing newer than pg%s is offered.\n\n' "$newest_captured" >> "$GITHUB_STEP_SUMMARY"
