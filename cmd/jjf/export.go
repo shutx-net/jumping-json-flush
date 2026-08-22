@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
+	"github.com/shutx-net/jumping-json-flush/internal/export/ddl"
 	"github.com/shutx-net/jumping-json-flush/internal/export/dot"
 	"github.com/shutx-net/jumping-json-flush/internal/export/xlsx"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -33,6 +34,11 @@ const exportUsageTail = `
 Without -o the output goes next to the input, with its extension replaced by
 the one of the chosen format. "-o -" writes to standard output, which must not
 be a terminal for a binary format such as xlsx.
+
+Only ddl refuses a document that contradicts itself. A document a database
+would reject makes no useful SQL, while it still makes a useful workbook and a
+useful diagram - so xlsx and dot render it and "jjf validate" is where those
+contradictions are reported.
 `
 
 // exportFormat is one format the export subcommand can produce.
@@ -48,6 +54,10 @@ type exportFormat struct {
 	// screen": DOT is text, so it says false and may be written to a terminal,
 	// exactly as the JSON of "jjf import" may.
 	binary bool
+	// accept reports why this format refuses doc, or nil when it accepts it.
+	// Only ddl sets it: see the entry below for why xlsx and dot deliberately
+	// do not.
+	accept func(doc *model.Document) error
 	// render writes doc to w in this format.
 	render func(w io.Writer, doc *model.Document) error
 }
@@ -71,6 +81,22 @@ func exportFormats() []exportFormat {
 		{
 			name: "dot", ext: ".dot", summary: "Graphviz DOT entity relationship diagram",
 			render: dot.Export,
+		},
+		// The one entry whose extension is not its name. A ".ddl" file is
+		// nothing, and calling the format "sql" would promise arbitrary SQL
+		// rather than the one schema-creating script this writes.
+		//
+		// It is also the only entry with an accept, and that asymmetry is
+		// deliberate rather than an inconsistency to be tidied away. A
+		// document that contradicts itself still makes a useful workbook and
+		// a useful diagram - internal/export/dot draws a foreign key with no
+		// target as a dashed stub on purpose and says in its own package
+		// comment that it reports nothing, ever. DDL a database rejects is
+		// worth nothing at all, so this format alone refuses what the other
+		// two render.
+		{
+			name: "ddl", ext: ".sql", summary: "PostgreSQL DDL script (.sql)",
+			accept: ddl.Accept, render: ddl.Export,
 		},
 	}
 }
@@ -150,12 +176,21 @@ func runExport(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// The order is deliberate: the format is checked before the input is read,
-	// so an unknown format never opens a file, and the document is validated
-	// and decoded before a single output byte is produced, so a document that
-	// fails validation produces no output at all in any format.
+	// so an unknown format never opens a file; the document is validated and
+	// decoded before a single output byte is produced, so a document that
+	// fails validation produces no output at all in any format; and the format
+	// is asked whether it accepts the document before the output path is even
+	// decided, so a refusal is reported as the document's fault rather than as
+	// whatever writeFileAtomically makes of it afterwards.
 	doc, err := loadDocument(input)
 	if err != nil {
 		return err
+	}
+
+	if f.accept != nil {
+		if err := f.accept(doc); err != nil {
+			return reportRefusal(stderr, input, err)
+		}
 	}
 
 	if *out == stdoutPath {
@@ -176,6 +211,25 @@ func runExport(args []string, stdout, stderr io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "%s: written\n", dest)
 	return nil
+}
+
+// reportRefusal prints why a format refused the document and returns the coded
+// error the exit status comes from.
+//
+// The itemised lines come first because they are what explains the failure, and
+// the coded error carries the one-line summary - the shape runValidate already
+// uses under -strict, for the same reason. The path-prefixed form is reserved
+// for per-object findings, where a locator is useful; the dbms errors are about
+// the invocation as a whole, fit on one line, already carry their exit code and
+// go through the ordinary "jjf: " channel untouched.
+func reportRefusal(stderr io.Writer, input string, err error) error {
+	var re *ddl.RefusedError
+	if !errors.As(err, &re) {
+		return err
+	}
+	writeFindings(stderr, input, "error", re.Findings)
+	return exitcode.Wrap(exitcode.InvalidInput, "",
+		fmt.Errorf("%d problem(s) prevent PostgreSQL DDL generation", len(re.Findings)))
 }
 
 // loadDocument reads, validates and decodes a database design document.

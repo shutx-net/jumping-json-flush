@@ -580,7 +580,7 @@ func TestRunExportErrors(t *testing.T) {
 			name:       "unsupported format names every format",
 			args:       []string{"export", "markdown", "testdata/valid.json"},
 			wantCode:   2,
-			wantStderr: "supported formats: xlsx, dot",
+			wantStderr: "supported formats: xlsx, dot, ddl",
 		},
 		{
 			// A format name that differs only in case is unknown, exactly as
@@ -885,6 +885,242 @@ func checkDotSource(t *testing.T, b []byte) {
 }
 
 // ---------------------------------------------------------------------------
+// The ddl format
+// ---------------------------------------------------------------------------
+
+// TestRunExportWritesDDL covers the three positions -o may appear in, as the
+// workbook and the diagram do, and checks that the position cannot change the
+// bytes.
+func TestRunExportWritesDDL(t *testing.T) {
+	tests := []struct {
+		name string
+		args func(out string) []string
+	}{
+		{"flag after operands", func(out string) []string {
+			return []string{"export", "ddl", "testdata/valid.json", "-o", out}
+		}},
+		{"flag before operands", func(out string) []string {
+			return []string{"export", "-o", out, "ddl", "testdata/valid.json"}
+		}},
+		{"flag between operands", func(out string) []string {
+			return []string{"export", "ddl", "-o", out, "testdata/valid.json"}
+		}},
+	}
+
+	var first []byte
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out.sql")
+			var stdout, stderr bytes.Buffer
+
+			if code := run(tt.args(out), &stdout, &stderr); code != 0 {
+				t.Fatalf("run = %d, want 0\nstdout: %s\nstderr: %s", code, &stdout, &stderr)
+			}
+			if !strings.Contains(stdout.String(), out) {
+				t.Errorf("stdout = %q, want it to name %s", stdout.String(), out)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want empty", stderr.String())
+			}
+
+			got := readDDLScript(t, out)
+			if first == nil {
+				first = got
+			} else if !bytes.Equal(first, got) {
+				t.Error("the same document exported to different bytes depending on flag position")
+			}
+		})
+	}
+}
+
+// TestRunExportDDLDefaultsToTheInputPath is the one case where the default
+// output path is not the format name: ddl writes a .sql.
+func TestRunExportDDLDefaultsToTheInputPath(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "db-design.json")
+	raw, err := os.ReadFile("testdata/valid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "ddl", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	readDDLScript(t, filepath.Join(dir, "db-design.sql"))
+}
+
+func TestRunExportDDLToStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "ddl", "testdata/valid.json", "-o", "-"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	checkDDLScript(t, stdout.Bytes())
+}
+
+// TestRunExportDDLAllowsATerminal mirrors TestRunExportDotAllowsATerminal:
+// SQL is text worth reading, so xlsx stays the only format the terminal guard
+// applies to.
+func TestRunExportDDLAllowsATerminal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /dev/null to stand in for a terminal")
+	}
+	dev, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("cannot open %s: %v", os.DevNull, err)
+	}
+	defer dev.Close()
+	if fi, err := dev.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		t.Skipf("%s is not a character device on this system", os.DevNull)
+	}
+
+	var stderr bytes.Buffer
+	if code := run([]string{"export", "ddl", "testdata/valid.json", "-o", "-"}, dev, &stderr); code != 0 {
+		t.Errorf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunExportDDLIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	var runs [2][]byte
+	for i := range runs {
+		out := filepath.Join(dir, fmt.Sprintf("run%d.sql", i))
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"export", "ddl", "testdata/valid.json", "-o", out}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+		runs[i] = readDDLScript(t, out)
+	}
+	if !bytes.Equal(runs[0], runs[1]) {
+		t.Errorf("two exports differ: %d vs %d bytes", len(runs[0]), len(runs[1]))
+	}
+}
+
+// TestRunExportDDLRefusesAnInconsistentDocument covers the whole refusal: exit
+// code 2 because the document is what is wrong, one annotator-parseable line
+// per finding, the one-line summary, and no file left behind.
+func TestRunExportDDLRefusesAnInconsistentDocument(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.sql")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"export", "ddl", "testdata/referential_warnings.json", "-o", out}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run = %d, want 2 (invalid input)\nstderr: %s", code, &stderr)
+	}
+	if want := "testdata/referential_warnings.json: error: "; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want a line beginning %q", stderr.String(), want)
+	}
+	if want := "jjf: 3 problem(s) prevent PostgreSQL DDL generation"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want the summary %q", stderr.String(), want)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("the refused export left a file at %s", out)
+	}
+}
+
+// TestExportDotRendersWhatDDLRefuses is the asymmetry itself, on one fixture.
+// A document that contradicts itself still makes a useful diagram - the DOT
+// exporter draws the missing foreign key target as a dashed stub - and makes no
+// useful SQL at all.
+func TestExportDotRendersWhatDDLRefuses(t *testing.T) {
+	dir := t.TempDir()
+	const input = "testdata/referential_warnings.json"
+
+	dotOut := filepath.Join(dir, "out.dot")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"export", "dot", input, "-o", dotOut}, &stdout, &stderr); code != 0 {
+		t.Fatalf("export dot = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	readDotSource(t, dotOut)
+
+	ddlOut := filepath.Join(dir, "out.sql")
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"export", "ddl", input, "-o", ddlOut}, &stdout, &stderr); code != 2 {
+		t.Fatalf("export ddl = %d, want 2\nstderr: %s", code, &stderr)
+	}
+	if _, err := os.Stat(ddlOut); !os.IsNotExist(err) {
+		t.Errorf("the refused export left a file at %s", ddlOut)
+	}
+}
+
+func TestRunExportDDLRefusesANonPostgreSQLDocument(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.sql")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"export", "ddl", "testdata/mysql.json", "-o", out}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
+	}
+	if want := `jjf: ddl export supports PostgreSQL only; this document names "MySQL"`; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestRunExportDDLRefusesADocumentWithNoDBMS(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.sql")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"export", "ddl", "testdata/nodbms.json", "-o", out}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
+	}
+	if want := `jjf: ddl export needs the document to name its target`; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+// TestOnlyDDLRefusesFindings pins the asymmetry as a fact of the format table
+// rather than as a comment, so that a well-meaning later change has to argue
+// with a test.
+func TestOnlyDDLRefusesFindings(t *testing.T) {
+	for _, f := range exportFormats() {
+		if (f.accept != nil) != (f.name == "ddl") {
+			t.Errorf("format %q has accept != nil = %v; only ddl refuses a document", f.name, f.accept != nil)
+		}
+	}
+}
+
+// readDDLScript reads path and checks that it is the DDL jjf writes.
+func readDDLScript(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	checkDDLScript(t, b)
+	return b
+}
+
+// checkDDLScript checks that b is the DDL script jjf writes. It is a shape
+// check, not a parse: no test may need a database or a SQL parser to run.
+func checkDDLScript(t *testing.T, b []byte) {
+	t.Helper()
+	if !utf8.Valid(b) {
+		t.Fatal("the output is not valid UTF-8")
+	}
+	src := string(b)
+	if !strings.HasPrefix(src, "-- Generated by jjf") {
+		t.Errorf("the output does not open with the generated-by comment:\n%.80s", src)
+	}
+	if !strings.Contains(src, "CREATE TABLE ") {
+		t.Errorf("the output has no CREATE TABLE statement:\n%s", src)
+	}
+	if !strings.HasSuffix(src, ";\n") {
+		t.Errorf("the output does not end with a statement terminator and one newline: %q", src[max(0, len(src)-20):])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Usage drift guards
 // ---------------------------------------------------------------------------
 
@@ -949,6 +1185,11 @@ func TestGoldenOutput(t *testing.T) {
 			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
 		},
 		{
+			golden: "export_ddl_refused.txt",
+			args:   []string{"export", "ddl", "testdata/referential_warnings.json", "-o", "-"},
+			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
+		},
+		{
 			golden: "validate_ok.txt",
 			args:   []string{"validate", "testdata/valid.json"},
 			stream: func(stdout, _ *bytes.Buffer) string { return stdout.String() },
@@ -996,6 +1237,9 @@ func TestExitCodeOfRealProcess(t *testing.T) {
 		{"valid document", []string{"validate", "testdata/valid.json"}, 0},
 		{"schema violation", []string{"validate", "testdata/schema_violation.json"}, 3},
 		{"referential warnings with -strict", []string{"validate", "-strict", "testdata/referential_warnings.json"}, 2},
+		// The refusal is a claim about an exit code, which is exactly what
+		// this test exists to verify through a real process.
+		{"a ddl export the document forbids", []string{"export", "ddl", "testdata/referential_warnings.json", "-o", "-"}, 2},
 	}
 
 	for _, tt := range tests {
@@ -1311,11 +1555,14 @@ func TestRunImportIsDeterministic(t *testing.T) {
 
 // TestRunImportThenValidateAndExport walks the journey the importer exists for:
 // a dump becomes a document, the document passes validation, and the document
-// renders as a workbook.
+// renders as a workbook and as DDL. The last step is the closest this test
+// suite comes to the round trip, because an imported document is the most
+// realistic input the DDL exporter will ever see.
 func TestRunImportThenValidateAndExport(t *testing.T) {
 	dir := t.TempDir()
 	doc := filepath.Join(dir, "db-design.json")
 	book := filepath.Join(dir, "db-design.xlsx")
+	script := filepath.Join(dir, "db-design.sql")
 
 	steps := []struct {
 		name string
@@ -1324,6 +1571,7 @@ func TestRunImportThenValidateAndExport(t *testing.T) {
 		{name: "import", args: []string{"import", "postgres", pgFixture("schema.sql"), "-o", doc}},
 		{name: "validate", args: []string{"validate", doc}},
 		{name: "export", args: []string{"export", "xlsx", doc, "-o", book}},
+		{name: "export ddl", args: []string{"export", "ddl", doc, "-o", script}},
 	}
 	for _, step := range steps {
 		var stdout, stderr bytes.Buffer
@@ -1332,6 +1580,7 @@ func TestRunImportThenValidateAndExport(t *testing.T) {
 		}
 	}
 	readWorkbook(t, book)
+	readDDLScript(t, script)
 }
 
 func TestRunImportUnwritableOutput(t *testing.T) {
