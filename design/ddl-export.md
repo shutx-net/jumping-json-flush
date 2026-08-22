@@ -143,12 +143,20 @@ The schema has no place for these, so the generator cannot produce them:
 partial and expression indexes, index methods, `DEFERRABLE`, storage parameters,
 partitioning, and row-level security.
 
-One of these has a sharp edge worth stating plainly. Column types are opaque
-strings, so a document that names a user-defined type — an enum or a domain
-imported from PostgreSQL — produces DDL that references a type no statement in
-the file creates. The DDL is syntactically valid and fails on execution. This is
-a limitation of the format, not a bug in the generator, and closing it would
-mean teaching the schema about type definitions.
+One of these has a sharp edge worth stating plainly. Column types and defaults
+are both opaque strings, so a document that names a user-defined type — an enum
+or a domain imported from PostgreSQL — produces DDL that references a type no
+statement in the file creates. The DDL is syntactically valid and fails on
+execution.
+
+The type reaches the output by either of two routes, and the second is the one
+that surprises: a `type` of `ORDER_STATUS`, or a cast inside a `default`, as in
+`'pending'::order_status` on a column whose type is an ordinary `TEXT`. A reader
+who knows only the first route inspects the column types, finds nothing unusual,
+and is left without an explanation.
+
+This is a limitation of the format, not a bug in the generator, and closing it
+would mean teaching the schema about type definitions.
 
 ## Verification
 

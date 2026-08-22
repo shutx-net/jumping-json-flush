@@ -105,7 +105,10 @@ Two consequences to state plainly rather than work around:
 
 - **A user-defined type is named but never created.** A `type` of `ORDER_STATUS`
   produces `"status" ORDER_STATUS`, and nothing in the file creates that type. The
-  script parses and fails on execution. Do **not** fabricate a `CREATE TYPE` to
+  script parses and fails on execution. A cast inside a `default` does the same
+  thing and is easier to miss: `'pending'::order_status` fails this way even when
+  the column's `type` is an ordinary `TEXT`, so check the defaults too before
+  concluding the types are clean. Do **not** fabricate a `CREATE TYPE` to
   paper over it — tell the user the type has to exist in the target database
 - **A parameter a known type cannot take is dropped.** `INTEGER` with
   `length: 11` is written `INTEGER`, because `integer(11)` is not valid
