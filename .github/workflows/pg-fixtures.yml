@@ -17,6 +17,37 @@ name: PostgreSQL fixtures
 # TestImportAgreesAcrossPgDumpMajors already makes - and the dump text is compared
 # separately with those four lines ignored.
 #
+# It carries the other verification that needs a live server as well: the DDL
+# round trip design/ddl-export.md specifies. The golden files under
+# internal/export/ddl/testdata/golden/ prove only that the generator emits what
+# it emitted - nothing in them says the SQL executes, and nothing says the
+# importer reads back what the generator wrote. So the verify leg also takes
+# three design documents twice around
+# document -> jjf export ddl -> the server -> pg_dump -> jjf import -> document,
+# with internal/export/ddl/testdata/roundtrip.sh.
+#
+# What it asserts there is that the SECOND pass equals the first, and not that
+# the first equals the document that went in. PostgreSQL rewrites a hand-written
+# quoted literal into an explicit cast on the way in, drops a DEFAULT NULL
+# because it treats it as no default, and drops a NO ACTION because it is its
+# own default; all of that is PostgreSQL's behaviour rather than jjf's, it has
+# happened by the end of the first pass, and freezing it would make a PostgreSQL
+# release a jjf failure with no jjf change to make. So it is reported into the
+# job summary and never gated. Anything that moves between the first pass and
+# the second is the generator and the importer disagreeing with each other,
+# which is a defect, and that is the gate.
+#
+# The round trip starts a cluster of its own. generate.sh stops its server
+# between majors and at the end, so by the time anything else runs there is
+# never one left to reuse - but PGBIN is the same one the apt step installed, so
+# both halves speak to the same PostgreSQL build.
+#
+# The workflow keeps its name. It is what the path filter below, DEVELOPERS.md
+# and "gh workflow run pg-fixtures.yml" all refer to, and a scheduled workflow
+# that changes identity loses the schedule GitHub attached to it. What it has
+# always been is everything about jjf that needs a real server; the fixtures
+# were simply the first of those.
+#
 # Nothing here is ever committed. The regenerated dumps live in the runner's
 # checkout for the length of the job and leave it only as a build artifact.
 
@@ -39,12 +70,24 @@ on:
   # reaches the default branch, because workflow_dispatch does not appear until
   # then.
   #
+  # The generator's own directory is on the list for the same reason the
+  # importer's is: it is the other half of the round trip, and a pull request
+  # that changes what jjf emits has to run the job that applies it to a server.
+  # The trade is that such a pull request now installs six PostgreSQL majors,
+  # which is stated here rather than discovered.
+  #
+  # cmd/jjf/**, internal/model/** and internal/check/** are deliberately not
+  # listed. Every pull request touching the CLI would then pay the same six
+  # installs, and what those packages could break shows up in the weekly run,
+  # which is what the schedule is for.
+  #
   # These jobs must not be made required status checks. A path filtered workflow
   # does not run for an unrelated pull request, and a required check that never
   # runs blocks the merge for ever.
   pull_request:
     paths:
       - 'internal/importer/postgres/**'
+      - 'internal/export/ddl/**'
       - '.github/workflows/pg-fixtures.yml'
   workflow_dispatch:
 
@@ -114,7 +157,14 @@ jobs:
           # The go directive of go.mod is the single source of the Go version.
           go-version-file: go.mod
 
-      - name: install PostgreSQL ${{ matrix.major }}
+      - id: install
+        name: install PostgreSQL ${{ matrix.major }}
+        # The id is what the round trip steps at the end of this job read. They
+        # need a PostgreSQL binary directory and jjf and nothing else, so this
+        # is the honest dependency: guarding them on the regeneration instead
+        # would delete the second, independent answer at the moment it is most
+        # useful.
+        #
         # These are the commands the header of testdata/generate.sh documents,
         # with one deliberate difference: the header omits postgresql-16, because
         # a distribution ships one and on 24.04 that one is 16. This job installs
@@ -321,6 +371,207 @@ jobs:
           # runner: nothing here commits them.
           name: dump-pg${{ matrix.major }}
           path: internal/importer/postgres/testdata/dump/pg${{ matrix.major }}
+          if-no-files-found: error
+
+      - id: roundtrip
+        name: the second pass of the DDL round trip equals the first
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        # The steps above are about a dump this repository has already captured.
+        # This one is about SQL jjf writes, and it is the only thing anywhere
+        # that runs that SQL: testdata/golden/*.sql prove that the generator
+        # emits what it emitted, and no golden file can say that PostgreSQL
+        # accepts it or that the importer reads back what was written.
+        #
+        # roundtrip.sh takes full.json, edge.json and minimal.json - the list
+        # internal/export/ddl/golden_test.go calls fixtures, because between
+        # them they hold every shape the generator has to survive - twice around
+        # document -> jjf export ddl -> a database -> pg_dump -> jjf import ->
+        # document. Applying the DDL under "psql -v ON_ERROR_STOP=1" is itself
+        # an assertion, and the first one to break if the generator emits
+        # something the server rejects.
+        #
+        # The gate is that the second pass equals the first, not that the first
+        # equals the document: a hand-written quoted literal acquires an
+        # explicit cast, a DEFAULT NULL disappears and a NO ACTION disappears,
+        # all of which is PostgreSQL rendering what it stored. The step below
+        # reports those and gates nothing.
+        #
+        # edge.json names a user-defined type, which the design format has no
+        # way to define, so the script applies edge.prelude.sql to the empty
+        # database first. That is the remedy the project's own documentation
+        # prescribes - the type has to exist in the target database - and not
+        # work the generator should be doing; the prelude's header says so at
+        # length and the script names it in the log every time it applies one.
+        #
+        # It starts its own cluster from the PGBIN the step above installed:
+        # generate.sh stops its server between majors and at the end, so there
+        # is none to reuse. That cluster listens on a unix socket inside its own
+        # scratch directory and on no TCP port at all, so nothing can collide
+        # with it; PGPORT is 5434 rather than generate.sh's 5433 only so that a
+        # developer running both at once never has to think about it.
+        env:
+          PGBIN: /usr/lib/postgresql/${{ matrix.major }}/bin
+          PGPORT: '5434'
+          OUTDIR: ${{ runner.temp }}/roundtrip-pg${{ matrix.major }}
+          MAJOR: ${{ matrix.major }}
+        run: |
+          # A built binary and not "go run": go run reports its own exit status,
+          # and this step reads jjf's. It is built into RUNNER_TEMP and not into
+          # OUTDIR so that the artifact below carries diffs and SQL and no
+          # binary.
+          go build -o "$RUNNER_TEMP/jjf-roundtrip" ./cmd/jjf
+
+          status=0
+          JJF="$RUNNER_TEMP/jjf-roundtrip" sh internal/export/ddl/testdata/roundtrip.sh || status=$?
+
+          # result.txt is one "ok <name>" or "FAIL <name>" line per document.
+          # Its absence is not "nothing failed": it means the script did not get
+          # as far as its first document.
+          if [ ! -f "$OUTDIR/result.txt" ]; then
+            echo "::error::pg${MAJOR}: the round trip wrote no result.txt; it never reached its first document"
+            exit 1
+          fi
+
+          while read -r verdict name; do
+            if [ "$verdict" = ok ]; then
+              echo "ok  pg${MAJOR}/${name} reaches the same document twice"
+              continue
+            fi
+            echo "::error::pg${MAJOR}/${name}: the second pass of the round trip is not the first"
+            if [ -s "$OUTDIR/$name.fixedpoint.diff" ]; then
+              cat "$OUTDIR/$name.fixedpoint.diff"
+            fi
+          done < "$OUTDIR/result.txt"
+
+          # The same check as "nothing outside testdata/dump was written", made
+          # again: that step ran before the round trip did, so nothing would
+          # notice if this one wrote into the checkout. The exclusion is the
+          # same, so that a legitimately regenerated testdata/dump/ is not
+          # mistaken for it, and the OUTPUT is the gate because git status exits
+          # 0 whether or not it printed anything - the shape ci.yml's gofmt
+          # check uses.
+          out="$(git status --porcelain -- . ':(exclude)internal/importer/postgres/testdata/dump')"
+          if [ -n "$out" ]; then
+            echo "::error::the round trip wrote into the checkout"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "ok  the round trip wrote nothing into the checkout"
+
+          exit "$status"
+
+      - name: what the round trip changed
+        if: ${{ !cancelled() && steps.roundtrip.outcome != 'skipped' }}
+        # Not a gate. The step above is, and what this writes is the readable
+        # half of a failure - plus the one thing the gate deliberately does not
+        # assert. The document against the first pass is where "what does
+        # PostgreSQL 18 do to my defaults" is visible at all, and it is rendered
+        # every run and not only on failure, because a report that appears only
+        # when something is broken never establishes the baseline that would
+        # make a future change legible.
+        #
+        # emit() is the one from "what changed" above, duplicated on purpose: a
+        # composite action for eight lines of shell would be more machinery than
+        # the duplication costs, which is the argument this file already makes
+        # about its apt block and ci.yml makes about expect().
+        env:
+          MAJOR: ${{ matrix.major }}
+          OUTDIR: ${{ runner.temp }}/roundtrip-pg${{ matrix.major }}
+        run: |
+          printf '## pg%s - the DDL round trip\n\n' "$MAJOR" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ! -f "$OUTDIR/result.txt" ]; then
+            printf 'The round trip produced nothing to report; the step above says why.\n\n' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<'PREAMBLE'
+          The gate is that the **second** pass equals the first, as documents. It is not
+          that the first pass equals the document that went in, and the differences below
+          are expected rather than news. PostgreSQL rewrites parts of a design on the way
+          in, and pg_dump then renders what it stored:
+
+          - a hand-written quoted literal acquires an explicit cast: `'pending'` becomes
+            `'pending'::text`, `1e3` becomes `'1000'::numeric`, `INTERVAL '1 day'` becomes
+            `'1 day'::interval`, and `E'a\b'` has its escape resolved to the character it
+            names
+          - `DEFAULT NULL` disappears, because PostgreSQL treats it as no default at all
+          - `ON UPDATE NO ACTION` and `ON DELETE NO ACTION` disappear, because they are
+            PostgreSQL's own default - `docs/usage.md` says so already
+          - a `nullable` primary key column comes back as `nullable: false`
+          - an unnamed constraint comes back carrying the name PostgreSQL gave it, the
+            tables come back in the server's order rather than the document's, and
+            `database.logicalName` is gone, because no `CREATE DATABASE` is generated for
+            a comment to attach to
+
+          Anything else is worth a look.
+
+          PREAMBLE
+
+          # emit <heading> <file>: a fenced block in the job summary, bounded so
+          # that a wholesale divergence cannot overflow it. Tilde fences,
+          # because a diff may legitimately contain backticks.
+          emit() {
+            {
+              printf '### %s\n\n~~~diff\n' "$1"
+              sed -n '1,400p' "$2"
+              [ "$(wc -l < "$2")" -le 400 ] && : || printf '... truncated; the artifact has the whole file\n'
+              printf '~~~\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          while read -r verdict name; do
+            if [ -s "$OUTDIR/$name.fixedpoint.diff" ]; then
+              emit "$name does not reach a fixed point" "$OUTDIR/$name.fixedpoint.diff"
+            elif [ "$verdict" != ok ]; then
+              printf '### %s failed before the two passes could be compared\n\n' "$name" \
+                >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            if [ -s "$OUTDIR/$name.input.diff" ]; then
+              printf '<details><summary>%s: what the database made of the document</summary>\n\n' \
+                "$name" >> "$GITHUB_STEP_SUMMARY"
+              emit "$name.json against the first pass" "$OUTDIR/$name.input.diff"
+              printf '</details>\n\n' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f "$OUTDIR/$name.input.diff" ]; then
+              printf '%s survives the first pass unchanged.\n\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            # Printed, never compared: the warnings carry line numbers, which
+            # move with the dump header. The same call the step above makes.
+            if [ -s "$OUTDIR/$name.pass1.warn" ]; then
+              {
+                printf '<details><summary>%s: warnings from the first import</summary>\n\n~~~\n' "$name"
+                cat "$OUTDIR/$name.pass1.warn"
+                printf '~~~\n\n</details>\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < "$OUTDIR/result.txt"
+
+          {
+            printf 'Both passes of the DDL, both dumps, both documents, the warnings and all '
+            printf 'three diffs are in the roundtrip-pg%s artifact. To do one pass by hand:\n\n' "$MAJOR"
+            printf '~~~sh\n'
+            printf 'jjf export ddl internal/export/ddl/testdata/full.json -o /tmp/pass0.sql\n'
+            printf 'psql -v ON_ERROR_STOP=1 -q -d <an empty database> -f /tmp/pass0.sql\n'
+            printf 'pg_dump --schema-only <that database> | jjf import postgres /dev/stdin -database logistics -o -\n'
+            printf '~~~\n\n'
+            printf 'The whole thing, locally: '
+            printf '`PGBIN=/usr/lib/postgresql/%s/bin sh internal/export/ddl/testdata/roundtrip.sh`\n\n' "$MAJOR"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.roundtrip.outcome != 'skipped' }}
+        with:
+          # Every intermediate the round trip produced - the DDL of both passes,
+          # both pg_dump outputs, both documents, both warning streams and all
+          # three diffs - so that a divergence can be read in full rather than
+          # through a truncated summary, and so that a maintainer can drop the
+          # first pass document into a checkout and export it again. This is the
+          # only way these files leave the runner: nothing here commits them.
+          name: roundtrip-pg${{ matrix.major }}
+          path: ${{ runner.temp }}/roundtrip-pg${{ matrix.major }}
           if-no-files-found: error
 
   upstream:
