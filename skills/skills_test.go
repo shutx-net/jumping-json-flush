@@ -131,14 +131,27 @@ const (
 	// keeps to 200 so that detail is pushed into references/ and only loaded when
 	// it is needed.
 	maxSkillLines = 200
-	// maxDescriptionRunes is the frontmatter description limit.
-	maxDescriptionRunes = 1536
+	// maxDescriptionRunes is the frontmatter description limit the Agent Skills
+	// specification sets. It is a hard ceiling and not a budget: a description
+	// over it is rejected outright by a conforming host, so the description has
+	// to be trimmed before another trigger keyword is added to it.
+	maxDescriptionRunes = 1024
+	// maxCompatibilityRunes is the specification's limit on compatibility, the
+	// other frontmatter field this skill fills with prose.
+	maxCompatibilityRunes = 500
 )
 
-// portableFrontmatterKeys are the frontmatter fields every Agent Skills host
-// understands. Claude Code accepts more, but this skill is distributed and has
-// to load unchanged from a claude.ai upload and from the Agent SDK, so nothing
-// outside this set is allowed.
+// portableFrontmatterKeys are the six fields the Agent Skills specification
+// defines, and so the ones every conforming host understands. Claude Code
+// accepts more, but this skill is distributed and has to load unchanged in
+// Codex and GitHub Copilot, from a claude.ai upload and from the Agent SDK, so
+// nothing outside this set is allowed.
+//
+// The specification calls allowed-tools a space-separated string. This skill
+// writes it as a YAML list instead, because its patterns contain spaces --
+// "Bash(jjf import:*)" -- and a space-separated string cannot express them.
+// The reference validator of the specification accepts the list, and Claude
+// Code documents both forms.
 var portableFrontmatterKeys = []string{
 	"name", "description", "license", "compatibility", "allowed-tools", "metadata",
 }
@@ -156,7 +169,8 @@ const binaryName = "jjf"
 
 // allowedSubcommands are the subcommands the skill pre-approves: import, which
 // reads a dump and writes a document, validate, which reads, and export, which
-// writes a workbook. The two that write take the path from the user.
+// writes a workbook, a Graphviz DOT file or a DDL script. The two that write
+// take the path from the user.
 var allowedSubcommands = []string{"import", "validate", "export"}
 
 func TestSkillFrontmatter(t *testing.T) {
@@ -182,6 +196,9 @@ func TestSkillFrontmatter(t *testing.T) {
 	}
 	if n := len([]rune(fm.values["description"])); n > maxDescriptionRunes {
 		t.Errorf("%s: description is %d characters, want at most %d", path, n, maxDescriptionRunes)
+	}
+	if n := len([]rune(fm.values["compatibility"])); n > maxCompatibilityRunes {
+		t.Errorf("%s: compatibility is %d characters, want at most %d", path, n, maxCompatibilityRunes)
 	}
 }
 

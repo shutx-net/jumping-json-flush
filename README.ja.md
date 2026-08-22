@@ -15,7 +15,8 @@ Excel の DB 設計書、Graphviz の ER 図、PostgreSQL の DDL スクリプ�
 - **単一バイナリ。** CGO なし・実行時の外部依存なし。musl/alpine 環境でもそのまま動く
 - **AI エージェント前提。** JSON Schema による構造検証と Agent Skill で、
   エージェントが設計 JSON を安全に編集できる。スキルは Claude Code プラグインとして
-  配布する（`/plugin install jjf@jjf-tools`）
+  配布し（`/plugin install jjf@jjf-tools`）、Agent Skills 仕様に従っているので
+  Codex や GitHub Copilot にもそのまま入る
 
 ```sh
 jjf import postgres schema.sql -o db-design.json
@@ -142,7 +143,11 @@ SQL 式として読めることの 8 点である。
 /plugin install jjf@jjf-tools
 ```
 
-呼び出しは `/jjf:db-design`。プラグインを使わない導入方法とリリース手順は
+呼び出しは `/jjf:db-design`。Claude Code 専用ではない。スキルは
+[Agent Skills](https://agentskills.io) 仕様に従い、仕様外のものを使っていないので、
+`gh skill install shutx-net/jumping-json-flush db-design --agent codex` で
+Codex や GitHub Copilot ほか仕様を実装したホストが見る場所へ、同じディレクトリを
+配置できる。その手順と、プラグインを使わない導入方法、リリース手順は
 [`skills/README.ja.md`](skills/README.ja.md)。スキル本体は英語だが、同じ内容を
 人間が読むための日本語版が
 [`docs/db-design-guide.ja.md`](docs/db-design-guide.ja.md) にある。

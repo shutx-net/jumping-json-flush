@@ -82,6 +82,47 @@ cp -r skills/db-design ~/.claude/skills/
 Copied this way the skill is invoked as `/db-design`, without the `jjf:`
 prefix, and it does not receive updates.
 
+## Install for Codex, GitHub Copilot and other hosts
+
+The skill follows the [Agent Skills](https://agentskills.io) specification and
+uses nothing outside it, so the same directory loads in any host that implements
+the specification. `gh skill`, in GitHub CLI from v2.90.0, puts it where the host
+you name looks for it:
+
+```sh
+gh skill install shutx-net/jumping-json-flush db-design                   # GitHub Copilot
+gh skill install shutx-net/jumping-json-flush db-design --agent codex
+gh skill install shutx-net/jumping-json-flush db-design --agent claude-code
+```
+
+It finds the skill by the `skills/*/SKILL.md` convention, which is the layout
+this repository already has. At the default project scope, GitHub Copilot,
+Codex, Cursor, Gemini CLI and several others all resolve to the same
+`.agents/skills/` directory, so one install covers them together; `--scope user`
+installs into your home directory instead, for every project on the machine.
+
+Given no version, `gh skill` resolves the **latest tagged release** and falls
+back to the default branch only when there is none. An install therefore picks
+up the skill as it was released, not as it stands on `main`. Pin a different one
+with `@<tag>` or `--pin`.
+
+The installed copy carries source tracking, which `gh skill` writes into the
+`metadata` map — the place the specification reserves for a host's own keys. It
+adds no field outside the six. `gh skill` is in preview and its flags may change.
+
+Copying the directory works here too, and `.agents/skills/` is read by both Codex
+and GitHub Copilot:
+
+```sh
+mkdir -p /path/to/your-repo/.agents/skills
+cp -r skills/db-design /path/to/your-repo/.agents/skills/
+```
+
+Codex reads `~/.agents/skills/` as well; GitHub Copilot also reads
+`.github/skills/`, `.claude/skills/` and `~/.copilot/skills/`. Invoke the skill
+with `$db-design` in the Codex CLI and `@db-design` in ChatGPT, or describe the
+change you want and let the agent load it from the description.
+
 ## Check the installation
 
 `/plugin` lists the installed plugins and lets you enable or disable them.
@@ -94,16 +135,25 @@ The skill drives the `jjf` CLI, which must be on `PATH`. The plugin does not
 ship the binary — it is a skill, not an installer. See the repository
 [README](../README.md) for installation.
 
-Its frontmatter uses only the fields that every Agent Skills host understands —
-`name`, `description`, `license`, `compatibility`, `allowed-tools` and `metadata`
-— so the same directory also works as a claude.ai skill upload and with the
-Anthropic Agent SDK.
+Its frontmatter uses only the six fields the Agent Skills specification defines
+— `name`, `description`, `license`, `compatibility`, `allowed-tools` and
+`metadata` — which is what lets the same directory load in every host above, as a
+claude.ai skill upload and from the Anthropic Agent SDK.
+[`skills-ref`](https://github.com/agentskills/agentskills/tree/main/skills-ref),
+the specification's own validator, checks it: `skills-ref validate
+skills/db-design`.
 
-`allowed-tools` pre-approves `Read` and the two `jjf` subcommands only —
-`validate`, which reads, and `export`, which writes a workbook or a Graphviz DOT file
-at a path the user supplies. Editing the JSON still goes through the usual permission prompt, on
-purpose: pre-approving `Write` and `Edit` would be a privilege escalation for
-whoever installs the skill.
+`allowed-tools` pre-approves `Read` and three `jjf` subcommands only — `import`,
+which reads a dump and writes a document, `validate`, which reads, and `export`,
+which writes a workbook, a Graphviz DOT file or a DDL script. The two that write
+take their path from the user. Editing the JSON still goes through the usual
+permission prompt, on purpose: pre-approving `Write` and `Edit` would be a
+privilege escalation for whoever installs the skill.
+
+The specification calls `allowed-tools` a space-separated string. This skill
+writes it as a YAML list, because its patterns contain spaces —
+`Bash(jjf import:*)` — which a space-separated string cannot express. Claude Code
+documents both forms, and the reference validator accepts the list.
 
 ## Releasing the plugin
 
@@ -138,5 +188,7 @@ never published as a release asset.
 ## Reference
 
 - Agent Skills documentation: <https://code.claude.com/docs/en/skills.md>
+- Agent Skills specification: <https://agentskills.io/specification>
+- `gh skill`: <https://cli.github.com/manual/gh_skill>
 - Plugin reference: <https://code.claude.com/docs/en/plugins-reference.md>
 - Plugin marketplaces: <https://code.claude.com/docs/en/plugin-marketplaces.md>
