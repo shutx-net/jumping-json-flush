@@ -403,7 +403,7 @@ jobs:
         # work the generator should be doing; the prelude's header says so at
         # length and the script names it in the log every time it applies one.
         #
-        # It starts its own cluster from the PGBIN the step above installed:
+        # It starts its own cluster, from the PGBIN the apt step installed:
         # generate.sh stops its server between majors and at the end, so there
         # is none to reuse. That cluster listens on a unix socket inside its own
         # scratch directory and on no TCP port at all, so nothing can collide
