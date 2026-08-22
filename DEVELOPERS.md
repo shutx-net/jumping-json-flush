@@ -178,9 +178,9 @@ direnv.
   `.github/workflows/pages.yml`; the Pages source is "GitHub Actions" and not a
   branch. `mkdocs.yml` carries the page map by hand, because every generator that
   derives a sidebar automatically wants per-page front matter and that renders as
-  a raw YAML table on github.com. `pages_test.go` keeps the map and `docs/` in
-  agreement both ways, and checks the absolute github.com links the site forces on
-  any document that has to point outside `docs/`
+  a raw YAML table on github.com. `internal/repo/pages_test.go` keeps the map and
+  `docs/` in agreement both ways, and checks the absolute github.com links the site
+  forces on any document that has to point outside `docs/`
 - A relative link that leaves `docs/` cannot be served by the site. Write those as
   `https://github.com/shutx-net/jumping-json-flush/blob/main/<path>`; the build
   runs with `--strict` and fails on anything else
@@ -188,7 +188,7 @@ direnv.
   for a live preview or `mkdocs build --strict` for the check the workflow runs
 - `install.sh` is POSIX sh, not bash, so lint it with `--shell=sh`. Its
   interpreter, its target list, the archive names it builds and the release tag
-  it accepts are all pinned by `install_test.go` against
+  it accepts are all pinned by `internal/repo/install_test.go` against
   `.github/workflows/release.yml`, and its options against `docs/install.md`.
   shellcheck comes from the nix shell and from the CI runner; the devcontainer
   image does not carry it

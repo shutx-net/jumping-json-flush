@@ -1,4 +1,5 @@
-// The documentation site.
+// The documentation site. See install_test.go for what this package is and how
+// the paths below are resolved.
 //
 // docs/ is published with MkDocs, and mkdocs.yml carries the page map by hand
 // because every generator that derives one automatically wants per-page front
@@ -11,7 +12,7 @@
 // instead of relative paths. A relative link that leaves docs/ cannot be served,
 // so those targets are named by URL - and a URL is exactly the kind of link that
 // rots silently, which the last check here is for.
-package jjf
+package repo
 
 import (
 	"io/fs"
@@ -46,7 +47,7 @@ var blobLink = regexp.MustCompile(`https://github\.com/shutx-net/jumping-json-fl
 func TestNavListsEveryDocument(t *testing.T) {
 	listed := navDocuments(t)
 
-	entries, err := os.ReadDir(docsDir)
+	entries, err := os.ReadDir(repoPath(docsDir))
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
@@ -66,8 +67,8 @@ func TestNavListsEveryDocument(t *testing.T) {
 // change has been pushed to the default branch.
 func TestNavPointsAtDocumentsThatExist(t *testing.T) {
 	for _, name := range navDocuments(t) {
-		if _, err := os.Stat(filepath.Join(docsDir, name)); err != nil {
-			t.Errorf("%s lists %q in its nav, which does not exist: %v", mkdocsConfig, name, err)
+		if !exists(docsDir, name) {
+			t.Errorf("%s lists %q in its nav, which does not exist", mkdocsConfig, name)
 		}
 	}
 }
@@ -78,9 +79,9 @@ func TestNavPointsAtDocumentsThatExist(t *testing.T) {
 // resolves relative links, stops seeing them.
 func TestBlobLinksResolve(t *testing.T) {
 	for _, doc := range repositoryMarkdown(t) {
-		src, err := os.ReadFile(doc)
+		src, err := os.ReadFile(repoPath(doc))
 		if err != nil {
-			t.Errorf("%v", err)
+			t.Errorf("%s: %v", doc, err)
 			continue
 		}
 		for _, m := range blobLink.FindAllStringSubmatch(string(src), -1) {
@@ -90,8 +91,8 @@ func TestBlobLinksResolve(t *testing.T) {
 			if target == "" || strings.ContainsAny(target, "<>") {
 				continue
 			}
-			if _, err := os.Stat(target); err != nil {
-				t.Errorf("%s links to %s, which is not in the repository: %v", doc, m[0], err)
+			if !exists(target) {
+				t.Errorf("%s links to %s, which is not in the repository", doc, m[0])
 			}
 		}
 	}
@@ -116,12 +117,18 @@ func navDocuments(t *testing.T) []string {
 	return names
 }
 
-// repositoryMarkdown returns every markdown file this repository owns.
+// repositoryMarkdown returns every markdown file this repository owns, named
+// relative to the repository root.
+//
+// The walk is done over a file system rooted at the repository rather than over
+// root as a path. Walking "../.." would hand the callback ".." as the name of the
+// very first entry, which the hidden directory rule below would read as a dotted
+// directory and skip, leaving the check to pass having looked at nothing.
 func repositoryMarkdown(t *testing.T) []string {
 	t.Helper()
 
 	var found []string
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(os.DirFS(root), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -135,6 +142,9 @@ func repositoryMarkdown(t *testing.T) []string {
 	})
 	if err != nil {
 		t.Fatalf("walk: %v", err)
+	}
+	if len(found) == 0 {
+		t.Fatalf("no markdown found below %s; this check is reading the wrong directory", root)
 	}
 	return found
 }
