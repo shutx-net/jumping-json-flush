@@ -30,7 +30,12 @@ Notes:
 
 - `NVARCHAR MAX` spells `NVARCHAR(MAX)` without parentheses, which the pattern
   forbids. Note "MAX length" in `description` so the parentheses can be restored
-  when the DDL is written.
+  by whoever writes the SQL Server DDL by hand — `jjf export ddl` will not, since
+  it generates PostgreSQL and nothing else, reading the PostgreSQL column of this
+  table.
+- For a type `jjf export ddl` does not recognise, the name passes through
+  unchanged and its parameters follow the `length` → `precision` + `scale` →
+  `precision` precedence the workbook and the ER diagram already use.
 - SQLite has type affinities rather than types. Stay with `TEXT`, `INTEGER`,
   `REAL`, `BLOB` and `NUMERIC`.
 - MySQL's `TINYINT` used as a boolean conventionally carries `"length": 1`.

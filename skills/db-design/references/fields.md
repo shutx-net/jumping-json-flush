@@ -104,6 +104,9 @@ Applies to `database.name`, `tables[].name`, `columns[].name`,
 Matched exactly, case included. `"postgres"`, `"MSSQL"` and `"SQL Server"` all
 fail validation.
 
+The field is descriptive for every command except `jjf export ddl`, which
+requires it and requires it to be `"PostgreSQL"`.
+
 ## `onUpdate` / `onDelete` — exactly these five values
 
 ```text

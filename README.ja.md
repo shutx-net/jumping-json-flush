@@ -7,10 +7,11 @@
 
 **Jumpin' Json Flush**（`jjf`）は、構造化された JSON 形式の DB 設計情報を
 Single Source of Truth として管理し、人間向けの設計成果物へ変換する CLI ツール。
-Excel の DB 設計書と、Graphviz の ER 図を生成する。
+Excel の DB 設計書、Graphviz の ER 図、PostgreSQL の DDL スクリプトを生成する。
 
-- **JSON が唯一の正。** 生成された `.xlsx` は派生成果物であり、権威あるデータとして扱わない
-- **決定的な出力。** 同じ入力からは常にバイト同一の `.xlsx` が生成される
+- **JSON が唯一の正。** 生成された `.xlsx`・`.dot`・`.sql` は派生成果物であり、
+  権威あるデータとして扱わない
+- **決定的な出力。** 同じ入力からは常にバイト同一の `.xlsx`・`.dot`・`.sql` が生成される
 - **単一バイナリ。** CGO なし・実行時の外部依存なし。musl/alpine 環境でもそのまま動く
 - **AI エージェント前提。** JSON Schema による構造検証と Agent Skill で、
   エージェントが設計 JSON を安全に編集できる。スキルは Claude Code プラグインとして
@@ -21,6 +22,7 @@ jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 jjf export dot db-design.json -o er.dot
+jjf export ddl db-design.json -o schema.sql
 ```
 
 ## インストール
@@ -60,6 +62,9 @@ jjf export xlsx db-design.json -o db-design.xlsx
 
 # Graphviz の ER 図に変換する
 jjf export dot db-design.json -o er.dot
+
+# PostgreSQL の DDL スクリプトに変換する
+jjf export ddl db-design.json -o schema.sql
 ```
 
 import が読むのは `pg_dump --schema-only` の**ファイル**であり、`jjf` が
@@ -73,6 +78,11 @@ import が読むのは `pg_dump --schema-only` の**ファイル**であり、`j
 export は必ず先に検証するため、検証に失敗した文書は**出力ファイルを 1 バイトも
 生成しない**。**同じ入力からは常にバイト同一の `.xlsx`** が得られるので、CI で
 成果物のハッシュを比較する意味がある。
+
+`ddl` だけはさらに踏み込み、`jjf validate` が警告にとどめる矛盾と、validate が
+意図的に見ない PostgreSQL 固有の誤りとを、どちらも拒否する。矛盾した文書でも
+Excel 設計書と ER 図は役に立つので `xlsx` と `dot` は描き出すが、データベースが
+受け付けない SQL は何の役にも立たないので、`ddl` は何も書かずに 2 で終わる。
 
 `jjf validate` は構造検証に加えて、文書が**自分自身と矛盾していないか**を
 検査する。キーとインデックスが指すカラムの存在、外部キーの参照先テーブルが
@@ -190,10 +200,11 @@ DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパ�
 マイグレーション管理、Excel から JSON への逆変換、
 Excel の直接編集、GUI、Excel テンプレートのカスタマイズは対象外である。
 
-PostgreSQL の DDL 出力は採用済みだが未実装である。設計は
-[`design/ddl-export.md`](design/ddl-export.md) で確定している。生成する DDL は
-スキーマを一から作るものであり、既にスキーマを持つデータベースへ適用することは
-対象外のままである。その状態を知る必要があるためである。
+PostgreSQL の DDL スクリプトは `jjf export ddl` で生成する
+（[`docs/usage.ja.md`](docs/usage.ja.md#export)）。生成する DDL はスキーマを
+一から作るものであり、その形式を決めた判断は
+[`design/ddl-export.md`](design/ddl-export.md) に記録してある。既にスキーマを
+持つデータベースへ適用することは対象外のままである。その状態を知る必要があるためである。
 
 ER 図は Graphviz DOT のソースとして生成する（`jjf export dot`、
 [`docs/usage.ja.md`](docs/usage.ja.md#export)）。画像への変換は対象外であり、

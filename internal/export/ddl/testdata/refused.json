@@ -1,0 +1,135 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "refused",
+    "logicalName": "拒否",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "settings",
+      "logicalName": "設定",
+      "description": "An ordinary table. It is here so that a later index can take its name, which PostgreSQL forbids because both live in one namespace.",
+      "columns": [
+        {
+          "name": "key",
+          "logicalName": "キー",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_settings",
+        "columns": ["key"]
+      }
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "description": "A nullable primary key column, a default that is a bare word, and a foreign key naming a table this document does not define.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_parent",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_created",
+          "columns": ["created_at"]
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "logicalName": "受注明細",
+      "description": "An identity column that also has a default, an identity column declared nullable, an index name a second table already spent, and an index named after a table. Its foreign key repeats the name the table above uses, which PostgreSQL allows and this list must not report.",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "seq",
+          "logicalName": "行番号",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1",
+          "autoIncrement": true
+        },
+        {
+          "name": "qty",
+          "logicalName": "数量",
+          "type": "INTEGER",
+          "nullable": true,
+          "autoIncrement": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_parent",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_created",
+          "columns": ["order_id"]
+        },
+        {
+          "name": "settings",
+          "columns": ["qty"]
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注 (二重定義)",
+      "description": "A second table of a name the document already used. internal/check does not report this; PostgreSQL cannot create it.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

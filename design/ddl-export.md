@@ -1,8 +1,9 @@
 # DDL generation — design record
 
-**Status: adopted; not yet implemented.** This document is the specification an
-implementation follows. The choices in it were settled before any code because
-several of them are expensive to revisit once output has been shipped.
+**Status: adopted and implemented**, as `internal/export/ddl` and
+`jjf export ddl`. This document is the specification the implementation follows.
+The choices in it were settled before any code because several of them are
+expensive to revisit once output has been shipped.
 
 ## Why jjf generates DDL
 
@@ -68,9 +69,9 @@ Three reasons, in order of weight:
 3. Six dialects multiply exactly the surface the section above says can never be
    changed freely.
 
-The schema's `dbms` enum lists six systems. Nothing in jjf branches on it today.
-A DDL exporter would be the first consumer, and it should read it strictly
-rather than guess.
+The schema's `dbms` enum lists six systems, and nothing else in jjf branches on
+it. The DDL exporter is its first and only consumer, and it reads it strictly
+rather than guessing.
 
 ## Settled format choices
 
@@ -105,13 +106,35 @@ Already implemented, in `internal/check` and reported by `jjf validate`:
 * C6 — no duplicate column, constraint or index name within one table
 * C7–C8 — `default` is non-empty and reads as a SQL expression
 
-Still to write, and belonging to the generator rather than to `jjf validate`:
+Checked by the generator rather than by `jjf validate`, because each is a
+statement about PostgreSQL rather than about the document — which is why
+`AGENTS.md` excludes them from `validate` by name and why they live here:
 
-* Constraint and index names are unique across the whole schema. PostgreSQL puts
-  indexes and constraints in one schema-wide namespace, so two tables cannot
-  share an index name; MySQL scopes them per table. It is a statement about
-  PostgreSQL, not about the document, which is why `AGENTS.md` excludes it from
-  `validate` by name and why it lives here instead.
+* Table names, index names and the names of `PRIMARY KEY` and `UNIQUE`
+  constraints occupy a single namespace per schema, and must all differ. Those
+  four and no more: PostgreSQL keeps them in `pg_class`, which also holds
+  sequences and views and is unique per schema, and a `PRIMARY KEY` or `UNIQUE`
+  constraint is backed by an index that lives there. Foreign key constraint
+  names are excluded, because they live in `pg_constraint`, which is unique per
+  TABLE: two tables may each carry a constraint called `fk_parent` and
+  PostgreSQL accepts both. C6 already covers the per-table case. Table names
+  belong in the list because `internal/check` deliberately does not report
+  duplicate table names, so nothing else would catch a document that defines
+  `orders` twice. MySQL, by contrast, scopes index names per table.
+* A column that is `autoIncrement` does not also carry a `default`. PostgreSQL
+  refuses "both default and identity specified for column", so choice 3 and
+  choice 6 together would emit a statement the database rejects.
+* A column that is `autoIncrement` is not `nullable`. This is C5's silent case
+  for a column outside the primary key: PostgreSQL accepts it and makes the
+  identity column `NOT NULL` anyway, leaving the document and the database
+  disagreeing.
+
+Two limits are worth stating. A constraint the document leaves unnamed gets its
+name from PostgreSQL (`t_pkey`, `t_col_key`), and that name is outside the
+namespace check because the document never says it; predicting PostgreSQL's
+naming is not attempted. And a `default` is read as an expression, never
+evaluated, so a cast to a type nothing creates is caught by the database and not
+here.
 
 ## What is deliberately not emitted
 
@@ -151,7 +174,9 @@ Two properties this pins that nothing else can:
 
 This needs live PostgreSQL in CI, which is the expensive part of adopting DDL
 generation and the reason the infrastructure is worth building before the
-generator.
+generator. It is not yet wired in: the change that added the generator
+deliberately left CI alone, and `.github/workflows/pg-fixtures.yml`, which
+already starts a real server per PostgreSQL major, is where it belongs.
 
 ## Output stability policy
 

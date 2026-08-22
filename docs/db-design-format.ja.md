@@ -55,6 +55,10 @@
 | 既定値 | `default` は DEFAULT 句にそのまま入る SQL 式のテキスト。文字列の既定値は SQL の引用符込み（`"'pending'"`）。DEFAULT 句なしはキー自体を書かない。空の `""` は警告 |
 | enum | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`。`onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
+`dbms` は `jjf export ddl` を除くすべてのコマンドにとって説明的な値であり、
+`jjf export ddl` だけがこれを必須とし、`PostgreSQL` であることを要求する。
+他に分岐するものは無い。
+
 ### import 時の PostgreSQL 型の扱い
 
 `jjf import postgres` は PostgreSQL の型を、型名と、スキーマがその隣に持つ数値属性へ

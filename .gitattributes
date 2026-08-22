@@ -13,4 +13,5 @@
 # CRLF.
 *.xml  text eol=lf
 *.txt  text eol=lf
+*.sql  text eol=lf
 *.xlsx binary

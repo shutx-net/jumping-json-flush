@@ -1,0 +1,4 @@
+testdata/referential_warnings.json: error: primary key pk_orders on table orders: names column "id", which the table declares nullable
+testdata/referential_warnings.json: error: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+testdata/referential_warnings.json: error: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+jjf: 3 problem(s) prevent PostgreSQL DDL generation

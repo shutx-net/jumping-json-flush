@@ -56,7 +56,7 @@ func runValidate(args []string, stdout, stderr io.Writer) error {
 	// The findings are printed before it is decided what they cost: they are
 	// what explains the failure, so -strict must change what happens next, not
 	// what the user is told.
-	writeFindings(stderr, input, findings)
+	writeFindings(stderr, input, "warning", findings)
 
 	if *strict && len(findings) > 0 {
 		// InvalidInput (2), not SchemaFailed (3). Exit 3 is reserved for "does
@@ -75,16 +75,21 @@ func runValidate(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-// writeFindings prints the checker's warnings.
+// writeFindings prints a list of findings at the given severity.
 //
-// The "source: warning: " prefix is the shape editors and CI annotators already
+// The "source: <level>: " prefix is the shape editors and CI annotators already
 // parse, and it deliberately differs from the "jjf: " prefix, which is reserved
 // for errors. It is the line-less form of the importer's writeDiagnostics in
 // import.go: there is no line number to give, because the decoded model carries
-// no source positions. The two stay separate rather than being generalised -
-// they take different types and are four lines each.
-func writeFindings(w io.Writer, source string, findings []check.Finding) {
+// no source positions. Those two stay separate rather than being generalised,
+// because they take different types and are four lines each.
+//
+// The severity is the caller's because there are now two of them and they
+// disagree about it: "jjf validate" reports findings as warnings, while
+// "jjf export ddl" refuses the document over the very same list. Two functions
+// differing in one word would be the drift this one word avoids.
+func writeFindings(w io.Writer, source, level string, findings []check.Finding) {
 	for _, f := range findings {
-		fmt.Fprintf(w, "%s: warning: %s\n", source, f)
+		fmt.Fprintf(w, "%s: %s: %s\n", source, level, f)
 	}
 }
