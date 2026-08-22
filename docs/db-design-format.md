@@ -57,6 +57,9 @@ The essentials:
 | Defaults | `default` is SQL expression text, copied verbatim into the DEFAULT clause. A string default carries its SQL quoting (`"'pending'"`). No DEFAULT clause means the key is simply absent; an empty `""` is a warning |
 | Enums | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`. `onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
+`dbms` is descriptive for every command except `jjf export ddl`, which requires
+it and requires it to be `PostgreSQL`. Nothing else in `jjf` branches on it.
+
 ### PostgreSQL types on import
 
 `jjf import postgres` splits a PostgreSQL type into the `type` name and the

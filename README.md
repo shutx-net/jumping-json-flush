@@ -7,11 +7,13 @@
 
 **Jumpin' Json Flush** (`jjf`) is a CLI tool that keeps database design
 information in structured JSON as the single source of truth and turns it into
-design documents people can read: an Excel workbook, and a Graphviz ER diagram.
+design documents people can read: an Excel workbook, a Graphviz ER diagram, and
+a PostgreSQL DDL script.
 
-- **JSON is the only source of truth.** A generated `.xlsx` is a derived artifact
-  and is never treated as authoritative data
-- **Deterministic output.** The same input always produces a byte-identical `.xlsx`
+- **JSON is the only source of truth.** A generated `.xlsx`, `.dot` or `.sql` is a
+  derived artifact and is never treated as authoritative data
+- **Deterministic output.** The same input always produces a byte-identical
+  `.xlsx`, `.dot` and `.sql`
 - **A single binary.** No CGO, no runtime dependencies. It runs as it is on
   musl/alpine
 - **Built for AI agents.** Structural validation through JSON Schema and an Agent
@@ -23,6 +25,7 @@ jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 jjf export dot db-design.json -o er.dot
+jjf export ddl db-design.json -o schema.sql
 ```
 
 ## Installation
@@ -64,6 +67,9 @@ jjf export xlsx db-design.json -o db-design.xlsx
 
 # turn it into a Graphviz ER diagram
 jjf export dot db-design.json -o er.dot
+
+# turn it into a PostgreSQL DDL script
+jjf export ddl db-design.json -o schema.sql
 ```
 
 An import reads a `pg_dump --schema-only` **file** — `jjf` never connects to a
@@ -78,6 +84,12 @@ a JSON Pointer, and touches no network: the schema is embedded in the binary. An
 export validates first, so a document that fails produces no output file at all,
 not even a single byte. **The same input always produces a byte-identical
 `.xlsx`**, which is what makes comparing artifact hashes in CI worth doing.
+
+`ddl` goes one step further and refuses a document `jjf validate` would only warn
+about, along with the PostgreSQL-specific mistakes that command deliberately does
+not report. A document that contradicts itself still makes a useful workbook and
+a useful diagram, so `xlsx` and `dot` render it; SQL a database rejects is worth
+nothing, so `ddl` writes nothing and exits 2.
 
 `jjf validate` then checks the document **against itself**: that the columns named
 by its keys and indexes exist, that every foreign key names a table this document
@@ -197,10 +209,12 @@ database design (normalization, index strategy, type choice), migration
 management, converting Excel back into JSON, editing the Excel directly, a GUI,
 and customising the Excel template are all out of scope.
 
-PostgreSQL DDL export is decided but not yet implemented; the design is settled
-in [`design/ddl-export.md`](design/ddl-export.md). It will create a schema from
-nothing. Applying a design to a database that already has one stays out of
-scope, because that needs to know the state that database is in.
+A PostgreSQL DDL script is generated with `jjf export ddl`; see
+[`docs/usage.md`](docs/usage.md#export). It creates a schema from nothing, and
+the decisions behind its format are recorded in
+[`design/ddl-export.md`](design/ddl-export.md). Applying a design to a database
+that already has one stays out of scope, because that needs to know the state
+that database is in.
 
 An entity relationship diagram is generated as Graphviz DOT source (`jjf export
 dot`); see [`docs/usage.md`](docs/usage.md#export). Rendering it to an image is

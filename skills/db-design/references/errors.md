@@ -85,8 +85,11 @@ and nothing else, and a self-consistency finding is not a schema violation.
 
 Whether the design is a *good* one is not checked, so do not offer normalization,
 index-strategy or type advice as though `jjf` had asked for it. Duplicate table
-names across a document, type compatibility across a foreign key, and the
-uniqueness of index names across a schema are not checked either. A `default` is
+names across a document and type compatibility across a foreign key are not
+checked either. The uniqueness of index names across a schema is not checked by
+`jjf validate` — it is a PostgreSQL rule rather than a statement about the
+document — but `jjf export ddl` does check it before it writes; see the section
+below. A `default` is
 only read as an expression, never evaluated: `jjf` does not run it, does not
 check it against the column's `type`, and does not object to a function it has
 never heard of.
@@ -98,9 +101,26 @@ never heard of.
 | `jjf: db-design.json: line 5, column 4: invalid character '}' looking for beginning of object key string` | invalid JSON syntax, such as a trailing comma | fix the reported line and column |
 | `jjf: open db-design.json: no such file or directory` | wrong path | check the path |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | the document uses a newer format than this build | upgrade `jjf`. **Never rewrite the document to get around this** |
-| `jjf: unsupported format "csv"; supported formats: xlsx, dot` | an export format that does not exist | the formats are `xlsx` and `dot` |
+| `jjf: unsupported format "csv"; supported formats: xlsx, dot, ddl` | an export format that does not exist | the formats are `xlsx`, `dot` and `ddl` |
 | `jjf: validate takes exactly one input file, got 0` | no input path given | pass the path |
 | `jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>` | `-o -` with a terminal on standard output | redirect the output or pass a file path |
+
+## `jjf export ddl` refusals (exit code 2)
+
+`ddl` is the only export that refuses a document, and it writes nothing when it
+does. `xlsx` and `dot` render the same document happily, because a slightly
+broken document still makes a useful workbook and a useful diagram. See
+[ddl-output.md](ddl-output.md).
+
+| Output | Cause | Fix |
+| --- | --- | --- |
+| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"` | `database.dbms` is absent; this is the only command that requires it | add `"dbms": "PostgreSQL"` — but only if that really is the target |
+| `jjf: ddl export supports PostgreSQL only; this document names "MySQL"` | the document targets another system | `jjf` generates no DDL for it; say so rather than producing PostgreSQL SQL |
+| `db-design.json: error: <finding>` followed by `jjf: 2 problem(s) prevent PostgreSQL DDL generation` | the document contradicts itself | one line per problem, in the shapes listed above. Run `jjf validate` and fix what it reports |
+| `db-design.json: error: table order_items: declares index "ix_created", a name already used by index ix_created on table orders; PostgreSQL puts tables, indexes and the indexes behind PRIMARY KEY and UNIQUE in one namespace per schema` | two objects share a name PostgreSQL keeps in one schema-wide namespace: tables, indexes, `PRIMARY KEY` and `UNIQUE` names | rename one. Foreign key names are per table and may repeat |
+| `db-design.json: error: table orders: is the second table this document calls "orders"; PostgreSQL cannot create two tables of one name in a schema` | the document defines one table name twice; `jjf validate` does not report this | rename or remove one |
+| `db-design.json: error: column id on table orders: is autoIncrement and also declares a default; PostgreSQL refuses a column that is both an identity column and has a DEFAULT` | a column carries `autoIncrement` and `default` | drop one of the two |
+| `db-design.json: error: column id on table orders: is autoIncrement and declared nullable; PostgreSQL makes an identity column NOT NULL, so the database would not match the document` | an `autoIncrement` column says `"nullable": true` | set `"nullable": false` |
 
 ## Output failures (exit code 4)
 

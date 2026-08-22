@@ -36,7 +36,7 @@ direnv.
 | run | `go run ./cmd/jjf validate examples/db-design.example.json` |
 | test | `go test ./...` |
 | test (race) | `CGO_ENABLED=1 go test -race ./...` |
-| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/dot/ ./internal/importer/postgres/ -update` |
+| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/dot/ ./internal/export/ddl/ ./internal/importer/postgres/ -update` |
 | coverage | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
 | vet | `go vet ./...` |
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
@@ -57,9 +57,26 @@ direnv.
   raises the `go` directive)
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
-- Only the six packages that own goldens define the `-update` flag, so
+- Only the seven packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
+- `jjf export ddl` is the only exporter that refuses its input. A document that
+  contradicts itself still makes a useful workbook and a useful diagram, so `xlsx`
+  and `dot` render it; SQL a database rejects is worth nothing, so `ddl` writes
+  nothing and exits **2**, not 4 — 4 has to keep meaning that the environment
+  stopped the write, which is all `writeFileAtomically` produces. The asymmetry is
+  pinned by `TestOnlyDDLRefusesFindings`, so deleting the format table's `accept`
+  field has to argue with a test
+- The DDL round trip — document → `jjf export ddl` → live PostgreSQL → `pg_dump`
+  → `jjf import` → document — is deliberately NOT wired into CI by the change that
+  added the exporter. Golden files prove only that the generator emits what it
+  emitted; the database is the real oracle, and running one is what
+  `.github/workflows/pg-fixtures.yml` already knows how to do. Compare at the
+  document level, never at the SQL level, and assert that the second pass equals
+  the first rather than that the first equals the input: `pg_dump` writes a random
+  token into its `\restrict` lines, and a hand-written quoted literal picks up an
+  explicit cast on the first pass (`'now'` becomes `'now'::text`) and is stable
+  from the second onwards
 - `internal/importer/postgres/testdata/dump/pg<major>/*.sql` is real
   `pg_dump --schema-only` output, one directory per PostgreSQL major, regenerated
   from `testdata/source/*.sql` by

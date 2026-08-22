@@ -4,13 +4,14 @@
 
 **Jumpin' Json Flush**（`jjf`）は、構造化された JSON 形式の DB 設計情報を
 Single Source of Truth として管理し、人間向けの設計成果物へ変換する CLI ツール。
-Excel の DB 設計書と、Graphviz の ER 図を生成する。
+Excel の DB 設計書、Graphviz の ER 図、PostgreSQL の DDL スクリプトを生成する。
 
 ```sh
 jjf import postgres schema.sql -o db-design.json
 jjf validate db-design.json
 jjf export xlsx db-design.json -o db-design.xlsx
 jjf export dot db-design.json -o er.dot
+jjf export ddl db-design.json -o schema.sql
 ```
 
 - **[インストール](install.ja.md)** — ワンライナー、バージョン固定、配置先の指定、

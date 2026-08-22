@@ -102,6 +102,7 @@
    失敗したままの文書で完了としてはならない。
 7. ブックを作り直すなら `jjf export xlsx <input.json> -o <output.xlsx>` を実行する。
    ER 図が欲しいなら `jjf export dot <input.json> -o <output.dot>` を実行する。
+   PostgreSQL の DDL が欲しいなら `jjf export ddl <input.json> -o <output.sql>` を実行する。
    エクスポートは先に検証するので、検証を通らない文書からは 1 バイトも出力されない。
 8. JSON の変更点を報告する。ブックを作り直していないなら、`.xlsx` の再生成が必要である
    ことも伝える。
@@ -315,7 +316,11 @@ enum の許容値は、試行錯誤せず一発で正しく書けるように全
 補足:
 
 - `NVARCHAR MAX` は、pattern が禁じている括弧を外して `NVARCHAR(MAX)` を表した綴りである。
-  DDL 化する際に括弧を戻せるよう、`description` に「MAX 長」と書いておく。
+  SQL Server の DDL を手で書く人が括弧を戻せるよう、`description` に「MAX 長」と
+  書いておく。`jjf export ddl` は PostgreSQL しか生成せず、この表の PostgreSQL 列しか
+  読まないので、括弧を戻すことはない。
+- `jjf export ddl` が知らない型は、名前がそのまま通り、パラメータは
+  `length` → `precision` + `scale` → `precision` の優先順で再現される。
 - SQLite は型そのものではなく型親和性しか持たないため、`TEXT` / `INTEGER` / `REAL` /
   `BLOB` / `NUMERIC` に寄せる。
 - MySQL の `TINYINT` を真偽値に使う場合は `"length": 1` を添える慣例がある。
@@ -565,6 +570,7 @@ jjf import postgres schema.sql -o db-design.json
 | `jjf export xlsx db-design.json` | 同じ。入力の隣に、拡張子を置き換えた名前で出力する |
 | `jjf export xlsx db-design.json -o -` | 標準出力へ書く。`xlsx` はバイナリなので端末に直接出そうとした場合は拒否される |
 | `jjf export dot db-design.json -o er.dot` | 検証してから Graphviz DOT のソースを書く。画像化は各自の `dot` で行う |
+| `jjf export ddl db-design.json -o schema.sql` | 検証し、自分自身と矛盾する文書は拒否したうえで、PostgreSQL の DDL スクリプトを書く。PostgreSQL 専用 |
 | `jjf version` | ツールのバージョンを出力する |
 
 成功メッセージは標準出力、エラーと usage は標準エラーに出る。
@@ -637,7 +643,10 @@ db-design.json: does not conform to the jjf database design schema
 | `jjf: db-design.json: line 5, column 4: invalid character '}' looking for beginning of object key string` | JSON 構文エラー（末尾カンマなど） | 指摘された行・桁を直す |
 | `jjf: open db-design.json: no such file or directory` | パスの誤り | パスを確認する |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | この `jjf` より新しいフォーマットの文書 | `jjf` を更新する。**JSON を書き換えて回避しない** |
-| `jjf: unsupported format "csv"; supported formats: xlsx, dot` | 存在しない出力形式 | 形式は `xlsx` と `dot` |
+| `jjf: unsupported format "csv"; supported formats: xlsx, dot, ddl` | 存在しない出力形式 | 形式は `xlsx`・`dot`・`ddl` |
+| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"` | `database.dbms` が無い。これを必須とするのは `jjf export ddl` だけである | 対象が本当に PostgreSQL なら `"dbms": "PostgreSQL"` を書く |
+| `jjf: ddl export supports PostgreSQL only; this document names "MySQL"` | 文書が別の DBMS を対象にしている | `jjf` はその DBMS の DDL を生成しない |
+| `db-design.json: error: <指摘>` に続く `jjf: 2 problem(s) prevent PostgreSQL DDL generation` | 文書が自分自身と矛盾している。`ddl` だけがこれを拒否する | `jjf validate` を実行して指摘を直す。表名・索引名・`PRIMARY KEY` と `UNIQUE` の名前の schema 全体での衝突と、identity 列の 2 つの前提は、`ddl` だけが検査する |
 | `jjf: validate takes exactly one input file, got 0` | 入力パスを渡していない | パスを渡す |
 | `jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>` | 標準出力が端末の状態で `-o -` を使った | リダイレクトする、またはファイルパスを渡す |
 
@@ -739,9 +748,9 @@ CI での比較を可能にするためである。
   書く側の責任である。外部キー両端の型互換性、テーブル名の文書内での重複も未検査である
   （文書が自分自身と矛盾していないかは `jjf validate` が検査し、警告として報告する。
   [jjf の使い方](usage.ja.md#参照整合性の検査) を見よ）
-- DDL / SQL の生成。設計は確定しているが実装はまだ無く、呼べるサブコマンドは存在しない
 - 実データベースへの接続。スキーマの取り込みは `pg_dump` の**ファイル**からのみで、稼働中のサーバには接続しない
-- マイグレーション管理、スキーマ差分、破壊的変更の検出
+- マイグレーション管理、スキーマ差分、破壊的変更の検出。`jjf export ddl` が生成する
+  DDL はスキーマを一から作るものであり、既存のスキーマを別の状態へ動かすことはしない
 - Mermaid / Markdown の出力。ER 図は Graphviz DOT のソースを出力するだけで、画像への変換は行わない
 - Excel から JSON への逆変換、Excel の直接編集
 - ブックのレイアウト・配色・テンプレートのカスタマイズ
