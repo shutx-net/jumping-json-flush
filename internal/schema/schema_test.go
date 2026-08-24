@@ -46,16 +46,19 @@ func invalidDoc(t *testing.T, err error) *InvalidDocumentError {
 }
 
 func TestNewValidatorWorksOffline(t *testing.T) {
-	// denyLoader refuses every fetch, so a successful compile proves the
-	// embedded schema is self-contained.
+	// compileSchema resolves every $ref inside the document and refuses one
+	// that points anywhere else, so a validator that builds at all proves the
+	// embedded schema is self-contained. Nothing in this package can open a
+	// socket or a file to begin with.
 	if _, err := NewValidator(); err != nil {
 		t.Fatalf("NewValidator() = %v, want nil", err)
 	}
 }
 
 func TestNewValidatorIsRepeatable(t *testing.T) {
-	// Each call must use a fresh compiler; reusing one would fail with
-	// *jsonschema.ResourceExistsError on the second registration.
+	// Each call decodes the embedded bytes afresh and shares no state with a
+	// validator already built, so building one over and over has to keep
+	// working - which is what the CLI does, once per command.
 	for i := 0; i < 3; i++ {
 		if _, err := NewValidator(); err != nil {
 			t.Fatalf("NewValidator() call %d = %v, want nil", i, err)
@@ -457,5 +460,30 @@ func TestWriteReportLabelsDocumentRoot(t *testing.T) {
 	ide.WriteReport(&buf)
 	if !bytes.Contains(buf.Bytes(), []byte("(document root)")) {
 		t.Errorf("report does not label the root:\n%s", buf.String())
+	}
+}
+
+// TestValidateRejectsTrailingContent guards the one thing encoding/json does
+// not refuse on its own: a Decoder stops at the end of the first value, so a
+// file carrying a second document after the first would pass with the second
+// never read. The old library's own loader refused that, and this keeps it
+// refused.
+func TestValidateRejectsTrailingContent(t *testing.T) {
+	v := newTestValidator(t)
+	raw := append(readFixture(t, filepath.Join("testdata", "valid", "minimal.json")), " {}"...)
+
+	err := v.Validate("two-documents.json", raw)
+	if err == nil {
+		t.Fatal("Validate() = nil, want an error")
+	}
+	if got := exitcode.Of(err); got != exitcode.InvalidInput {
+		t.Errorf("exit code = %v, want %v", got, exitcode.InvalidInput)
+	}
+	var ide *InvalidDocumentError
+	if errors.As(err, &ide) {
+		t.Error("a document with two values in it must not reach the schema")
+	}
+	if want := "invalid character after top-level value"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }

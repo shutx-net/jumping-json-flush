@@ -1,6 +1,11 @@
 // Package schema compiles the embedded jjf JSON Schema and validates
 // database design documents against it, turning validation failures into a
 // human readable list of issues.
+//
+// The validation is done by this package's own evaluator rather than by a
+// JSON Schema library. It implements the subset of Draft 2020-12 that the
+// embedded schema uses and refuses anything outside it; subset.go says what
+// that subset is and why refusing is the safe answer.
 package schema
 
 import (
@@ -9,43 +14,28 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
 	schemadata "github.com/shutx-net/jumping-json-flush/schema"
 )
 
 // Validator validates database design documents against the embedded schema.
-// Build one with NewValidator and reuse it; compiling is cheap but registering
-// the same resource twice is an error.
+// It holds the decoded schema together with the regular expressions compiled
+// out of it, which is the whole reason to build one rather than to compile per
+// document. Building it is cheap, and it is read-only once built, so one
+// validator serves every document a command touches.
 type Validator struct {
-	schema *jsonschema.Schema
+	root *schemaNode
 }
 
-// NewValidator compiles the embedded database design schema. It never touches
-// the network.
+// NewValidator compiles the embedded database design schema. The schema
+// travels inside the binary and every $ref in it resolves within the document,
+// so there is nothing to fetch and nothing in this package that could try.
 func NewValidator() (*Validator, error) {
-	// jsonschema.UnmarshalJSON is required here: passing an io.Reader or a
-	// []byte makes Compile fail with "invalid jsonType", and plain
-	// json.Unmarshal loses json.Number precision.
-	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemadata.DBDesign))
+	root, err := compileSchema(schemadata.DBDesign)
 	if err != nil {
-		return nil, fmt.Errorf("parse embedded schema: %w", err)
+		return nil, err
 	}
-
-	c := jsonschema.NewCompiler()
-	c.DefaultDraft(jsonschema.Draft2020) // fallback when a document omits $schema
-	c.UseLoader(denyLoader{})            // jjf never fetches anything over the network
-	// Do not call c.AssertFormat: format stays an annotation, per Draft 2020-12.
-
-	if err := c.AddResource(schemadata.DBDesignURL, doc); err != nil {
-		return nil, fmt.Errorf("register embedded schema: %w", err)
-	}
-	// The loc passed to Compile must equal the url passed to AddResource.
-	sch, err := c.Compile(schemadata.DBDesignURL)
-	if err != nil {
-		return nil, fmt.Errorf("compile embedded schema: %w", err)
-	}
-	return &Validator{schema: sch}, nil
+	return &Validator{root: root}, nil
 }
 
 // Validate checks raw against the database design schema. source names the
@@ -56,23 +46,21 @@ func NewValidator() (*Validator, error) {
 // carrying exitcode.SchemaFailed.
 func (v *Validator) Validate(source string, raw []byte) error {
 	body := StripBOM(raw)
-	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(body))
+	inst, err := decodeInstance(body)
 	if err != nil {
 		return exitcode.Wrap(exitcode.InvalidInput, source, locateJSONError(body, err))
 	}
 
-	err = v.schema.Validate(inst)
-	if err == nil {
+	var issues []Issue
+	v.root.evaluate("", inst, &issues)
+	if len(issues) == 0 {
 		return nil
 	}
-
-	var ve *jsonschema.ValidationError
-	if !errors.As(err, &ve) {
-		return exitcode.Wrap(exitcode.SchemaFailed, source, err)
-	}
+	// The op is deliberately empty: InvalidDocumentError.Error() already names
+	// the source, and an op here would name it a second time on the same line.
 	return exitcode.Wrap(exitcode.SchemaFailed, "", &InvalidDocumentError{
 		Source: source,
-		Issues: issuesOf(ve),
+		Issues: sortIssues(issues),
 	})
 }
 
@@ -80,18 +68,9 @@ func (v *Validator) Validate(source string, raw []byte) error {
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
 // StripBOM removes a leading UTF-8 byte order mark. Both encoding/json and
-// jsonschema.UnmarshalJSON reject a BOM outright, and editors on Windows
+// this package's own decoder reject a BOM outright, and editors on Windows
 // write one by default.
 func StripBOM(b []byte) []byte { return bytes.TrimPrefix(b, utf8BOM) }
-
-// denyLoader refuses every remote reference. The embedded schema is
-// self-contained, so any attempted fetch is a bug, not a fallback.
-type denyLoader struct{}
-
-// Load always fails.
-func (denyLoader) Load(u string) (any, error) {
-	return nil, fmt.Errorf("refusing to load external schema resource: %s", u)
-}
 
 // locateJSONError rewrites a decoding failure so that it names a line and
 // column. encoding/json reports only a byte offset, which nobody can act on
