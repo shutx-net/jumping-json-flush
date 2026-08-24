@@ -42,6 +42,7 @@ direnv.
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
 | format | `gofmt -w .` |
 | staticcheck | `staticcheck ./...` |
+| validate the schema against the meta-schema | `go run github.com/santhosh-tekuri/jsonschema/cmd/jv@v0.7.0 https://json-schema.org/draft/2020-12/schema schema/db-design.schema.json` |
 | lint install.sh | `shellcheck --shell=sh install.sh` |
 | regenerate the pg_dump fixtures | `sh internal/importer/postgres/testdata/generate.sh` |
 | regenerate one major | `PGBIN=/usr/lib/postgresql/17/bin sh internal/importer/postgres/testdata/generate.sh` |
@@ -57,6 +58,16 @@ direnv.
 - CI runs staticcheck as `go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...`
   and keeps it out of `go.mod` (`go get -tool` adds indirect dependencies and
   raises the `go` directive)
+- CI validates `schema/db-design.schema.json` against the Draft 2020-12
+  meta-schema the same way, as
+  `go run github.com/santhosh-tekuri/jsonschema/cmd/jv@v0.7.0`, and for the same
+  reason: `go.mod` has no requires at all and nothing may add one. `internal/schema`
+  validates documents against the subset of Draft 2020-12 it implements itself and
+  refuses at startup any keyword outside that subset, so what it never asks is
+  whether the schema is a valid Draft 2020-12 document at all — which the JSON
+  Schema library used to check while compiling it, and which this job now checks
+  instead. `jv` is a module of its own, tagged `cmd/jv/vX.Y.Z`, not the library
+  that was removed
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
 - Only the seven packages that own goldens define the `-update` flag, so

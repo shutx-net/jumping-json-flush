@@ -74,6 +74,38 @@ jobs:
         # other version.
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
 
+  metaschema:
+    name: metaschema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: validate the schema against Draft 2020-12
+        # internal/schema no longer compiles the schema with a JSON Schema
+        # library, and the one thing that library did besides validating
+        # documents - holding the schema itself to its meta-schema - left with
+        # it. This job is where that check now lives, and it catches what a
+        # struct decoder cannot: a `required` written as a string, or a
+        # `minLength` written as a float, decode into the wrong field or fail
+        # with a message about Go types rather than about JSON Schema.
+        #
+        # Run from a module path with a version suffix, like the staticcheck job
+        # above and for the same reason: `go get -tool` would put it in go.mod,
+        # and go.mod having no requires at all is the point of the change this
+        # job accompanies. jv is a module of its own, tagged cmd/jv/vX.Y.Z, and
+        # is not the library that was removed.
+        #
+        # The URL is an identifier and not a fetch: jv carries the 2020-12
+        # meta-schema itself, so the only thing downloaded here is the tool.
+        run: |
+          go run github.com/santhosh-tekuri/jsonschema/cmd/jv@v0.7.0 \
+            https://json-schema.org/draft/2020-12/schema \
+            schema/db-design.schema.json
+
   crossbuild:
     name: crossbuild (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
