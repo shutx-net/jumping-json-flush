@@ -1,5 +1,5 @@
 # Normalize everything to LF; the global core.autocrlf=true would otherwise
-# check out extension-less files (.gitignore, LICENSE, go.mod, go.sum) as CRLF.
+# check out extension-less files (.gitignore, LICENSE, go.mod) as CRLF.
 * text=auto eol=lf
 
 *.json text eol=lf

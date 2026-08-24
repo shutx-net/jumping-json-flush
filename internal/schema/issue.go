@@ -6,9 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
 // maxPointerColumn caps how wide the JSON Pointer column in a report grows, so
@@ -65,27 +62,14 @@ func (e *InvalidDocumentError) WriteReport(w io.Writer) {
 	fmt.Fprintf(w, "\n%d error(s). See schema/db-design.schema.json.\n", len(e.Issues))
 }
 
-// issuesOf flattens a validation failure into one entry per actual violation,
-// ordered so that the listing reads top to bottom like the document.
+// sortIssues puts the issues a document produced into the order a report
+// prints them in: top to bottom like the document, and the same on every run.
 //
-// BasicOutput() cannot be used here: with $ref-heavy schemas it collapses
-// sibling errors and overwrites their messages with the parent's, so a
-// document with two violations reports one "validation failed".
-func issuesOf(ve *jsonschema.ValidationError) []Issue {
-	var out []Issue
-	var walk func(u *jsonschema.OutputUnit)
-	walk = func(u *jsonschema.OutputUnit) {
-		if len(u.Errors) == 0 {
-			out = append(out, Issue{Pointer: u.InstanceLocation, Message: messageOf(u.Error)})
-			return
-		}
-		for i := range u.Errors {
-			walk(&u.Errors[i])
-		}
-	}
-	walk(ve.DetailedOutput())
-
-	out = dedupe(out)
+// The second half is not free. The evaluator walks Go maps, and Go randomises
+// map iteration, so the only way a report can be reproducible is for the order
+// to be decided here rather than inherited from a walk.
+func sortIssues(issues []Issue) []Issue {
+	out := dedupe(issues)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Pointer != out[j].Pointer {
 			return lessPointer(out[i].Pointer, out[j].Pointer)
@@ -95,23 +79,10 @@ func issuesOf(ve *jsonschema.ValidationError) []Issue {
 	return out
 }
 
-// messageOf renders one violation as a sentence.
-//
-// Pattern violations are formatted here instead of by the library, whose
-// renderer quotes with Go's %q and so prints ^[0-9]+\.[0-9]+$ with a doubled
-// backslash - a regular expression that means something else entirely.
-func messageOf(oe *jsonschema.OutputError) string {
-	if oe == nil {
-		return ""
-	}
-	if p, ok := oe.Kind.(*kind.Pattern); ok {
-		return fmt.Sprintf("'%s' does not match pattern '%s'", p.Got, p.Want)
-	}
-	return oe.String()
-}
-
-// dedupe drops exact repeats, which a schema can produce when the same
-// location fails through more than one branch of the same $ref.
+// dedupe drops exact repeats. The evaluator visits every location once, so
+// there is nothing here for it to find today; it stays because "sorted and
+// without repeats" is what a report promises, and this is the single place
+// that promise is kept rather than assumed.
 func dedupe(issues []Issue) []Issue {
 	seen := make(map[Issue]bool, len(issues))
 	out := issues[:0]

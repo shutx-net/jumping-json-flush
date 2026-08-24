@@ -169,16 +169,21 @@ examples: [`examples/ci/github-actions.yml`](examples/ci/github-actions.yml) and
 
 ## Dependencies
 
-**One direct dependency, plus one indirect dependency that cannot be avoided.**
+**None.** `go.mod` has no `require` block at all: everything `jjf` does, it does
+on the Go standard library.
 
-| Module | Kind | Purpose |
-| --- | --- | --- |
-| `github.com/santhosh-tekuri/jsonschema/v6` | direct | JSON Schema Draft 2020-12 validation |
-| `golang.org/x/text` | indirect | unavoidable: `jsonschema/v6` exposes it in its public API |
+That includes JSON Schema validation. `internal/schema` carries a validator
+written for one schema rather than a general implementation of the
+specification: the keywords `schema/db-design.schema.json` actually uses, and no
+others. A keyword it does not implement cannot be added to the schema unnoticed,
+because the schema is decoded into Go types that refuse an unknown key and `jjf`
+fails to start; and the schema itself is held to the JSON Schema Draft 2020-12
+meta-schema by CI, with a tool run from its module path so that it never becomes
+a dependency either.
 
-Those two are also the only dependencies recorded in the binary, which
-`go version -m jjf` will confirm. The Excel output is written by hand on top of
-`archive/zip` and `encoding/xml`; no third-party Excel library is involved.
+The Excel output is written by hand on top of `archive/zip` and `encoding/xml`;
+no third-party Excel library is involved. `go version -m jjf` will confirm that
+the binary records no dependencies at all.
 
 ## Documentation
 

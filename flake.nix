@@ -70,7 +70,12 @@
           # to what the compiler needs would leave those tests failing.
           src = ./.;
 
-          vendorHash = "sha256-0Nkz66ahGO/kChkCc/e63mkx6EhzMNFKji1uq00Y1fY=";
+          # null is the marker for a module with nothing to vendor, and jjf has
+          # nothing to vendor: go.mod has no require block at all. It is not a
+          # hash that happens to be empty, so there is no hash to keep in step
+          # with go.mod. What it buys is a gate: a nix build has no network, so
+          # this builds only while there is still nothing to fetch.
+          vendorHash = null;
 
           # subPackages is deliberately unset. cmd/jjf is the only main package,
           # so the build produces the same single binary either way, while the
