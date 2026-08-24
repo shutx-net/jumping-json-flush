@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -324,6 +325,104 @@ func TestQuoteToken(t *testing.T) {
 		t.Run(tt.in, func(t *testing.T) {
 			if got := quoteToken(tt.in); got != tt.want {
 				t.Errorf("quoteToken(%q) = %s, want %s", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestJSONEqualComparesNumbersAsNumbers holds jsonEqual's doc comment to its
+// word.
+//
+// That comment says reflect.DeepEqual would be wrong here because it compares
+// json.Number as text. Nothing else stops a later reader from believing the
+// two are interchangeable and shortening the function to a one-liner, so both
+// halves of the claim are asserted: that DeepEqual really does call these two
+// values different, and that jsonEqual really does call them the same.
+func TestJSONEqualComparesNumbersAsNumbers(t *testing.T) {
+	one, oneZero := json.Number("1"), json.Number("1.0")
+
+	if reflect.DeepEqual(one, oneZero) {
+		t.Fatal("reflect.DeepEqual now calls 1 and 1.0 equal, so jsonEqual's reason for existing needs rewriting")
+	}
+	if !jsonEqual(one, oneZero) {
+		t.Errorf("jsonEqual(%s, %s) = false, want true", one, oneZero)
+	}
+}
+
+// TestJSONEqual pins the equality JSON Schema means, which is not Go's.
+//
+// The embedded schema asks for it in one place only - uniqueItems on
+// #/$defs/columnNameList, a list of strings - so every case below the string
+// ones is reached by this test and by nothing else. That is the point rather
+// than an argument for deleting them: uniqueItems is defined over any JSON
+// value, and a schema that grows a second use of it must not be the thing that
+// reaches these branches first.
+func TestJSONEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b any
+		want bool
+	}{
+		{"null and null", nil, nil, true},
+		{"null and false", nil, false, false},
+		{"null and the empty string", nil, "", false},
+
+		{"the same boolean", true, true, true},
+		{"different booleans", true, false, false},
+		{"a boolean and its spelling", true, "true", false},
+
+		{"the same string", "id", "id", true},
+		{"strings differing in case", "id", "ID", false},
+		{"a string and the number it spells", "1", json.Number("1"), false},
+
+		// A number is its value, not how it was written.
+		{"1 and 1.0", json.Number("1"), json.Number("1.0"), true},
+		{"1 and 1.00", json.Number("1"), json.Number("1.00"), true},
+		{"100 and 1e2", json.Number("100"), json.Number("1e2"), true},
+		{"0 and -0", json.Number("0"), json.Number("-0"), true},
+		{"1 and 2", json.Number("1"), json.Number("2"), false},
+		// Past float64's 53 bits of mantissa these two land on the same value.
+		// Comparing them as rationals is what keeps them apart.
+		{"consecutive integers past 2^53", json.Number("9007199254740993"), json.Number("9007199254740992"), false},
+		// big.Rat refuses these, so the comparison falls back to the text.
+		// decodeInstance cannot produce them - encoding/json rejects NaN and
+		// Inf - but json.Number is a string, so a caller can hand one over.
+		{"the same unparsable number", json.Number("NaN"), json.Number("NaN"), true},
+		{"different unparsable numbers", json.Number("NaN"), json.Number("Inf"), false},
+
+		// Order and length are part of an array's value.
+		{"the same array", []any{"a", "b"}, []any{"a", "b"}, true},
+		{"a reordered array", []any{"a", "b"}, []any{"b", "a"}, false},
+		{"a shorter array", []any{"a"}, []any{"a", "b"}, false},
+		{"two empty arrays", []any{}, []any{}, true},
+		{"nested arrays down to a number form", []any{[]any{json.Number("1")}}, []any{[]any{json.Number("1.0")}}, true},
+		{"an array and an object", []any{}, map[string]any{}, false},
+
+		// Key order is not part of an object's value.
+		{"reordered keys", map[string]any{"a": "1", "b": "2"}, map[string]any{"b": "2", "a": "1"}, true},
+		{"a renamed key", map[string]any{"a": "1"}, map[string]any{"b": "1"}, false},
+		{"an extra key", map[string]any{"a": "1"}, map[string]any{"a": "1", "b": "2"}, false},
+		{"a changed value", map[string]any{"a": "1"}, map[string]any{"a": "2"}, false},
+		{"two empty objects", map[string]any{}, map[string]any{}, true},
+		{"nested objects down to a number form", map[string]any{"a": map[string]any{"b": json.Number("1")}}, map[string]any{"a": map[string]any{"b": json.Number("1.0")}}, true},
+
+		// Anything decodeInstance cannot produce is equal to nothing, itself
+		// included. A float64 only reaches here if a caller skipped UseNumber,
+		// and answering "equal" would hide that mistake instead of failing on
+		// it.
+		{"a float64 is not a decoded JSON value", float64(1), float64(1), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jsonEqual(tt.a, tt.b); got != tt.want {
+				t.Errorf("jsonEqual(%#v, %#v) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+			// Equality is symmetric. A switch on the first argument's type is
+			// exactly the shape that can quietly stop being so, which makes it
+			// something to check rather than assume.
+			if got := jsonEqual(tt.b, tt.a); got != tt.want {
+				t.Errorf("jsonEqual(%#v, %#v) = %v, want %v: not symmetric", tt.b, tt.a, got, tt.want)
 			}
 		})
 	}
