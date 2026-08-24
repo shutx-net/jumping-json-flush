@@ -16,7 +16,7 @@ jjf export ddl db-design.json -o schema.sql
 
 - **[インストール](install.ja.md)** — ワンライナー、バージョン固定、配置先の指定、
   手動での検証
-- **[使い方](usage.ja.md)** — 3 つのコマンド、`-o` の規則、パイプラインが読む終了コード
+- **[使い方](usage.ja.md)** — 各コマンド、`-o` の規則、パイプラインが読む終了コード
 - **[DB 設計 JSON の形式](db-design-format.ja.md)** — 各項目・全規則・生成される
   Excel の 3 シート
 - **[DB 設計ガイド](db-design-guide.ja.md)** — Agent Skill と同じ規約を人間が読む形で

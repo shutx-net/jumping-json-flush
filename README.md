@@ -101,7 +101,7 @@ a default that is empty or does not read as a SQL expression. Those findings are
 on standard error and leave the exit code successful, so a document that passes
 today keeps passing; `-strict` turns them into a failure.
 
-The three commands and their options, the rules for `-o`, and the exit codes a
+Every command and its options, the rules for `-o`, and the exit codes a
 pipeline reads — 2 for bad input, 3 for a schema violation — are in
 [`docs/usage.md`](docs/usage.md) ([日本語](docs/usage.ja.md)). Code 3 means JSON
 Schema conformance and nothing else: a referential finding is not a schema

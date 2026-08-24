@@ -16,7 +16,7 @@ jjf export ddl db-design.json -o schema.sql
 
 - **[Installing jjf](install.md)** — the one liner, pinning a version, choosing a
   directory, verifying a download by hand
-- **[Using jjf](usage.md)** — the three commands, the rules for `-o`, and the exit
+- **[Using jjf](usage.md)** — every command, the rules for `-o`, and the exit
   codes a pipeline reads
 - **[The database design JSON format](db-design-format.md)** — every field, every
   rule, and the three sheets of the generated workbook
