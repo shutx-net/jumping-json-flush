@@ -389,7 +389,8 @@ jobs:
       - name: nix flake check
         # checks.jjf is the flake's package, and its check phase is
         # `go test ./...`, so this job repeats the test job inside the nix
-        # sandbox. What it adds is the vendorHash: every change to go.mod or
-        # go.sum invalidates it, the flake is the only thing that reads it, and
-        # nothing else in CI would notice it going stale.
+        # sandbox. What it adds is the dependency gate: the flake declares that
+        # there is nothing to vendor and a nix build has no network, so the
+        # first `require` anyone adds to go.mod fails here. It is what holds the
+        # README to its word.
         run: nix flake check --print-build-logs
