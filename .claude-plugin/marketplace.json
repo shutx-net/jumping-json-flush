@@ -14,7 +14,8 @@
       "homepage": "https://github.com/shutx-net/jumping-json-flush",
       "source": {
         "source": "archive",
-        "url": "https://github.com/shutx-net/jumping-json-flush/releases/download/v0.5.0/jjf-plugin-v0.5.0.zip"
+        "url": "https://github.com/shutx-net/jumping-json-flush/releases/download/v0.5.0/jjf-plugin-v0.5.0.zip",
+        "sha256": "2dba46ed4464d6d6d986dea2400e0342d37c6b1ddb775e3f87817406e00a610d"
       }
     }
   ]
