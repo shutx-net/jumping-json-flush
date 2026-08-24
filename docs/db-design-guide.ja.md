@@ -44,9 +44,10 @@
 
 ## 概要
 
-`jjf` は DB 設計を JSON 文書（以下 `db-design.json`）として保持し、Excel ブックとして
-出力する。**JSON が単一の正**である。`.xlsx` は派生成果物であり、エクスポートごとにゼロから
-作り直され、同じ入力からは常にバイト同一のファイルが出る。
+`jjf` は DB 設計を JSON 文書（以下 `db-design.json`）として保持し、Excel ブック、ER 図の
+Graphviz DOT ソース、PostgreSQL の DDL スクリプトとして出力する。**JSON が単一の正**である。
+生成されるファイルはいずれも派生成果物であり、エクスポートごとにゼロから作り直され、
+同じ入力からは常にバイト同一のファイルが出る。
 
 したがって設計変更はすべて JSON への変更である。「DB 設計書（Excel）を更新して」という依頼は、
 **Excel を触るのではなく JSON を直し、`jjf export xlsx` で作り直す**ことを意味する。
@@ -99,7 +100,9 @@
 4. JSON を変更する。編集の種類ごとの実例は[編集レシピ](#編集レシピ)にある。
 5. `jjf validate <input.json>` を実行する。
 6. **検証が失敗したら 4 に戻る。** 1 回の実行で違反が全件出るので、すべて直してから再実行する。
-   失敗したままの文書で完了としてはならない。
+   失敗したままの文書で完了としてはならない。`warning:` の行は実行を失敗させないが、
+   文書が自分自身と矛盾している証拠である。放置せず直すこと。
+   [検証エラーと直し方](#検証エラーと直し方)を見よ。
 7. ブックを作り直すなら `jjf export xlsx <input.json> -o <output.xlsx>` を実行する。
    ER 図が欲しいなら `jjf export dot <input.json> -o <output.dot>` を実行する。
    PostgreSQL の DDL が欲しいなら `jjf export ddl <input.json> -o <output.sql>` を実行する。
@@ -565,7 +568,8 @@ jjf import postgres schema.sql -o db-design.json
 | コマンド | 動作 |
 | --- | --- |
 | `jjf import postgres schema.sql -o db-design.json` | `pg_dump --schema-only` の出力から文書を組み立てる。書き出す前に検証する |
-| `jjf validate db-design.json` | 検証し、`db-design.json: OK` を出力する |
+| `jjf validate db-design.json` | 構造を検証し、続けて文書が自分自身と矛盾していないかを警告として報告する。`db-design.json: OK` を出力する |
+| `jjf validate -strict db-design.json` | 同じ。ただし警告が 1 件でもあれば終了コード 2 で失敗する |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | 検証してからブックを書き、`db-design.xlsx: written` を出力する |
 | `jjf export xlsx db-design.json` | 同じ。入力の隣に、拡張子を置き換えた名前で出力する |
 | `jjf export xlsx db-design.json -o -` | 標準出力へ書く。`xlsx` はバイナリなので端末に直接出そうとした場合は拒否される |
@@ -579,12 +583,13 @@ jjf import postgres schema.sql -o db-design.json
 | --- | --- | --- |
 | 0 | 成功 | — |
 | 1 | 一般エラー | 内部エラーとして報告する |
-| 2 | 入力不正 | コマンドライン、パス、JSON 構文、`jjf` のバージョンを見直す |
+| 2 | 入力不正 | コマンドライン、パス、JSON 構文、`jjf` のバージョンを見直す。`-strict` を付けて警告が出たときもここ |
 | 3 | **スキーマ検証エラー** | JSON の中身を直す |
 | 4 | 出力生成エラー | 出力先ディレクトリを作る、または権限を直す |
 
 **判断の分かれ目は 3 と 2 である。** 3 なら文書の中身が誤っており、2 なら呼び出し方か
-環境が誤っている。
+環境が誤っている。3 が意味するのは JSON Schema への不適合だけであり、自己整合性の指摘は
+スキーマ違反ではない。`-strict` での失敗が 3 ではなく 2 なのはそのためである。
 
 ## 検証エラーと直し方
 
@@ -635,6 +640,45 @@ db-design.json: does not conform to the jjf database design schema
 | `items at 0 and 1 are equal` | 1 つのキーに同じカラム名が 2 回並んでいる | 重複を削る。リストは要素の一意性を要求する |
 | `properties 'precision' required, if 'scale' exists` | `scale` だけ書いた | `precision` も書く、または `scale` を消す |
 | `got array, want object` | 文書のルートが配列になっている | ルートは `{ }` オブジェクトである |
+
+### 自己整合性の警告（終了コード 0、`-strict` なら 2）
+
+スキーマに適合した文書は、続けて**自分自身と矛盾していないか**を検査する。指摘は
+1 件 1 行で標準エラーに出力され、`<入力>: warning: <対象>: <問題>` の形をとる。
+`<対象>` が場所ではなくオブジェクトの名前なのは、行番号を示せないためである。
+
+```text
+db-design.json: warning: primary key pk_orders on table orders: names column "id", which the table declares nullable
+db-design.json: warning: foreign key fk_orders_customer on table orders: references table "customers", which this document does not define
+db-design.json: warning: index ix_orders_placed_at on table orders: names column "placed_at", which the table does not define
+db-design.json: warning: column created_at on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'
+```
+
+実行そのものは**成功する**。標準出力は `db-design.json: OK, 4 warning(s)` となり、
+終了コードは 0 である。`jjf validate -strict` は同じ警告を出したうえで
+`jjf: 4 warning(s) with -strict` と表示して失敗し、終了コードは **3 ではなく 2** になる。
+3 が意味するのは JSON Schema への不適合だけであり、自己整合性の指摘はスキーマ違反ではない。
+
+| メッセージ | 原因 | 直し方 |
+| --- | --- | --- |
+| `names column "placed_at", which the table does not define` | キーまたはインデックスが、そのテーブルの `columns[]` にないカラムを指している | カラムを追加するか、綴りを直す。識別子の大小文字は同一視されない |
+| `references table "customers", which this document does not define` | 外部キーの参照先テーブルがこの文書にない | テーブルを追加するか、名前を直す |
+| `names 1 column(s) but references 2` | 外部キーの両端で列数が食い違っている | `columns` と `references.columns` を同じ長さ・同じ順序にする |
+| `references (email) of table accounts, which no primary key, unique key or unique index there constrains to be unique` | 参照先の列が、参照先テーブルの主キー・ユニークキー・ユニークインデックスのいずれでもない | 参照先をそのテーブルのキーに変えるか、当該列を覆うユニークキーか `"unique": true` のインデックスを足す |
+| `names column "id", which the table declares nullable` | 主キーのカラムが `"nullable": true` になっている | `"nullable": false` にする。SQL はどのみち主キー列を NOT NULL にする |
+| `defines column "email" more than once` | 1 つのテーブルに同じ `name` の `columns[]` が 2 つある | 一方を消すか改名する |
+| `declares more than one constraint or index called "pk_accounts"` | 1 つのテーブルの `primaryKey` / `uniqueKeys[]` / `foreignKeys[]` / `indexes[]` で同じ名前を使っている | 一方を改名する。名前のない制約どうしは衝突しない |
+| `declares an empty default; omit the "default" key when the column has no DEFAULT clause` | `"default": ""` を書いた。中身のない DEFAULT 句という意味になる | DEFAULT 句がないならキーごと消す。空文字列を既定値にしたいなら `"''"` と書く |
+| `declares the default "now", in which "now" is a bare word; a string literal is written 'now'` | SQL の文字列リテラルを書くべきところに引用符のない語を書いた。SQL ではカラム参照になる | SQL の引用符を足して `"default": "'now'"` にする。関数なら括弧を残す（`"now()"`）。`CURRENT_TIMESTAMP` のようなキーワード定数はそのままでよい |
+| `declares the default "it's", which has an unbalanced single quote` | `default` の引用符が開いたまま閉じていない。多くは引用符なしの語に混じったアポストロフィ | リテラル内のアポストロフィを二重にする: `"'it''s'"` |
+| `declares the default "(1 + 2", which has an unbalanced parenthesis` | `default` の括弧が閉じていない、または閉じ括弧だけがある | 対応を取る |
+
+設計の良し悪しは検査しない。`jjf` が求めたかのように正規化・インデックス設計・型選択を
+助言しないこと。テーブル名の文書内での重複と、外部キー両端の型互換性も検査しない。
+インデックス名の schema 全体での一意性は `jjf validate` の検査対象ではない — 文書についての
+言明ではなく PostgreSQL の規則だからである — が、`jjf export ddl` は書き出す前にこれを
+検査する。`default` は式として読むだけで評価はしない。`jjf` はそれを実行せず、カラムの
+`type` と突き合わせもせず、知らない関数が書いてあっても文句を言わない。
 
 ### 検証以前に落ちるもの（終了コード 2）
 
