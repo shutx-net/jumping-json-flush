@@ -161,16 +161,21 @@ Codex や GitHub Copilot ほか仕様を実装したホストが見る場所へ�
 
 ## 依存関係
 
-**直接依存 1 つと、避けられない間接依存 1 つだけ。**
+**なし。** `go.mod` に `require` は 1 行もない。`jjf` がすることはすべて Go の
+標準ライブラリの上で完結している。
 
-| モジュール | 種別 | 用途 |
-| --- | --- | --- |
-| `github.com/santhosh-tekuri/jsonschema/v6` | 直接 | JSON Schema Draft 2020-12 の検証 |
-| `golang.org/x/text` | 間接 | `jsonschema/v6` が公開 API で露出しているため回避不能 |
+JSON Schema の検証も例外ではない。`internal/schema` が持っているのは仕様の
+汎用実装ではなく、この schema 専用の検証器である。
+`schema/db-design.schema.json` が実際に使っているキーワードだけを実装し、
+それ以外は実装しない。実装していないキーワードを schema に書き足しても黙って
+無視されることはない。schema は未知のキーを受け付けない Go の型へ読み込んで
+おり、その時点で `jjf` は起動に失敗する。schema 自体が JSON Schema
+Draft 2020-12 として妥当かどうかは CI が検証しており、そのツールもモジュール
+パスから直接実行するので `go.mod` には入らない。
 
-最終バイナリに記録される依存もこの 2 つだけで、`go version -m jjf` で確認できる。
 Excel 出力は `archive/zip` と `encoding/xml` の上に自前で書いており、
-サードパーティの Excel ライブラリは使っていない。
+サードパーティの Excel ライブラリは使っていない。`go version -m jjf` で、
+バイナリが依存を 1 つも記録していないことを確認できる。
 
 ## ドキュメント
 
