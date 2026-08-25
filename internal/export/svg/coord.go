@@ -176,6 +176,30 @@ func (r Rect) Bottom() Coord { return r.Y + r.H }
 // axis-aligned; see axisAligned.
 type Segment struct{ A, B Point }
 
+// shift is p moved by delta.
+//
+// A named operation rather than two lines of arithmetic at each call site,
+// because a translation that moved x and forgot y is the one mistake in a
+// rigid-body move that no bounds check catches: the drawing would still fit
+// its page, still be axis-aligned and still have every endpoint on a boundary,
+// and it would be sheared.
+func (p Point) shift(delta Point) Point { return Point{X: p.X + delta.X, Y: p.Y + delta.Y} }
+
+// shift is r moved by delta. Its SIZE is untouched, which is the whole of what
+// a rigid translation does to a rectangle and the reason this is not a general
+// transform.
+func (r Rect) shift(delta Point) Rect {
+	return Rect{X: r.X + delta.X, Y: r.Y + delta.Y, W: r.W, H: r.H}
+}
+
+// at is the zero-size rectangle at p.
+//
+// Rect.union takes both of its arguments as closed point sets, so folding a
+// route point into a bounds accumulation through this needs no second code
+// path - and a bounds that skipped the route points would clip exactly the
+// documents whose routes leave the boxes' extent.
+func at(p Point) Rect { return Rect{X: p.X, Y: p.Y} }
+
 // ---------------------------------------------------------------------------
 // Predicates
 // ---------------------------------------------------------------------------

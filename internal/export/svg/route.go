@@ -33,6 +33,18 @@ type route struct {
 	labelRect Rect
 }
 
+// hasOwnLabel reports whether r carries its own label rectangle, which the two
+// special routing categories do and an ordinary inter-rank relationship does
+// not - its name is drawn in the strip at the top of its label NODE's band.
+//
+// A zero WIDTH is the test rather than a zero rectangle, because packing moves
+// the rectangle: a rectangle left at its zero value picks up an origin the
+// moment the block is translated, and would then read as a label rectangle
+// somewhere near the drawing's corner. Zero width is the one thing a measured
+// label can never have, since routeStaple gives even an empty name two
+// cellPadH of padding.
+func (r *route) hasOwnLabel() bool { return r.labelRect.W > 0 }
+
 // laneY is the y of lane index k above a half-rank whose topmost node is at
 // top.
 //
