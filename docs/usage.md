@@ -162,10 +162,13 @@ The crow's foot notation is **inferred**; the JSON never states a cardinality.
 - The child side is **one** when the foreign key's columns, as a set, are
   constrained to be unique in the child table — by its primary key, by one of
   its unique keys, or by a unique index — and **many** otherwise
-- The child side is **optional** when any foreign key column is nullable, and
-  **mandatory** when every one of them is `NOT NULL`
-- The parent side is always **one** and **mandatory**: a foreign key names one
-  specific row
+- The child side is always **optional**. A primary key, a unique key and
+  `NOT NULL` all constrain how many children one parent row may have, never how
+  few, so nothing in the document says a parent row must have one
+- The parent side is always **one**: a foreign key names one specific row
+- The parent side is **optional** when any foreign key column is nullable — a
+  child row may then exist while pointing at no parent — and **mandatory** when
+  every one of them is `NOT NULL`
 
 ### ddl
 
