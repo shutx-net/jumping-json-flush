@@ -63,16 +63,21 @@ jobs:
         # `go get -tool` would pull in six indirect dependencies and raise the go
         # directive, which the project's minimal-dependency policy forbids.
         #
-        # This step carried GOTOOLCHAIN=auto while jjf targeted 1.24: staticcheck
-        # 2026.1 is honnef.co/go/tools v0.7.0, whose go.mod requires go >= 1.25.0,
-        # so the run needed a toolchain newer than the one go.mod named. The
-        # toolchain directive now names 1.26.7, which already satisfies that, and
-        # the override is gone with it. Every job in this file runs the toolchain
-        # go.mod names and nothing else, which is what the rest of it already
-        # wanted. A future staticcheck needing more than the pinned toolchain
-        # fails loudly with "requires go >= x.y.z" instead of drifting onto some
-        # other version.
-        run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
+        # The version tracks the toolchain rather than floating. staticcheck
+        # reads the export data the compiler writes, and a release older than the
+        # toolchain cannot decode it: 2026.1 under Go 1.27 fails with "export
+        # data version 4 is greater than maximum supported version 2" against
+        # internal/byteorder, internal/cpu, internal/goarch and math/bits, so
+        # every name in the message belongs to the standard library and none of
+        # them points at anything in this repository. 2026.2 is the first release
+        # that reads Go 1.27, and it still reads 1.26, so the two can be bumped
+        # in either order.
+        #
+        # Every job in this file runs the toolchain go.mod names and nothing
+        # else; no GOTOOLCHAIN override survives here. A future staticcheck
+        # needing more than the pinned toolchain fails loudly with "requires go
+        # >= x.y.z" instead of drifting onto some other version.
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.2 ./...
 
   metaschema:
     name: metaschema

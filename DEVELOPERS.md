@@ -15,6 +15,13 @@ devcontainer up   --workspace-folder .
 devcontainer exec --workspace-folder . bash -lc '<CMD>'
 ```
 
+The image tag is a floor and not the toolchain. It names the newest Go that
+Microsoft publishes an image for, which lags a Go release by weeks — the image is
+still `1.26-trixie` while `go.mod` names 1.27 — and the go command inside it
+reads the `toolchain` directive and fetches the release named there on the first
+build. Raise the tag when the matching image appears; nothing breaks while it has
+not, because that fetch is the same one any too-old go command performs.
+
 ## nix flake
 
 ```sh
@@ -22,8 +29,9 @@ nix develop            # enter the shell, then run <CMD> inside it
 nix develop -c <CMD>   # run one command and leave
 ```
 
-The shell provides the Go of the locked nixpkgs, which `flake.nix` asserts still
-satisfies the `go` directive of `go.mod`, plus gopls, staticcheck, gh and jq.
+The shell provides the Go the `go` directive of `go.mod` names, taken from the
+locked nixpkgs by attribute and asserted by `flake.nix` to satisfy that
+directive, plus gopls, staticcheck, gh and jq.
 `nix build` produces `./result/bin/jjf` and runs `go test ./...` as its check
 phase, which is what `nix flake check` verifies in CI. `.envrc` is there for
 direnv.
@@ -55,7 +63,7 @@ direnv.
 - `gofmt -l` exits 0 even when it lists unformatted files. A gate must always use
   `test -z "$(gofmt -l .)"`
 - `go test -race` requires CGO. Never pin `CGO_ENABLED=0` in the environment
-- CI runs staticcheck as `go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...`
+- CI runs staticcheck as `go run honnef.co/go/tools/cmd/staticcheck@2026.2 ./...`
   and keeps it out of `go.mod` (`go get -tool` adds indirect dependencies and
   raises the `go` directive)
 - CI validates `schema/db-design.schema.json` against the Draft 2020-12
@@ -167,21 +175,42 @@ direnv.
   so in its own headers, and is not produced by the script. It covers dump shapes
   no installed pg_dump writes any more — unqualified names, `WITH (oids = false)` —
   and one deliberately broken file
-- `go.mod` pins the toolchain in two directives that do different jobs. `go 1.26`
+- `go.mod` pins the toolchain in two directives that do different jobs. `go 1.27`
   is the floor: a go command older than that refuses to build, which is where the
-  enforcement lives. `toolchain go1.26.7` is the exact release the go command
+  enforcement lives. `toolchain go1.27.0` is the exact release the go command
   fetches and runs when the local one is older, downloaded as a module and
   verified through the checksum database like any other. Set them with
-  `go mod edit -go=1.26 -toolchain=go1.26.7` rather than by hand; plain
-  `go get go@1.26` resolves to the newest patch and collapses both into a single
-  `go 1.26.7` line, which would make the flake assertion below demand that exact
+  `go mod edit -go=1.27 -toolchain=go1.27.0` rather than by hand; plain
+  `go get go@1.27` resolves to the newest patch and collapses both into a single
+  `go 1.27.0` line, which would make the flake assertion below demand that exact
   patch from nixpkgs
+- Raising the `go` directive is never only that directive. staticcheck reads the
+  compiler's export data and cannot decode a format newer than the release it was
+  built against, so the pin in `ci.yml` moves with the toolchain or the job fails
+  on the standard library rather than on this repository. nixpkgs has to be able
+  to supply the release as well, which is `flake.lock`'s problem and sometimes
+  waits on nixpkgs. Neither shows up in `go test`, so both are worth checking
+  before the directive changes rather than after
 - `GOTOOLCHAIN=local` ignores the toolchain directive and runs whatever is
   installed, so a build under it is pinned by the `go` line alone. That is the
   case in the nix dev shell, which pins `GOTOOLCHAIN=local` so no go command
   downloads a toolchain beside the one nix provides: a nix build uses nixpkgs'
-  Go, pinned by `flake.lock`, and `flake.nix` asserts only that it satisfies the
-  `go` directive. Its `staticcheck` is the same 2026.1 release CI pins
+  Go, pinned by `flake.lock`, and `flake.nix` asserts that it satisfies the `go`
+  directive. Its `staticcheck` is the same 2026.2 release CI pins
+- `flake.nix` asks nixpkgs for the Go the `go` directive names, by attribute
+  (`go_1_27`), rather than taking the unversioned `go`. That alias sits on the
+  release nixpkgs treats as current, which trails the newest one — it was still
+  1.26 when jjf moved to 1.27 — so taking it would have pinned the nix build a
+  release behind everything else. `buildGoModule` follows the same alias and is
+  overridden for the same reason. A directive nixpkgs has no attribute for falls
+  back to `go` and is caught by the assertion, which names the version that is
+  missing
+- nixpkgs 26.11 dropped `x86_64-darwin`, so `flake.nix` no longer lists it and
+  the nix path cannot build for an Intel Mac. The release workflow still ships a
+  `darwin/amd64` archive: those are cross compiled by the go command and owe
+  nixpkgs nothing. `nix flake check` on a Linux runner would not have caught the
+  difference, because it checks the host system alone; `--all-systems` is what
+  sees it
 - A binary from `nix build` has no VCS metadata to stamp, so it reports
   `v<manifest version>+nix.<rev>` rather than a tag. Release archives keep coming
   from the release workflow

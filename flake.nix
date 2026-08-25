@@ -8,13 +8,21 @@
     let
       inherit (nixpkgs) lib;
 
-      # The platforms the release workflow builds, minus windows/amd64, which nix
-      # has no host platform for. Nothing below is platform specific: jjf is pure
-      # Go and is linked without cgo.
+      # The platforms the release workflow builds, minus the two nixpkgs cannot
+      # host: windows/amd64, which it has no host platform for at all, and
+      # darwin/amd64, which nixpkgs dropped in 26.11 and which now aborts during
+      # evaluation with a message naming the 26.05 branch. Both still ship as
+      # release archives: those are cross compiled by the go command and owe
+      # nixpkgs nothing, so it is only the nix path that stops reaching them.
+      # Listing a system here that nixpkgs refuses to evaluate would break
+      # `nix flake check --all-systems` while CI, which checks the host system
+      # alone, stayed green.
+      #
+      # Nothing below is platform specific: jjf is pure Go and is linked without
+      # cgo.
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
 
@@ -34,12 +42,23 @@
         in
         lib.removePrefix "go " (builtins.head directives);
 
+      # nixpkgs keeps its unversioned `go` on the release it treats as current,
+      # which trails the newest one: at the locked revision `go` is 1.26 while
+      # go_1_27 sits beside it, packaged and cached. Asking for the release the
+      # directive names keeps go.mod the single source of the version instead of
+      # deferring to whenever nixpkgs decides to move that alias. The fallback to
+      # `go` is what makes a directive nixpkgs has no attribute for reach the
+      # assertion below, which says which version is missing, rather than
+      # aborting on an undefined attribute.
+      goFor = pkgs: pkgs."go_${lib.replaceStrings [ "." ] [ "_" ] goDirective}" or pkgs.go;
+
       goSatisfiesGoMod =
         pkgs:
         let
-          complaint = "go.mod requires go >= ${goDirective}, but this nixpkgs provides go ${pkgs.go.version}";
+          go = goFor pkgs;
+          complaint = "go.mod requires go >= ${goDirective}, but this nixpkgs provides go ${go.version}";
         in
-        lib.assertMsg (lib.versionAtLeast pkgs.go.version goDirective) complaint;
+        lib.assertMsg (lib.versionAtLeast go.version goDirective) complaint;
 
       # jjf keeps no VERSION file. The tool version lives in the plugin manifest,
       # which the release workflow gates against the tag it publishes, so reading
@@ -59,7 +78,12 @@
       jjfFor =
         pkgs:
         assert goSatisfiesGoMod pkgs;
-        pkgs.buildGoModule {
+        # buildGoModule is an alias of the same default, so overriding it is what
+        # keeps the build on the toolchain goSatisfiesGoMod just approved. Left
+        # alone it would compile with nixpkgs' current `go` while the assertion
+        # passed on a different one, which is the one failure mode the assertion
+        # exists to rule out.
+        (pkgs.buildGoModule.override { go = goFor pkgs; }) {
           pname = "jjf";
           version = toolVersion;
 
@@ -114,12 +138,15 @@
           assert goSatisfiesGoMod pkgs;
           pkgs.mkShell {
             packages = [
-              pkgs.go
+              # The same toolchain the package builds with, for the same reason.
+              (goFor pkgs)
               # The language server the devcontainer's Go extension installs.
               pkgs.gopls
-              # staticcheck. nixpkgs ships the same 2026.1 release CI pins, which
+              # staticcheck. nixpkgs ships the same 2026.2 release CI pins, which
               # is what makes `staticcheck ./...` here and the `go run
-              # honnef.co/go/tools/cmd/staticcheck@2026.1` line in ci.yml agree.
+              # honnef.co/go/tools/cmd/staticcheck@2026.2` line in ci.yml agree.
+              # The pair has to move together: a staticcheck older than the
+              # toolchain cannot read its export data at all.
               pkgs.go-tools
               pkgs.gh
               # The release workflow checks the plugin manifests with jq.

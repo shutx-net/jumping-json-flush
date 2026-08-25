@@ -160,7 +160,7 @@ sha256sum -c archive.sha256      # macOS: shasum -a 256 -c archive.sha256
 go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
 ```
 
-バージョンを固定する場合は `@v0.1.0` のようにタグを指定する。Go 1.26 以上が必要。
+バージョンを固定する場合は `@v0.1.0` のようにタグを指定する。Go 1.27 以上が必要。
 それより古い Go は go.mod が指定する toolchain を取得して使う (GOTOOLCHAIN=local
 で禁じている場合を除く)。
 この方法で入れたバイナリが表示するのはリリースタグではなく、Go が記録した
@@ -176,6 +176,10 @@ nix profile add github:shutx-net/jumping-json-flush
 インストールせずに実行できる。nix でビルドしたバイナリは
 `v<version>+nix.<rev>` を表示する。nix ビルドにはタグを刻むための VCS 情報が
 無いため。
+
+Intel Mac を賄えないのはこの方法だけ。nixpkgs が 26.11 で `x86_64-darwin` を
+落としたため。リリースアーカイブ、`install.sh`、`go install` はいずれも
+`darwin/amd64` のビルドを引き続き提供する。
 
 ## アップグレード
 

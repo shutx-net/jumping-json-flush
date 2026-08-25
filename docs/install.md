@@ -165,7 +165,7 @@ sha256sum -c archive.sha256      # macOS: shasum -a 256 -c archive.sha256
 go install github.com/shutx-net/jumping-json-flush/cmd/jjf@latest
 ```
 
-Name a tag, as in `@v0.1.0`, to pin a version. Go 1.26 or later is required; an
+Name a tag, as in `@v0.1.0`, to pin a version. Go 1.27 or later is required; an
 older Go fetches the toolchain `go.mod` names, unless `GOTOOLCHAIN=local` forbids
 it. The version such a binary reports is the module version Go recorded, not a
 release tag.
@@ -180,6 +180,10 @@ nix profile add github:shutx-net/jumping-json-flush
 without installing anything. A binary built by nix reports
 `v<version>+nix.<rev>`, because a nix build has no VCS metadata to stamp a tag
 from.
+
+This is the one method that does not cover an Intel Mac: nixpkgs dropped
+`x86_64-darwin` in 26.11. The release archives, `install.sh` and `go install` all
+still carry a `darwin/amd64` build.
 
 ## Upgrading
 
