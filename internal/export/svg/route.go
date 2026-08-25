@@ -94,9 +94,9 @@ type staple struct {
 	route    int
 }
 
-// allocateLanes gives every staple in the component the y of its horizontal
-// run, indexed by position in routes. A route that is not a staple gets 0,
-// which nothing reads.
+// allocateLanes gives every staple in the component the y of its horizontal run
+// and the y of the top of its label plate, both indexed by position in routes. A
+// route that is not a staple gets 0 in both, which nothing reads.
 //
 // # What the lanes prevent
 //
@@ -116,8 +116,34 @@ type staple struct {
 // then by relationship index, which is what makes it total. Self-references
 // first because a staple over one box has the shortest horizontal run and
 // belongs nearest the boxes, where it reads as belonging to that box.
-func (rt *router) allocateLanes(routes []route) []Coord {
-	lanes := make([]Coord, len(routes))
+//
+// # Why the plates are stacked ABOVE every lane and not each above its own run
+//
+// One staple over a box puts its plate labelGap above its own run, which is what
+// D19 says and what this still does - laneY(top, n-1+k) is laneY(top, 0) when
+// n is 1 and k is 0, so the single-staple case is unchanged to the byte.
+//
+// Two staples over one box cannot both do that, and the reason is a measurement
+// rather than an opinion. A staple is slotSpacing wide and a label is as wide as
+// its text: fk_categories_parent_id measures 1831 against a staple spread of
+// 140. So the plate of the inner staple reaches far past the legs of the outer
+// one, and the outer staple's legs - which must come down to the box's top edge
+// - cut straight through the inner staple's name. That is not a near miss: the
+// first document with two self-references on one table hit it, and phase 13's
+// TestNoEdgeThroughNonIncidentLabel is what found it.
+//
+// Stacking the plates above the topmost lane fixes it by construction: every leg
+// stops at its own lane, every lane is at or below the topmost one, and every
+// plate is strictly above the topmost one, so no leg can reach any plate. The
+// cost is that with several staples over one box a name sits a band or two above
+// its own line rather than immediately above it, in the same order as the lanes.
+// The alternatives were worse: narrowing the plate makes the name unreadable,
+// offsetting it sideways puts it over the neighbouring column, and detouring the
+// legs around it turns the staple into a staircase and gives up the one shape
+// both special categories share.
+func (rt *router) allocateLanes(routes []route) (lanes, plates []Coord) {
+	lanes = make([]Coord, len(routes))
+	plates = make([]Coord, len(routes))
 
 	for r, layer := range rt.o.layers {
 		if len(layer) == 0 {
@@ -158,15 +184,22 @@ func (rt *router) allocateLanes(routes []route) []Coord {
 		})
 		for k, s := range staples {
 			lanes[s.route] = laneY(top, k)
+			// The plate sits in the band above lane n-1+k: labelGap above that
+			// line, labelHeight tall, which leaves labelGap between it and the
+			// band above. lanePitch is what makes those three add up.
+			plates[s.route] = laneY(top, len(staples)-1+k) - labelGap - labelHeight
 		}
 	}
 
-	return lanes
+	return lanes, plates
 }
 
 // routeStaple is the shape BOTH special categories are drawn as: up out of one
 // attachment to the lane, across, and down into the other. Three segments, and
-// the label centred on the horizontal run one labelGap above it.
+// the label centred horizontally on the run, in the plate allocateLanes
+// reserved for it - which is one labelGap above the run itself whenever this is
+// the only staple over its half-rank, and a band higher for each staple below it
+// when it is not. allocateLanes has the measurement that forces the difference.
 //
 // It is written once and called twice on purpose. A self-reference is the
 // degenerate case of a same-rank relationship where the two boxes are the same
@@ -210,7 +243,7 @@ func (rt *router) allocateLanes(routes []route) []Coord {
 // fk_categories_parent, and `jjf export dot` draws that name today, so an
 // unlabelled staple would be a regression against the exporter this one is
 // meant to agree with.
-func routeStaple(from, to Point, lane Coord, label string) (points []Point, labelRect Rect) {
+func routeStaple(from, to Point, lane, plate Coord, label string) (points []Point, labelRect Rect) {
 	points = []Point{
 		from,
 		{X: from.X, Y: lane},
@@ -221,7 +254,7 @@ func routeStaple(from, to Point, lane Coord, label string) (points []Point, labe
 	width := measureText(label) + 2*cellPadH
 	return points, Rect{
 		X: (from.X+to.X)/2 - width/2,
-		Y: lane - labelGap - labelHeight,
+		Y: plate,
 		W: width,
 		H: labelHeight,
 	}
@@ -329,7 +362,7 @@ func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect
 	}
 
 	assignSlots(g, o, chainNodes, rects, routes)
-	lanes := rt.allocateLanes(routes)
+	lanes, plates := rt.allocateLanes(routes)
 
 	for k := range routes {
 		r := &routes[k]
@@ -338,7 +371,7 @@ func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect
 			r.points = rt.interRankPoints(chainNodes[r.edge], r.childAt, r.parentAt)
 		case routeSameRank, routeSelfLoop:
 			label := g.edges[r.edge].label
-			r.points, r.labelRect = routeStaple(r.childAt, r.parentAt, lanes[k], label)
+			r.points, r.labelRect = routeStaple(r.childAt, r.parentAt, lanes[k], plates[k], label)
 		}
 	}
 	return routes

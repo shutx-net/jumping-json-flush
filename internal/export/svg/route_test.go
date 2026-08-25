@@ -394,7 +394,10 @@ func TestLanesDoNotCollide(t *testing.T) {
 }
 
 func TestSpecialCategoryLabelPlacement(t *testing.T) {
-	check := func(t *testing.T, label string, r *route) {
+	// The size and the horizontal centring are the same however many staples
+	// share the half-rank; the y is the caller's business, because that is what
+	// the number of staples decides.
+	check := func(t *testing.T, label string, r *route, wantY Coord) {
 		t.Helper()
 		run := Segment{A: r.points[1], B: r.points[2]}
 		if want := measureText(label) + 2*cellPadH; r.labelRect.W != want {
@@ -403,8 +406,8 @@ func TestSpecialCategoryLabelPlacement(t *testing.T) {
 		if r.labelRect.H != labelHeight {
 			t.Errorf("the label rect is %d high, want labelHeight %d", r.labelRect.H, labelHeight)
 		}
-		if want := run.A.Y - labelGap - labelHeight; r.labelRect.Y != want {
-			t.Errorf("the label sits at y %d, want %d - labelGap above the run", r.labelRect.Y, want)
+		if r.labelRect.Y != wantY {
+			t.Errorf("the label sits at y %d, want %d", r.labelRect.Y, wantY)
 		}
 		centre := (run.A.X + run.B.X) / 2
 		if got := r.labelRect.X + r.labelRect.W/2; got != centre {
@@ -412,14 +415,41 @@ func TestSpecialCategoryLabelPlacement(t *testing.T) {
 		}
 	}
 
-	t.Run("a self-reference", func(t *testing.T) {
+	// The only staple over its half-rank, which is the case every fixture under
+	// testdata/ is in: the plate is one labelGap above its own run, which is
+	// what D19 says.
+	t.Run("a lone self-reference", func(t *testing.T) {
 		l, _, _, routes := routed(selfLoopDocument())
-		check(t, l.g.edges[0].label, &routes[0])
+		run := routes[0].points[1].Y
+		check(t, l.g.edges[0].label, &routes[0], run-labelGap-labelHeight)
 	})
 
-	t.Run("a same-rank relationship", func(t *testing.T) {
-		g, _, _, routes := handRouted(staplesDocument(), []int{0, 0})
-		check(t, g.edges[1].label, routeOf(routes, 1))
+	// Two staples over one half-rank cannot both put their plate above their own
+	// run: a label is wider than a staple is - fk_a_a measures 620 against a
+	// spread of 140 - so the outer staple's legs would come down through the
+	// inner staple's name. The plates therefore stack in the bands above the
+	// TOPMOST lane, in lane order. allocateLanes has the full reasoning; this is
+	// the arithmetic, and the loop below is the property it exists for.
+	t.Run("two staples over one half-rank stack their plates above every lane", func(t *testing.T) {
+		g, _, rects, routes := handRouted(staplesDocument(), []int{0, 0})
+		top := min(rects[0].Y, rects[1].Y)
+
+		check(t, g.edges[0].label, routeOf(routes, 0), laneY(top, 1)-labelGap-labelHeight)
+		check(t, g.edges[1].label, routeOf(routes, 1), laneY(top, 2)-labelGap-labelHeight)
+
+		for k := range routes {
+			for _, s := range segments(routes[k]) {
+				for j := range routes {
+					if j == k || !routes[j].hasOwnLabel() {
+						continue
+					}
+					if s.intersectsInterior(routes[j].labelRect) {
+						t.Errorf("relationship %d's segment %+v runs through relationship %d's label %+v",
+							routes[k].edge, s, routes[j].edge, routes[j].labelRect)
+					}
+				}
+			}
+		}
 	})
 }
 
