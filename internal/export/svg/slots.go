@@ -179,6 +179,12 @@ func finalSize(n *node, d demand) (w, h Coord) {
 // the call sites, so that the choice is greppable and so that changing it is
 // one line here and one test rather than a hunt through the drawing code.
 //
+// Its arguments are the box as it was finally laid out and the content that has
+// to go in it, which is exactly what a centring implementation would need -
+// their heights differ by the surplus. They are what scene construction has to
+// hand, so that the one caller that draws the content can honour the choice
+// rather than repeat it.
+//
 // Top-aligned for three reasons, in order. A row of boxes then reads along a
 // common top edge: the headers and the first columns of neighbouring tables
 // stay at the same y whatever each box's slot demand is. Centring would have
@@ -189,7 +195,7 @@ func finalSize(n *node, d demand) (w, h Coord) {
 // disagree about how tall a row is, so their text baselines would not line up:
 // a second rounding source, and a drawing that reads as a mistake rather than
 // as padding.
-func contentOffsetY(n *node, d demand) Coord { return 0 }
+func contentOffsetY(box Rect, c *content) Coord { return 0 }
 
 // ---------------------------------------------------------------------------
 // The concrete attachment points

@@ -144,9 +144,13 @@ const (
 	slotMargin  Coord = 80
 
 	// Crow's foot glyphs. crowLen is the depth of the foot, crowHalf half its
-	// spread; barHalf is half the length of the bar and barOffset its distance
-	// from the attachment point; circleR is the optionality circle's radius
-	// and circleOffset the distance from the attachment point to its centre.
+	// spread; barHalf is half the length of the bar and barOffset the distance
+	// from the attachment point to the CARDINALITY mark. circleR is the
+	// optionality circle's radius and circleOffset the distance to the
+	// OPTIONALITY mark - the circle's centre when the end is optional, and the
+	// bar's line when it is mandatory, so that the two forms of that mark
+	// occupy the same place and every end carries its ink at the same two
+	// offsets.
 	crowLen      Coord = 100
 	crowHalf     Coord = 50
 	barHalf      Coord = 50

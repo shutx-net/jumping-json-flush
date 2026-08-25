@@ -275,16 +275,17 @@ func TestContentIsTopAligned(t *testing.T) {
 	const incoming = 15
 	n := node{kind: kindTable, content: measureStub("shipments")}
 
-	if got := contentOffsetY(&n, demand{left: incoming}); got != 0 {
+	w, h := finalSize(&n, demand{left: incoming})
+	box := Rect{W: w, H: h}
+	if got := contentOffsetY(box, n.content); got != 0 {
 		t.Fatalf("contentOffsetY = %d, want 0", got)
 	}
 
-	_, h := finalSize(&n, demand{left: incoming})
 	surplus := h - n.content.height
 	if want := slotExtent(incoming) - n.content.height; surplus != want {
 		t.Fatalf("surplus = %d, want %d", surplus, want)
 	}
-	if bottom := contentOffsetY(&n, demand{left: incoming}) + n.content.height; bottom != h-surplus {
+	if bottom := contentOffsetY(box, n.content) + n.content.height; bottom != h-surplus {
 		t.Errorf("the content's bottom edge is at %d, want %d - the surplus %d above the box's",
 			bottom, h-surplus, surplus)
 	}
