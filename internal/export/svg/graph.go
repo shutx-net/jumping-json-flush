@@ -36,6 +36,45 @@ type node struct {
 	// content is the measured interior: what is drawn inside the box and
 	// where, plus the intrinsic size the box is laid out from.
 	content *content
+
+	// label is the relationship label a kindLabel node carries, and labelRect
+	// is where that text's rectangle sits inside the band the node reserves,
+	// relative to the node's own top-left corner. Both are empty for every
+	// other kind.
+	//
+	// The text is carried here rather than looked up from the relationship it
+	// belongs to because the band was SIZED from this measurement, and the one
+	// rule text measurement has in this package is that the value which sized
+	// a box is the value that draws in it. Measuring the same string twice is
+	// two places that can disagree about one width, and the second one is the
+	// one that overflows.
+	label     string
+	labelRect Rect
+}
+
+// size is how much room the node needs: along the rank axis first, then across
+// it. Ranks run left to right, so the rank axis is x and "size" is the box's
+// width and height in the ordinary sense.
+//
+// One function for all four kinds, because every stage from here on asks the
+// same question of every node in a half-rank and must not have to know which
+// kind it is holding. A box is its measured content. A label node is as wide
+// as its text and as tall as its band - the label rectangle plus the gap below
+// it, along whose bottom edge the route will run - so a half-rank containing
+// one is exactly as wide as the label needs and nothing else can land in
+// either strip, which is what makes "no edge crosses a label" and "no label
+// overlaps a box" hold without a second check. A virtual node is nothing at
+// all: it holds a corridor open by being ordered and positioned like a node,
+// and it draws no ink and reserves no width.
+func (n *node) size() (w, h Coord) {
+	switch n.kind {
+	case kindTable, kindStub:
+		return n.content.width, n.content.height
+	case kindLabel:
+		return n.labelRect.W, n.labelRect.H + labelGap
+	default: // kindVirtual
+		return 0, 0
+	}
 }
 
 // edge is one relationship: one foreign key, whichever way the layout ends up
