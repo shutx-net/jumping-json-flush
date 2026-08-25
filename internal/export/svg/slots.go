@@ -195,21 +195,65 @@ func contentOffsetY(n *node, d demand) Coord { return 0 }
 // The concrete attachment points
 // ---------------------------------------------------------------------------
 
-// slotAt is where the i-th attachment on one side of a box sits: a margin in
-// from the side's start, then one spacing per slot before it.
+// slotAt is where the i-th of n attachments on one side of a box sits: the n
+// slots are one spacing apart and the whole run of them is CENTRED on the side,
+// so slot i sits half the leftover length in from the side's start and then one
+// spacing per slot before it.
 //
 // The side's start is the box's TOP for the two vertical sides and its LEFT
 // edge for the top side, so the slots of a side run in one direction and the
-// order they are handed out in is the order they appear in.
+// order they are handed out in is the order they appear in. The count has to be
+// passed in with the index for the same reason centring needs it: where a slot
+// lands depends on how many others share the side.
+//
+// # Why centred, rather than a margin in from the side's start
+//
+// Because coordinate assignment anchors a box at its CENTRE, and the whole
+// purpose of that pass is to line the two anchors of a relationship up with the
+// route line between them so the route comes out STRAIGHT. Slots measured from
+// the side's start put the single attachment of a box with one relationship
+// slotMargin below its top edge instead - nowhere near the anchor - so the
+// route has to jog onto the line the solver aligned and jog back off it. That
+// discards, at the last step, exactly the work the most expensive pass in the
+// package exists to do; and a straight route is not a cosmetic preference here,
+// it is that pass's observable output.
+//
+// Measured on a two-table document - an eight-column customers box and a
+// two-column orders box referencing it, one relationship between them - with
+// the slots measured from the side's start: the solver put both anchors and the
+// label node's route line at y = 1000, so a straight route at 1000 was
+// available, and the attachments landed at 680 and 80. The route came out
+// (2861,680) (3141,680) (3141,1000) (4675,1000) (4675,80) (4955,80) - two jogs,
+// of 320 and 920 units, on the ONE relationship in the document.
+//
+// Centred, that document routes straight, because for n == 1 the slot lands on
+// the side's midpoint, which for a box IS its anchor.
+// TestRouteStaysStraightWhenAnchorsAlign asserts that property rather than this
+// arithmetic, and its absence is why every gate in the package was green with
+// the jogs in place.
+//
+// # Why it still fits
+//
+// finalSize made the side at least slotExtent(n) = 2*slotMargin +
+// (n-1)*slotSpacing long, so the leftover being halved here is at least
+// 2*slotMargin and the first slot is still at least slotMargin in from the
+// end - the same guarantee the margin form gave, with the slots now symmetric
+// about the centre instead of crowded against one end. One integer division,
+// floored once, so nothing here is a fraction and D06 is untouched.
 //
 // The point lies exactly ON the box's boundary - not a unit inside it to be
 // safe, not a unit outside it to clear the border stroke. The endpoint
 // invariant is an equality test, so a margin "for safety" here is a test
-// failure rather than a safety margin. It fits by construction: finalSize made
-// the side at least slotExtent(n) long, so the last slot is at least
-// slotMargin from the far end.
-func slotAt(r Rect, s side, i int) Point {
-	offset := slotMargin + Coord(i)*slotSpacing
+// failure rather than a safety margin.
+func slotAt(r Rect, s side, i, n int) Point {
+	// run is the length of the side the slots spread along: the top side spends
+	// width, the two vertical sides spend height.
+	run := r.H
+	if s == sideTop {
+		run = r.W
+	}
+	offset := (run-Coord(n-1)*slotSpacing)/2 + Coord(i)*slotSpacing
+
 	switch s {
 	case sideLeft:
 		return Point{X: r.X, Y: r.Y + offset}
@@ -304,12 +348,17 @@ func assignSlots(g *graph, o order, chainNodes [][]int, rects []Rect, routes []r
 						})
 					}
 				}
+				// The sort decides the ORDER of the slots on the side and
+				// slotAt decides where they land, so centring them changed
+				// nothing about it. The count goes in with the index because
+				// slotAt cannot centre the run of slots on the side without
+				// knowing how much of it the run takes up.
 				slices.SortFunc(entries, compareSlotEntries)
 				for i, entry := range entries {
 					if entry.end == 0 {
-						routes[entry.route].childAt = slotAt(rects[v], s, i)
+						routes[entry.route].childAt = slotAt(rects[v], s, i, len(entries))
 					} else {
-						routes[entry.route].parentAt = slotAt(rects[v], s, i)
+						routes[entry.route].parentAt = slotAt(rects[v], s, i, len(entries))
 					}
 				}
 			}

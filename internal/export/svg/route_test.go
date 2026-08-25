@@ -64,6 +64,64 @@ func staplesDocument() *model.Document {
 	return document(linked("a", "a", "b"), linked("b"))
 }
 
+// withRows is t with one more plain column per name, which is how one box in a
+// document is made taller than another without giving it a relationship of its
+// own.
+func withRows(t model.Table, names ...string) model.Table {
+	for _, name := range names {
+		t.Columns = append(t.Columns, bigint(name))
+	}
+	return t
+}
+
+// TestRouteStaysStraightWhenAnchorsAlign is the property the attachment slots
+// are centred for, and it is stated as a property rather than as arithmetic
+// about a slot on purpose.
+//
+// Coordinate assignment exists to line a relationship's two anchors up with the
+// route line between them, so that a route across them comes out as one
+// straight line; an attachment point that is not on its box's anchor throws
+// that away at the last step, and the route arrives with a jog at each end. A
+// jog is still axis-aligned, still exactly on the boundary and still outside
+// every other box, so every other assertion in this package passes with it in
+// place - which is what makes "all of the route's points share one y" the
+// assertion that catches it, and the reason it is written down.
+//
+// The two boxes have DIFFERENT heights deliberately. Two boxes of equal height
+// would let attachments measured from the top edge line up with each other by
+// accident, and the assertion would then say nothing about where an attachment
+// sits relative to the anchor.
+func TestRouteStaysStraightWhenAnchorsAlign(t *testing.T) {
+	l, _, rects, routes := routed(document(
+		withRows(linked("customers"), "a", "b", "c", "d", "e", "f", "g"),
+		linked("orders", "customers"),
+	))
+	if len(routes) != 1 {
+		t.Fatalf("%d route(s), want exactly 1", len(routes))
+	}
+	r := routes[0]
+	e := &l.g.edges[r.edge]
+
+	// The two premises. Neither is what this test asserts - they are what makes
+	// the assertion below mean what it says - so a failure here is a Fatal
+	// about the document rather than about the routing.
+	child := anchorY(l.g.nodes[e.child].kind, rects[e.child])
+	parent := anchorY(l.g.nodes[e.parent].kind, rects[e.parent])
+	if child != parent {
+		t.Fatalf("the solver put the two anchors at %d and %d; this document no longer aligns them", child, parent)
+	}
+	if rects[e.child].H == rects[e.parent].H {
+		t.Fatalf("both boxes are %d high; this document no longer gives them different heights", rects[e.child].H)
+	}
+
+	for _, p := range r.points {
+		if p.Y != child {
+			t.Fatalf("the route runs %+v, want every point on the aligned anchor line y=%d: a route the solver made straight has to stay straight",
+				r.points, child)
+		}
+	}
+}
+
 func TestAssignSlotsOrder(t *testing.T) {
 	// Three children of one parent. Their label nodes sit at three different
 	// y values in the half-rank next to the parent, and the parent's three
@@ -108,11 +166,15 @@ func TestAssignSlotsOrder(t *testing.T) {
 func TestAssignSlotsTieBreak(t *testing.T) {
 	_, _, rects, routes := routed(document(linked("t", "t", "t")))
 
+	// Four slots centred on the top side: the run of them is three spacings
+	// long, so the first sits half of what is left of the width in from the
+	// left edge.
+	first := rects[0].X + (rects[0].W-3*slotSpacing)/2
 	want := []Coord{
-		rects[0].X + slotMargin,
-		rects[0].X + slotMargin + slotSpacing,
-		rects[0].X + slotMargin + 2*slotSpacing,
-		rects[0].X + slotMargin + 3*slotSpacing,
+		first,
+		first + slotSpacing,
+		first + 2*slotSpacing,
+		first + 3*slotSpacing,
 	}
 	got := []Coord{
 		routeOf(routes, 0).childAt.X,
@@ -134,13 +196,16 @@ func TestAssignSlotsSpacing(t *testing.T) {
 		linked("p"),
 	))
 
+	// Three slots centred on the parent's left side, so the first is half the
+	// leftover height in from the top edge.
+	first := rects[3].Y + (rects[3].H-2*slotSpacing)/2
 	for i := range 3 {
 		r := routeOf(routes, i)
 		if want := rects[3].X; r.parentAt.X != want {
 			t.Errorf("relationship %d attaches at x %d, want the parent's left edge %d", i, r.parentAt.X, want)
 		}
-		if want := rects[3].Y + slotMargin + Coord(i)*slotSpacing; r.parentAt.Y != want {
-			t.Errorf("relationship %d attaches at y %d, want %d (slotMargin then %d spacings)",
+		if want := first + Coord(i)*slotSpacing; r.parentAt.Y != want {
+			t.Errorf("relationship %d attaches at y %d, want %d (the centred first slot then %d spacings)",
 				i, r.parentAt.Y, want, i)
 		}
 	}

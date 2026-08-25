@@ -118,8 +118,9 @@ func TestSlotExtent(t *testing.T) {
 		want  Coord
 	}{
 		// No attachment needs no room, which is not the same statement as one
-		// attachment needing none: a single slot still sits a margin in from
-		// the side's start, so the side has to be two margins long.
+		// attachment needing none: a single slot sits at the side's midpoint
+		// and still wants a margin's clearance at each end, so the side has to
+		// be two margins long.
 		{0, 0},
 		{1, 2 * slotMargin},
 		{2, 2*slotMargin + slotSpacing},
@@ -129,6 +130,67 @@ func TestSlotExtent(t *testing.T) {
 	for _, tt := range tests {
 		if got := slotExtent(tt.slots); got != tt.want {
 			t.Errorf("slotExtent(%d) = %d, want %d", tt.slots, got, tt.want)
+		}
+	}
+}
+
+// TestSlotAtCentresOnTheSide pins the arithmetic
+// TestRouteStaysStraightWhenAnchorsAlign rests on. One slot lands on the
+// midpoint of its side - which for a box is exactly the anchor coordinate
+// assignment aligned, and therefore what makes the one-relationship case come
+// out straight - and several slots are symmetric about that midpoint rather
+// than crowded against one end.
+//
+// The rectangle is bigger than slotExtent(3) on both axes, which is what
+// finalSize guarantees for a box carrying three attachments on a side, so the
+// clearance assertion is checking the same fit slotExtent promises rather than
+// a property of a rectangle picked to make it hold.
+func TestSlotAtCentresOnTheSide(t *testing.T) {
+	const slots = 3
+	r := Rect{X: 1000, Y: 2000, W: slotExtent(slots) + rowHeight, H: slotExtent(slots) + rowHeight}
+
+	single := []struct {
+		s    side
+		want Point
+	}{
+		{sideLeft, Point{X: r.X, Y: r.Y + r.H/2}},
+		{sideRight, Point{X: r.Right(), Y: r.Y + r.H/2}},
+		{sideTop, Point{X: r.X + r.W/2, Y: r.Y}},
+	}
+	for _, tt := range single {
+		if got := slotAt(r, tt.s, 0, 1); got != tt.want {
+			t.Errorf("slotAt(side %d, slot 0 of 1) = %+v, want the side's midpoint %+v", tt.s, got, tt.want)
+		}
+	}
+
+	for _, s := range []side{sideLeft, sideRight, sideTop} {
+		run := r.H
+		if s == sideTop {
+			run = r.W
+		}
+
+		offsets := make([]Coord, 0, slots)
+		for i := range slots {
+			p := slotAt(r, s, i, slots)
+			if s == sideTop {
+				offsets = append(offsets, p.X-r.X)
+			} else {
+				offsets = append(offsets, p.Y-r.Y)
+			}
+		}
+
+		if want := run / 2; offsets[1] != want {
+			t.Errorf("side %d: the middle of %d slots is at %d, want the side's midpoint %d",
+				s, slots, offsets[1], want)
+		}
+		for i := 1; i < slots; i++ {
+			if got := offsets[i] - offsets[i-1]; got != slotSpacing {
+				t.Errorf("side %d: slots %d and %d are %d apart, want slotSpacing %d", s, i-1, i, got, slotSpacing)
+			}
+		}
+		if offsets[0] < slotMargin || offsets[slots-1] > run-slotMargin {
+			t.Errorf("side %d: %d slots at %v on a side %d long, want at least slotMargin %d clear at each end",
+				s, slots, offsets, run, slotMargin)
 		}
 	}
 }
