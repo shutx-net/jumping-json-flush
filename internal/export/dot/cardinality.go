@@ -13,10 +13,14 @@ import (
 // end is one side of a relationship in crow's foot terms.
 //
 // Two independent bools rather than an enum of four constants, because the two
-// questions - how many rows, and may there be none - are answered by different
-// parts of the document: how many by the keys the table declares, may there be
-// none by the nullability of the foreign key's own columns. Combining them is
-// what arrow does.
+// questions - how many rows, and may there be none - are answered from
+// different places, and WHICH place answers which depends on the end. On the
+// child end, how many comes from the keys the child table declares, while may
+// there be none is not read out of the document at all: it is always yes, for
+// the reason childEnd gives. On the parent end it is the other way round: how
+// many is always one, because a foreign key names one specific row, and may
+// there be none comes from the nullability of the foreign key's own columns.
+// Combining them is what arrow does.
 type end struct {
 	many     bool
 	optional bool
@@ -31,9 +35,19 @@ type end struct {
 // diagram confirms it: for arrowhead="crowodot" the crow's polygon touches the
 // node's boundary and the circle sits further from the node.
 //
+// Every one of the four is exactly two primitives, so both ends of every edge
+// carry the same amount of ink however they were derived, which keeps the
+// diagram visually uniform.
+//
 // The mapping is written as a switch on the two bools rather than as the
 // concatenation of two halves so that each of the four arrow type strings
 // appears literally, exactly once, and can be found by grep.
+//
+// All four cases stay although the two derivations below reach only three of
+// them: a child end is always optional and a parent end is never many, so
+// nothing asks for crowtee. This is a total mapping over the type rather than a
+// list of the answers that happen to be wanted, and TestEndArrow pins all four
+// so the fourth cannot quietly change meaning.
 func (e end) arrow() string {
 	switch {
 	case e.many && e.optional:
@@ -47,17 +61,44 @@ func (e end) arrow() string {
 	}
 }
 
-// parentArrow is the arrow type of the parent side of every relationship: one,
-// and mandatory.
+// parentEnd derives the parent side of the relationship that fk creates on t:
+// how many rows of the referenced table one row of t points at.
 //
-// It is a constant rather than a derivation because there is nothing to
-// derive. A foreign key names one specific row of the referenced table, in
-// every foreign key of every document, so the parent end never varies. Both
-// ends therefore carry exactly two arrow primitives, which keeps every edge in
-// the diagram visually uniform.
-const parentArrow = "teetee"
+// This is INFERENCE, exactly as childEnd is, and it reads the same one table.
+// The rules, in full:
+//
+//   - The parent side is always ONE. A foreign key names one specific row of
+//     the referenced table, in every foreign key of every document, so the
+//     maximum at this end is not something a document can change. It is
+//     deliberately not taken from the referenced table's keys either - see
+//     below.
+//   - The parent side is OPTIONAL when any foreign key column is nullable, and
+//     MANDATORY when every one of them is NOT NULL. A nullable foreign key
+//     column is exactly what lets a child row exist while pointing at no
+//     parent, and "may there be none" is the minimum at THIS end. This is the
+//     bit the child end used to carry, where it said something the constraint
+//     does not say.
+//
+// Only the CHILD table is consulted here too. Nothing about the referenced
+// table is read, which is why a self-referencing foreign key needs no special
+// case and why a foreign key naming a table the document does not define still
+// gets a cardinality.
+func parentEnd(t *model.Table, fk *model.ForeignKey) end {
+	var e end
+	for _, name := range fk.Columns {
+		// A column the table does not define contributes nothing: see
+		// findColumn for why that is a legal document and why absent
+		// information must not invent an optional relationship.
+		if c := findColumn(t, name); c != nil && c.Nullable {
+			e.optional = true
+			break
+		}
+	}
+	return e
+}
 
-// childEnd derives the child side of the relationship that fk creates on t.
+// childEnd derives the child side of the relationship that fk creates on t:
+// how many rows of t point at one row of the referenced table.
 //
 // This is INFERENCE. A jjf document never states a cardinality; it states
 // columns, keys and nullability, and the notation below is read out of those.
@@ -67,8 +108,13 @@ const parentArrow = "teetee"
 //     unique in t - by its primary key, by one of its unique keys, or by a
 //     unique index. Otherwise the child side is MANY, which is the default,
 //     because a plain foreign key column carries no uniqueness of its own.
-//   - The child side is OPTIONAL when any foreign key column is nullable, and
-//     MANDATORY when every one of them is NOT NULL.
+//   - The child side is always OPTIONAL. Nothing a jjf document can state makes
+//     it mandatory: a primary key, a unique key and NOT NULL all constrain how
+//     many children one parent row may have, never how few, so a minimum of one
+//     here would be a claim about participation that the document does not
+//     make. Nullability is not read on this end either - it says whether a
+//     child may exist with no parent, which is the minimum at the PARENT end,
+//     and parentEnd is where it is read.
 //
 // A unique INDEX counts alongside the declared keys because the schema says it
 // does: indexes[].unique is documented as "Whether the index enforces
@@ -82,17 +128,7 @@ const parentArrow = "teetee"
 // why a foreign key naming a table the document does not define still gets a
 // cardinality.
 func childEnd(t *model.Table, fk *model.ForeignKey) end {
-	e := end{many: !uniqueIn(t, fk.Columns)}
-	for _, name := range fk.Columns {
-		// A column the table does not define contributes nothing: see
-		// findColumn for why that is a legal document and why absent
-		// information must not invent an optional relationship.
-		if c := findColumn(t, name); c != nil && c.Nullable {
-			e.optional = true
-			break
-		}
-	}
-	return e
+	return end{many: !uniqueIn(t, fk.Columns), optional: true}
 }
 
 // uniqueIn reports whether t constrains cols, as a set, to be unique.
@@ -157,11 +193,12 @@ func sameColumnSet(a, b []string) bool {
 // and nothing more. The derivation must therefore be total. "jjf validate" is
 // where such a document is reported, as a warning; this package renders it.
 //
-// Such a column is treated as NOT NULL, that is, it does not make the child end
-// optional: absent information must not invent an optional relationship, and
-// any other choice would let a typo silently change the notation. It is not an
-// error and it is not reported - this package reports nothing, ever, it renders
-// exactly what the document claims.
+// Such a column is treated as NOT NULL, that is, it does not make the PARENT
+// end optional (the child end is optional either way): absent information must
+// not invent an optional relationship, and any other choice would let a typo
+// silently change the notation. It is not an error and it is not reported -
+// this package reports nothing, ever, it renders exactly what the document
+// claims.
 func findColumn(t *model.Table, name string) *model.Column {
 	for i := range t.Columns {
 		if t.Columns[i].Name == name {

@@ -218,12 +218,6 @@ func TestEndArrow(t *testing.T) {
 			}
 		})
 	}
-
-	// The parent side is one and mandatory in every document, which is the same
-	// pair of primitives.
-	if parentArrow != "teetee" {
-		t.Errorf("parentArrow = %v, want teetee", parentArrow)
-	}
 }
 
 func TestSameColumnSet(t *testing.T) {

@@ -13,9 +13,10 @@
 // bytes, because nothing here reads the clock, no tool version is written into
 // the file, and every loop walks a slice rather than a Go map.
 //
-// The crow's foot cardinality on each relationship is INFERRED from the keys a
-// table declares; the JSON never states it. See cardinality.go for the rules
-// and their limits.
+// The crow's foot cardinality on each relationship is INFERRED from the keys
+// and the nullability the CHILD table declares; the JSON never states it, and
+// the referenced table is never read. See cardinality.go for the rules and
+// their limits.
 package dot
 
 import (

@@ -238,7 +238,7 @@ func writeEdges(w *bufio.Writer, doc *model.Document) {
 			// read worse - and any order does as long as it never changes.
 			fmt.Fprintf(w, "\t%s -> %s [arrowtail=%s, arrowhead=%s, label=%s];\n",
 				quoteID(t.Name), quoteID(fk.References.Table),
-				childEnd(t, fk).arrow(), parentArrow, quoteID(edgeLabel(fk)))
+				childEnd(t, fk).arrow(), parentEnd(t, fk).arrow(), quoteID(edgeLabel(fk)))
 		}
 	}
 }
