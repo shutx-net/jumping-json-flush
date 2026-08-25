@@ -154,7 +154,7 @@ func typeParams(kind paramKind, c *model.Column) string {
 		// For a type jjf knows, jjf knows which attribute the parenthesis
 		// means. For one it does not, the only honest thing is to reproduce
 		// what the document says, in the order the rest of the tool already
-		// displays it: internal/export/dot/text.go's renderType and
+		// displays it: internal/export/erd's RenderType and
 		// internal/export/xlsx/tabledef.go's sizeOf use the same precedence
 		// for the same document, so the three exporters cannot disagree.
 		switch {

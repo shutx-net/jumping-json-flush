@@ -1,13 +1,11 @@
 package dot
 
-import (
-	"testing"
-
-	"github.com/shutx-net/jumping-json-flush/internal/model"
-)
+import "testing"
 
 // ptr returns a pointer to n, so that a table row can declare an optional
-// numeric column attribute inline.
+// numeric column attribute inline. TestRenderType moved to
+// internal/export/erd with the function it covered; export_test.go still
+// builds columns with a declared size, so ptr stays.
 func ptr(n int) *int { return &n }
 
 func TestQuoteID(t *testing.T) {
@@ -68,62 +66,6 @@ func TestEscapeHTML(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := escapeHTML(tt.in); got != tt.want {
 				t.Errorf("escapeHTML(%q) = %v, want %v", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestRenderType(t *testing.T) {
-	tests := []struct {
-		name string
-		in   model.Column
-		want string
-	}{
-		{"no size at all", model.Column{Type: "TEXT"}, "TEXT"},
-		{"length", model.Column{Type: "VARCHAR", Length: ptr(255)}, "VARCHAR(255)"},
-		{
-			"precision and scale, one comma and no space",
-			model.Column{Type: "NUMERIC", Precision: ptr(10), Scale: ptr(2)},
-			"NUMERIC(10,2)",
-		},
-		{
-			"precision alone",
-			model.Column{Type: "NUMERIC", Precision: ptr(8)},
-			"NUMERIC(8)",
-		},
-		// Scale is a pointer precisely so that an explicit zero is not mistaken
-		// for absence.
-		{
-			"an explicit zero scale is printed",
-			model.Column{Type: "NUMERIC", Precision: ptr(10), Scale: ptr(0)},
-			"NUMERIC(10,0)",
-		},
-		{
-			"a type name may contain spaces",
-			model.Column{Type: "TIMESTAMP WITH TIME ZONE"},
-			"TIMESTAMP WITH TIME ZONE",
-		},
-		// The schema permits both (dependentRequired only ties scale to
-		// precision), and the precedence must match sizeOf, which also tests
-		// Length first.
-		{
-			"length wins over precision",
-			model.Column{Type: "NUMERIC", Length: ptr(4), Precision: ptr(10), Scale: ptr(2)},
-			"NUMERIC(4)",
-		},
-		// Not reachable from a valid document, but the code must not crash:
-		// the scale branch is not entered and the bare type name comes back.
-		{
-			"a scale without a precision renders as the bare type",
-			model.Column{Type: "NUMERIC", Scale: ptr(2)},
-			"NUMERIC",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := renderType(&tt.in); got != tt.want {
-				t.Errorf("renderType(%+v) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
 	}

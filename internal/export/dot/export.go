@@ -4,10 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"slices"
-	"strings"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
+	"github.com/shutx-net/jumping-json-flush/internal/export/erd"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
 )
 
@@ -64,7 +63,7 @@ func writeGraph(w *bufio.Writer, doc *model.Document) {
 		writeTableNode(w, &doc.Tables[i])
 	}
 
-	if stubs := undefinedTargets(doc, definedTables(doc)); len(stubs) > 0 {
+	if stubs := erd.UndefinedTargets(doc); len(stubs) > 0 {
 		io.WriteString(w, "\n\t// referenced by a foreign key but not defined in this document\n")
 		for _, name := range stubs {
 			writeStubNode(w, name)
@@ -118,7 +117,7 @@ func writeTableNode(w *bufio.Writer, t *model.Table) {
 		// The marker cell is left at the default alignment: it holds a mark of
 		// at most five characters and reads better centred.
 		fmt.Fprintf(w, "\t\t<TR><TD>%s</TD><TD ALIGN=\"LEFT\">%s</TD><TD ALIGN=\"LEFT\">%s</TD><TD ALIGN=\"LEFT\">%s</TD></TR>\n",
-			markerOf(t, c.Name), escapeHTML(c.Name), escapeHTML(c.LogicalName), escapeHTML(renderType(c)))
+			erd.Marker(t, c.Name), escapeHTML(c.Name), escapeHTML(c.LogicalName), escapeHTML(erd.RenderType(c)))
 	}
 
 	io.WriteString(w, "\t</TABLE>>];\n")
@@ -145,76 +144,6 @@ func writeStubNode(w *bufio.Writer, name string) {
 		quoteID(name), escapeString(name))
 }
 
-// markerOf names the keys the column takes part in: PK, FK, both, or nothing.
-//
-// Unique keys and indexes get no marker. The diagram shows the two kinds of
-// key that shape the relationships; a third mark would need a third cell in
-// every row for something the table sheet of the workbook already lists.
-func markerOf(t *model.Table, column string) string {
-	// A table without a primary key is explicitly representable, hence the nil
-	// check before the dereference.
-	pk := t.PrimaryKey != nil && slices.Contains(t.PrimaryKey.Columns, column)
-
-	fk := false
-	for i := range t.ForeignKeys {
-		if slices.Contains(t.ForeignKeys[i].Columns, column) {
-			fk = true
-			break
-		}
-	}
-
-	switch {
-	case pk && fk:
-		return "PK,FK"
-	case pk:
-		return "PK"
-	case fk:
-		return "FK"
-	default:
-		return ""
-	}
-}
-
-// definedTables collects the names the document defines.
-//
-// The map is only ever LOOKED UP, never ranged over: ranging would make the
-// order of the stub nodes depend on Go's map iteration and destroy the
-// byte-for-byte determinism the golden files rest on. Two tables sharing a
-// name is not forbidden by the schema and simply sets the same key twice.
-func definedTables(doc *model.Document) map[string]bool {
-	defined := make(map[string]bool, len(doc.Tables))
-	for i := range doc.Tables {
-		defined[doc.Tables[i].Name] = true
-	}
-	return defined
-}
-
-// undefinedTargets lists the tables that need a stub, in first-reference
-// order: the document's tables in order, and within each its foreign keys in
-// order. Returning a slice rather than a set is what keeps the output
-// deterministic; the map that remembers what has already been appended is,
-// like defined, only ever looked up.
-//
-// Comparison is byte for byte, so a reference to Orders in a document that
-// defines orders is an undefined target and gets a stub. jjf folds identifier
-// case nowhere.
-func undefinedTargets(doc *model.Document, defined map[string]bool) []string {
-	var out []string
-	seen := make(map[string]bool)
-
-	for i := range doc.Tables {
-		for _, fk := range doc.Tables[i].ForeignKeys {
-			name := fk.References.Table
-			if defined[name] || seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
 // ---------------------------------------------------------------------------
 // Edges
 // ---------------------------------------------------------------------------
@@ -238,21 +167,7 @@ func writeEdges(w *bufio.Writer, doc *model.Document) {
 			// read worse - and any order does as long as it never changes.
 			fmt.Fprintf(w, "\t%s -> %s [arrowtail=%s, arrowhead=%s, label=%s];\n",
 				quoteID(t.Name), quoteID(fk.References.Table),
-				childEnd(t, fk).arrow(), parentEnd(t, fk).arrow(), quoteID(edgeLabel(fk)))
+				arrow(erd.ChildEnd(t, fk)), arrow(erd.ParentEnd(t, fk)), quoteID(erd.EdgeLabel(fk)))
 		}
 	}
-}
-
-// edgeLabel names a relationship on the diagram.
-//
-// The constraint name when the document gives one. A name is optional in the
-// schema, and two parallel edges still have to be told apart, so the fallback
-// is the child column list - the next most specific thing the document
-// actually says about the relationship. The label is therefore never empty and
-// an edge statement always carries three attributes.
-func edgeLabel(fk *model.ForeignKey) string {
-	if fk.Name != "" {
-		return fk.Name
-	}
-	return strings.Join(fk.Columns, ", ")
 }
