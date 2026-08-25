@@ -190,3 +190,148 @@ func finalSize(n *node, d demand) (w, h Coord) {
 // a second rounding source, and a drawing that reads as a mistake rather than
 // as padding.
 func contentOffsetY(n *node, d demand) Coord { return 0 }
+
+// ---------------------------------------------------------------------------
+// The concrete attachment points
+// ---------------------------------------------------------------------------
+
+// slotAt is where the i-th attachment on one side of a box sits: a margin in
+// from the side's start, then one spacing per slot before it.
+//
+// The side's start is the box's TOP for the two vertical sides and its LEFT
+// edge for the top side, so the slots of a side run in one direction and the
+// order they are handed out in is the order they appear in.
+//
+// The point lies exactly ON the box's boundary - not a unit inside it to be
+// safe, not a unit outside it to clear the border stroke. The endpoint
+// invariant is an equality test, so a margin "for safety" here is a test
+// failure rather than a safety margin. It fits by construction: finalSize made
+// the side at least slotExtent(n) long, so the last slot is at least
+// slotMargin from the far end.
+func slotAt(r Rect, s side, i int) Point {
+	offset := slotMargin + Coord(i)*slotSpacing
+	switch s {
+	case sideLeft:
+		return Point{X: r.X, Y: r.Y + offset}
+	case sideRight:
+		return Point{X: r.Right(), Y: r.Y + offset}
+	}
+	return Point{X: r.X + offset, Y: r.Y}
+}
+
+// slotEntry is one attachment waiting for a slot on one side of one box.
+//
+// key is the orthogonal coordinate of the waypoint the first segment aims at,
+// which is what stops two routes leaving one side crossing each other before
+// they have gone anywhere: the attachment nearest the top of the side is the
+// one whose route line is nearest the top. edge and end are the tie-break, and
+// the tie-break has to be TOTAL - two runs that disagree about two attachments
+// produce two different diagrams, and the difference would be invisible in
+// every test that did not compare bytes.
+type slotEntry struct {
+	key   Coord
+	edge  int
+	end   int // 0 for the child end of the relationship, 1 for the parent end
+	route int
+}
+
+// compareSlotEntries is the total order attachments are handed out in.
+func compareSlotEntries(a, b slotEntry) int {
+	switch {
+	case a.key != b.key:
+		return int(a.key - b.key)
+	case a.edge != b.edge:
+		return a.edge - b.edge
+	default:
+		return a.end - b.end
+	}
+}
+
+// assignSlots gives every relationship of one component the two concrete
+// points at which it touches its boxes, writing them into routes.
+//
+// These are an internal routing detail and nothing else. They are not
+// user-facing ports and not a layout knob: no document can ask for one, and
+// the non-goal of configurable ports stands exactly as it did. What they exist
+// for is in slotDemand's comment.
+//
+// # What the order is
+//
+// Per box and per side, the attachments are sorted by the orthogonal
+// coordinate of the next waypoint on the route, then by relationship index,
+// then by which end of the relationship this is. On a vertical side the first
+// key is the y of the route line the first segment aims at, so sorting by it
+// is what keeps two routes leaving one side from crossing each other in their
+// own first segment.
+//
+// That waypoint always exists, which is not an accident: rank doubling gives
+// every relationship that is not a self-reference a label virtual node in the
+// half-rank next to its child (D18), so there is always a route line to sort
+// by. Without doubling, a relationship between two adjacent ranks would have
+// nothing between its ends and this sort would have no key at all.
+//
+// On the TOP side there is no such waypoint - a staple leaves straight up, so
+// the next waypoint is directly above the attachment and its x is the very
+// thing being decided - so every entry on that side carries key 0 and the
+// order is the relationship index and then the end. That is the honest answer
+// rather than a made-up key, and it is also the one that reads best: a
+// self-reference takes the two slots side by side, in the order its two ends
+// are drawn, and a second self-reference on the same box takes the next two.
+func assignSlots(g *graph, o order, chainNodes [][]int, rects []Rect, routes []route) {
+	sides := [3]side{sideLeft, sideRight, sideTop}
+	var entries []slotEntry
+	for _, layer := range o.layers {
+		for _, v := range layer {
+			for _, s := range sides {
+				entries = entries[:0]
+				for k := range routes {
+					r := &routes[k]
+					e := &g.edges[r.edge]
+					if e.child == v && r.childSide == s {
+						entries = append(entries, slotEntry{
+							key:   waypointKey(g, s, chainNodes[r.edge], rects, false),
+							edge:  r.edge,
+							end:   0,
+							route: k,
+						})
+					}
+					if e.parent == v && r.parentSide == s {
+						entries = append(entries, slotEntry{
+							key:   waypointKey(g, s, chainNodes[r.edge], rects, true),
+							edge:  r.edge,
+							end:   1,
+							route: k,
+						})
+					}
+				}
+				slices.SortFunc(entries, compareSlotEntries)
+				for i, entry := range entries {
+					if entry.end == 0 {
+						routes[entry.route].childAt = slotAt(rects[v], s, i)
+					} else {
+						routes[entry.route].parentAt = slotAt(rects[v], s, i)
+					}
+				}
+			}
+		}
+	}
+}
+
+// waypointKey is the sort key for one attachment: the route line of the chain
+// node this end of the relationship faces, or 0 on the top side, where there
+// is no such node.
+//
+// The chain node this end faces is the FIRST of the chain for the child and
+// the LAST for the parent - not the other box's y. For a relationship crossing
+// several half-ranks those differ, and the other box is not what the first
+// segment aims at.
+func waypointKey(g *graph, s side, chain []int, rects []Rect, parentEnd bool) Coord {
+	if s == sideTop || len(chain) == 0 {
+		return 0
+	}
+	v := chain[0]
+	if parentEnd {
+		v = chain[len(chain)-1]
+	}
+	return anchorY(g.nodes[v].kind, rects[v])
+}
