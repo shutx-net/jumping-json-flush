@@ -42,11 +42,11 @@ digraph "graph" {
 	// referenced by a foreign key but not defined in this document
 	"nodes" [shape=box, style=dashed, color="#999999", fontcolor="#999999", label="nodes\n(not defined in this document)"];
 
-	"edge" -> "graph" [arrowtail=crowtee, arrowhead=teetee, label="fk_edge_graph"];
-	"edge" -> "nodes" [arrowtail=crowodot, arrowhead=teetee, label="from_node"];
-	"edge" -> "nodes" [arrowtail=crowtee, arrowhead=teetee, label="fk_edge_to_node"];
-	"edge_labels" -> "edge" [arrowtail=teetee, arrowhead=teetee, label="fk_edge_labels_edge"];
-	"categories" -> "categories" [arrowtail=crowodot, arrowhead=teetee, label="fk_categories_parent"];
-	"node_stats" -> "nodes" [arrowtail=teetee, arrowhead=teetee, label="fk_node_stats_node"];
-	"node_stats" -> "graph" [arrowtail=crowtee, arrowhead=teetee, label="fk_node_stats_unknown_column"];
+	"edge" -> "graph" [arrowtail=crowodot, arrowhead=teetee, label="fk_edge_graph"];
+	"edge" -> "nodes" [arrowtail=crowodot, arrowhead=teeodot, label="from_node"];
+	"edge" -> "nodes" [arrowtail=crowodot, arrowhead=teetee, label="fk_edge_to_node"];
+	"edge_labels" -> "edge" [arrowtail=teeodot, arrowhead=teetee, label="fk_edge_labels_edge"];
+	"categories" -> "categories" [arrowtail=crowodot, arrowhead=teeodot, label="fk_categories_parent"];
+	"node_stats" -> "nodes" [arrowtail=teeodot, arrowhead=teetee, label="fk_node_stats_node"];
+	"node_stats" -> "graph" [arrowtail=crowodot, arrowhead=teetee, label="fk_node_stats_unknown_column"];
 }
