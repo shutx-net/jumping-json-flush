@@ -305,6 +305,7 @@ func TestEveryGeometryConstantIsPositive(t *testing.T) {
 		{"cellPadH", cellPadH},
 		{"cellPadV", cellPadV},
 		{"strokeWidth", strokeWidth},
+		{"dashLen", dashLen},
 		{"nodeSep", nodeSep},
 		{"rankGap", rankGap},
 		{"componentGap", componentGap},

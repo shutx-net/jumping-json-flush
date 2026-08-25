@@ -7,10 +7,26 @@
 // installing anything. A reader who has graphviz, and wants its splines or its
 // knobs, still has "jjf export dot".
 //
+// The exporter checks nothing and reports nothing, ever. A foreign key that
+// names a table the document does not define is drawn as a dashed stub, so the
+// picture shows exactly what the JSON claims; "jjf validate" is where a
+// document is spoken about.
+//
 // The output is deterministic: the same document always produces the same
 // bytes, because nothing here reads the clock, no tool version and no input
-// path is written into the file, and every loop that reaches the output walks a
-// slice rather than a Go map.
+// path is written into the file, every loop that reaches the output walks a
+// slice rather than a Go map, and every length is an integer - so there is no
+// floating-point formatting left to differ between platforms.
+//
+// # Two representations, and what each one does not know
+//
+// A document becomes a Geometry: rectangles, routes, attachment points and the
+// page they sit on, which is all the ten geometry invariants need to be stated
+// against and all they may read. A Geometry becomes a Scene: a flat list of
+// painted primitives with every position, baseline, colour and glyph resolved,
+// and no rank, no cardinality and no row height left in it. A Scene becomes the
+// file. Each step throws information away, and that is the point of having
+// three of them rather than one.
 //
 // # Text is estimated, never measured
 //
@@ -118,11 +134,17 @@ const (
 	lineHeight Coord = 160 // 16 px
 	textAscent Coord = 4 * fontSize / 5
 
-	// Table boxes.
+	// Table boxes. dashLen is both the dash and the gap of the dashed stroke
+	// the stub box is drawn with: it is a length in the drawing like every
+	// other one here, and it is one value rather than two so that the dashes
+	// and the gaps cannot drift apart. It is not in the Scene because Box
+	// carries a dash FLAG - there is exactly one dashed thing in this drawing,
+	// so a pattern there would be a presentation knob no document can reach.
 	rowHeight   Coord = 200 // one column row
 	cellPadH    Coord = 60  // left and right of a cell's text
 	cellPadV    Coord = 40  // above and below a header's text
 	strokeWidth Coord = 10  // 1 px
+	dashLen     Coord = 40  // 4 px on, 4 px off
 
 	// Separation. nodeSep is the minimum gap between two boxes in one rank,
 	// rankGap the minimum gap between two adjacent DOUBLED ranks, margin the
