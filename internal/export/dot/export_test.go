@@ -172,7 +172,7 @@ func TestExportQuotesReservedNames(t *testing.T) {
 	for _, name := range []string{"graph", "node", "edge", "subgraph", "strict", "digraph"} {
 		wantLine(t, out, "\t\""+name+"\" [label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"4\">")
 	}
-	wantLine(t, out, "\t\"node\" -> \"graph\" [arrowtail=crowtee, arrowhead=teetee, label=\"fk_node_graph\"];")
+	wantLine(t, out, "\t\"node\" -> \"graph\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_node_graph\"];")
 	// The quoted node statement cannot be confused with the graph attribute
 	// statement a few lines above it.
 	wantLine(t, out, "\tgraph [charset=\"UTF-8\", rankdir=LR];")
@@ -305,9 +305,10 @@ func TestExportColumnTypes(t *testing.T) {
 func TestExportEdgePerForeignKey(t *testing.T) {
 	out := render(t, docOf(customers(), orders()))
 
-	// customer_id is neither the primary key nor unique, and it is NOT NULL:
-	// many and mandatory on the child side, one and mandatory on the parent.
-	wantLine(t, out, "\t\"orders\" -> \"customers\" [arrowtail=crowtee, arrowhead=teetee, label=\"fk_orders_customer\"];")
+	// customer_id is neither the primary key nor unique, so the child side is
+	// many, and every child side is optional. It is NOT NULL, so the parent
+	// side is one and mandatory.
+	wantLine(t, out, "\t\"orders\" -> \"customers\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_orders_customer\"];")
 	if got := strings.Count(out, " -> "); got != 1 {
 		t.Errorf("the output has %d edges, want 1:\n%s", got, out)
 	}
@@ -320,7 +321,7 @@ func TestExportEdgeLabelFallsBackToColumns(t *testing.T) {
 	out := render(t, docOf(customers(), child))
 
 	// A constraint name is optional, so the child column list stands in.
-	wantLine(t, out, "\t\"orders\" -> \"customers\" [arrowtail=crowtee, arrowhead=teetee, label=\"customer_id\"];")
+	wantLine(t, out, "\t\"orders\" -> \"customers\" [arrowtail=crowodot, arrowhead=teetee, label=\"customer_id\"];")
 }
 
 func TestExportCompositeForeignKeyIsOneEdge(t *testing.T) {
@@ -353,8 +354,9 @@ func TestExportCompositeForeignKeyIsOneEdge(t *testing.T) {
 		t.Errorf("a composite foreign key produced %d edges, want 1:\n%s", got, out)
 	}
 	// The foreign key columns are the whole primary key, so the child side is
-	// one: a 1:1 relationship.
-	wantLine(t, out, "\t\"shipment_lines\" -> \"order_lines\" [arrowtail=teetee, arrowhead=teetee, label=\"fk_shipment_lines_line\"];")
+	// one - a 1:1 relationship - and optional, as every child side is. Both
+	// columns are NOT NULL, so the parent side is mandatory.
+	wantLine(t, out, "\t\"shipment_lines\" -> \"order_lines\" [arrowtail=teeodot, arrowhead=teetee, label=\"fk_shipment_lines_line\"];")
 }
 
 func TestExportTwoForeignKeysBetweenOnePair(t *testing.T) {
@@ -377,10 +379,11 @@ func TestExportTwoForeignKeysBetweenOnePair(t *testing.T) {
 	if got := strings.Count(out, " -> "); got != 2 {
 		t.Errorf("the output has %d edges, want 2:\n%s", got, out)
 	}
-	// Same endpoints, different labels; the nullable column makes the second
-	// relationship optional.
-	wantLine(t, out, "\t\"transfers\" -> \"customers\" [arrowtail=crowtee, arrowhead=teetee, label=\"fk_transfers_from\"];")
-	wantLine(t, out, "\t\"transfers\" -> \"customers\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_transfers_to\"];")
+	// Same endpoints, different labels. The nullable to_id makes the PARENT
+	// end of the second relationship optional: what a NULL there says is that
+	// this row may point at no customer at all.
+	wantLine(t, out, "\t\"transfers\" -> \"customers\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_transfers_from\"];")
+	wantLine(t, out, "\t\"transfers\" -> \"customers\" [arrowtail=crowodot, arrowhead=teeodot, label=\"fk_transfers_to\"];")
 }
 
 func TestExportSelfReference(t *testing.T) {
@@ -398,7 +401,7 @@ func TestExportSelfReference(t *testing.T) {
 	}
 	out := render(t, docOf(tbl))
 
-	wantLine(t, out, "\t\"employees\" -> \"employees\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_employees_manager\"];")
+	wantLine(t, out, "\t\"employees\" -> \"employees\" [arrowtail=crowodot, arrowhead=teeodot, label=\"fk_employees_manager\"];")
 	// The target is defined, so nothing is stubbed.
 	wantNoLine(t, out, "\t// referenced by a foreign key but not defined in this document")
 }
