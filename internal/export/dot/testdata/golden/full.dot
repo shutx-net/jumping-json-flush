@@ -40,8 +40,8 @@ digraph "shop" {
 		<TR><TD></TD><TD ALIGN="LEFT">discount_rate</TD><TD ALIGN="LEFT">割引率</TD><TD ALIGN="LEFT">NUMERIC(5,3)</TD></TR>
 	</TABLE>>];
 
-	"customer_profiles" -> "customers" [arrowtail=teetee, arrowhead=teetee, label="fk_customer_profiles_customer"];
-	"orders" -> "customers" [arrowtail=crowtee, arrowhead=teetee, label="fk_orders_customer"];
-	"orders" -> "coupons" [arrowtail=crowodot, arrowhead=teetee, label="fk_orders_coupon"];
-	"order_lines" -> "orders" [arrowtail=crowtee, arrowhead=teetee, label="fk_order_lines_order"];
+	"customer_profiles" -> "customers" [arrowtail=teeodot, arrowhead=teetee, label="fk_customer_profiles_customer"];
+	"orders" -> "customers" [arrowtail=crowodot, arrowhead=teetee, label="fk_orders_customer"];
+	"orders" -> "coupons" [arrowtail=crowodot, arrowhead=teeodot, label="fk_orders_coupon"];
+	"order_lines" -> "orders" [arrowtail=crowodot, arrowhead=teetee, label="fk_order_lines_order"];
 }

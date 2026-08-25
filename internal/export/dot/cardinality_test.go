@@ -19,6 +19,10 @@ func nullable(name string) model.Column {
 	return model.Column{Name: name, LogicalName: name, Type: "INTEGER", Nullable: true}
 }
 
+// TestChildEnd covers the child end alone: how many rows of the child point at
+// one row of the parent, plus the flat fact that a child end is always
+// optional. Nullability appears in some of these tables only to show that it
+// changes nothing here; TestParentEnd is where it decides an answer.
 func TestChildEnd(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -27,14 +31,14 @@ func TestChildEnd(t *testing.T) {
 		want  end
 	}{
 		{
-			name: "a plain foreign key column is many and mandatory",
+			name: "a plain foreign key column is many, and optional as every child end is",
 			table: model.Table{
 				Name:       "order_lines",
 				Columns:    []model.Column{notNull("id"), notNull("order_id")},
 				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
 			},
 			fk:   model.ForeignKey{Columns: []string{"order_id"}},
-			want: end{many: true},
+			want: end{many: true, optional: true},
 		},
 		{
 			name: "a foreign key that is the whole primary key is one",
@@ -44,7 +48,7 @@ func TestChildEnd(t *testing.T) {
 				PrimaryKey: &model.PrimaryKey{Columns: []string{"customer_id"}},
 			},
 			fk:   model.ForeignKey{Columns: []string{"customer_id"}},
-			want: end{},
+			want: end{optional: true},
 		},
 		{
 			name: "a composite foreign key equal to the primary key in a different order is one",
@@ -54,7 +58,7 @@ func TestChildEnd(t *testing.T) {
 				PrimaryKey: &model.PrimaryKey{Columns: []string{"order_id", "line_no"}},
 			},
 			fk:   model.ForeignKey{Columns: []string{"line_no", "order_id"}},
-			want: end{},
+			want: end{optional: true},
 		},
 		{
 			// The length check alone decides this one.
@@ -65,7 +69,7 @@ func TestChildEnd(t *testing.T) {
 				PrimaryKey: &model.PrimaryKey{Columns: []string{"order_id", "line_no"}},
 			},
 			fk:   model.ForeignKey{Columns: []string{"order_id"}},
-			want: end{many: true},
+			want: end{many: true, optional: true},
 		},
 		{
 			// The match is on the second of three unique keys, so the loop is
@@ -82,7 +86,7 @@ func TestChildEnd(t *testing.T) {
 				},
 			},
 			fk:   model.ForeignKey{Columns: []string{"user_id"}},
-			want: end{},
+			want: end{optional: true},
 		},
 		{
 			// A unique index enforces the same constraint as a unique key -
@@ -99,7 +103,7 @@ func TestChildEnd(t *testing.T) {
 				},
 			},
 			fk:   model.ForeignKey{Columns: []string{"user_id"}},
-			want: end{},
+			want: end{optional: true},
 		},
 		{
 			name: "a non-unique index over the same columns leaves it many",
@@ -112,7 +116,7 @@ func TestChildEnd(t *testing.T) {
 				},
 			},
 			fk:   model.ForeignKey{Columns: []string{"order_id"}},
-			want: end{many: true},
+			want: end{many: true, optional: true},
 		},
 		{
 			// A table without a primary key is explicitly representable, so the
@@ -123,7 +127,7 @@ func TestChildEnd(t *testing.T) {
 				Columns: []model.Column{notNull("order_id")},
 			},
 			fk:   model.ForeignKey{Columns: []string{"order_id"}},
-			want: end{many: true},
+			want: end{many: true, optional: true},
 		},
 		{
 			// Ranging over the nil uniqueKeys slice executes zero times, which
@@ -135,10 +139,13 @@ func TestChildEnd(t *testing.T) {
 				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
 			},
 			fk:   model.ForeignKey{Columns: []string{"order_id"}},
-			want: end{many: true},
+			want: end{many: true, optional: true},
 		},
 		{
-			name: "one nullable column among several makes it optional",
+			// The nullable column changes not one bit of this end: it is many
+			// because order_id alone is not unique, and optional as every child
+			// end is. Where line_no decides an answer is TestParentEnd.
+			name: "a nullable column among several does not change the child end",
 			table: model.Table{
 				Name:       "order_lines",
 				Columns:    []model.Column{notNull("order_id"), nullable("line_no")},
@@ -150,7 +157,9 @@ func TestChildEnd(t *testing.T) {
 		{
 			// A primary key column would not normally be nullable, but the
 			// schema does not check it and the derivation must still be total.
-			name: "one and optional",
+			// The optional here owes nothing to that nullability; a child end
+			// is optional whatever the columns say.
+			name: "a nullable primary key column is still one, and optional like every other child end",
 			table: model.Table{
 				Name:       "customer_profiles",
 				Columns:    []model.Column{nullable("customer_id")},
@@ -160,9 +169,11 @@ func TestChildEnd(t *testing.T) {
 			want: end{optional: true},
 		},
 		{
-			// The unknown column contributes nothing; the answer is optional
-			// because of the real, nullable one.
-			name: "a column the table does not define contributes nothing",
+			// A column the table does not define is no source of uniqueness
+			// either, so this end is many. What must be preserved about such a
+			// column is that it does not make the PARENT end optional, and
+			// that is what TestParentEnd pins.
+			name: "a column the table does not define adds no uniqueness",
 			table: model.Table{
 				Name:    "order_lines",
 				Columns: []model.Column{nullable("order_id")},
@@ -197,8 +208,224 @@ func TestChildEnd(t *testing.T) {
 	}
 }
 
+// TestParentEnd covers the parent end: how many rows of the referenced table
+// one child row points at. The maximum never depends on the document - a
+// foreign key names one specific row - so every case here is about the minimum,
+// which the nullability of the foreign key's own columns decides.
+func TestParentEnd(t *testing.T) {
+	tests := []struct {
+		name  string
+		table model.Table
+		fk    model.ForeignKey
+		want  end
+	}{
+		{
+			name: "a NOT NULL foreign key column is one and mandatory",
+			table: model.Table{
+				Name:       "order_lines",
+				Columns:    []model.Column{notNull("id"), notNull("order_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk:   model.ForeignKey{Columns: []string{"order_id"}},
+			want: end{},
+		},
+		{
+			name: "a nullable foreign key column makes the parent optional",
+			table: model.Table{
+				Name:       "orders",
+				Columns:    []model.Column{notNull("id"), nullable("coupon_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk:   model.ForeignKey{Columns: []string{"coupon_id"}},
+			want: end{optional: true},
+		},
+		{
+			// Uniqueness is the CHILD end's business. A foreign key that is
+			// unique in its own table still points at one parent row, so the
+			// parent end must not become many.
+			name: "a unique foreign key does not make the parent many",
+			table: model.Table{
+				Name:       "customer_profiles",
+				Columns:    []model.Column{notNull("customer_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"customer_id"}},
+			},
+			fk:   model.ForeignKey{Columns: []string{"customer_id"}},
+			want: end{},
+		},
+		{
+			name: "one nullable column among several makes it optional",
+			table: model.Table{
+				Name:       "order_lines",
+				Columns:    []model.Column{notNull("order_id"), nullable("line_no")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"order_id"}},
+			},
+			fk:   model.ForeignKey{Columns: []string{"order_id", "line_no"}},
+			want: end{optional: true},
+		},
+		{
+			name: "a composite whose every column is NOT NULL stays mandatory",
+			table: model.Table{
+				Name:       "shipment_lines",
+				Columns:    []model.Column{notNull("order_id"), notNull("line_no")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"order_id", "line_no"}},
+			},
+			fk:   model.ForeignKey{Columns: []string{"order_id", "line_no"}},
+			want: end{},
+		},
+		{
+			// findColumn's rule: a column the table does not define counts as
+			// NOT NULL, because absent information must not invent an optional
+			// relationship and a typo must not silently redraw this end.
+			name: "a column the table does not define counts as NOT NULL",
+			table: model.Table{
+				Name:    "order_lines",
+				Columns: []model.Column{notNull("order_id")},
+			},
+			fk:   model.ForeignKey{Columns: []string{"typo_id", "order_id"}},
+			want: end{},
+		},
+		{
+			// Only the child table is read, so pointing the foreign key at the
+			// table itself needs no special case here either.
+			name: "a self-referencing foreign key derives like any other",
+			table: model.Table{
+				Name:       "categories",
+				Columns:    []model.Column{notNull("id"), nullable("parent_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk: model.ForeignKey{
+				Columns:    []string{"parent_id"},
+				References: model.Reference{Table: "categories", Columns: []string{"id"}},
+			},
+			want: end{optional: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parentEnd(&tt.table, &tt.fk); got != tt.want {
+				t.Errorf("parentEnd(%s, %v) = %+v (%s), want %+v (%s)",
+					tt.table.Name, tt.fk.Columns, got, got.arrow(), tt.want, tt.want.arrow())
+			}
+		})
+	}
+}
+
+// TestEndsOfEachForeignKeyShape is the regression table of the issue this
+// derivation was fixed for, written as the arrow types that reach the .dot
+// file. It says nothing the two tests above do not, and is worth its place
+// because it says it about BOTH ends at once: an inference that lands a minimum
+// on the wrong end swaps two strings in one row here, where a reader sees the
+// whole relationship, rather than flipping one bool in a table about one side.
+func TestEndsOfEachForeignKeyShape(t *testing.T) {
+	tests := []struct {
+		name          string
+		table         model.Table
+		fk            model.ForeignKey
+		child, parent string
+	}{
+		{
+			// non-unique, NOT NULL: 0..N children, exactly one parent.
+			name: "a non-unique NOT NULL foreign key",
+			table: model.Table{
+				Name:       "orders",
+				Columns:    []model.Column{notNull("id"), notNull("customer_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk:     model.ForeignKey{Columns: []string{"customer_id"}},
+			child:  "crowodot",
+			parent: "teetee",
+		},
+		{
+			// non-unique, nullable: 0..N children, 0..1 parent. This is the
+			// case the issue opens with: orders.coupon_id.
+			name: "a non-unique nullable foreign key",
+			table: model.Table{
+				Name:       "orders",
+				Columns:    []model.Column{notNull("id"), nullable("coupon_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk:     model.ForeignKey{Columns: []string{"coupon_id"}},
+			child:  "crowodot",
+			parent: "teeodot",
+		},
+		{
+			// unique, NOT NULL: 0..1 children, exactly one parent.
+			name: "a unique NOT NULL foreign key",
+			table: model.Table{
+				Name:       "customer_profiles",
+				Columns:    []model.Column{notNull("id"), notNull("customer_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+				UniqueKeys: []model.UniqueKey{{Columns: []string{"customer_id"}}},
+			},
+			fk:     model.ForeignKey{Columns: []string{"customer_id"}},
+			child:  "teeodot",
+			parent: "teetee",
+		},
+		{
+			// unique, nullable: 0..1 children, 0..1 parent. A nullable unique
+			// column is odd but the schema does not forbid it, so the
+			// derivation has to answer.
+			name: "a unique nullable foreign key",
+			table: model.Table{
+				Name:       "customer_profiles",
+				Columns:    []model.Column{notNull("id"), nullable("customer_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+				UniqueKeys: []model.UniqueKey{{Columns: []string{"customer_id"}}},
+			},
+			fk:     model.ForeignKey{Columns: []string{"customer_id"}},
+			child:  "teeodot",
+			parent: "teeodot",
+		},
+		{
+			// A composite foreign key equal to the composite primary key is
+			// unique, and one nullable column among its columns is enough to
+			// make the parent end optional.
+			name: "a composite foreign key with one nullable column",
+			table: model.Table{
+				Name:       "shipment_lines",
+				Columns:    []model.Column{notNull("order_id"), nullable("line_no")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"order_id", "line_no"}},
+			},
+			fk:     model.ForeignKey{Columns: []string{"order_id", "line_no"}},
+			child:  "teeodot",
+			parent: "teeodot",
+		},
+		{
+			name: "a self-referencing foreign key",
+			table: model.Table{
+				Name:       "categories",
+				Columns:    []model.Column{notNull("id"), nullable("parent_id")},
+				PrimaryKey: &model.PrimaryKey{Columns: []string{"id"}},
+			},
+			fk: model.ForeignKey{
+				Columns:    []string{"parent_id"},
+				References: model.Reference{Table: "categories", Columns: []string{"id"}},
+			},
+			child:  "crowodot",
+			parent: "teeodot",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := childEnd(&tt.table, &tt.fk).arrow(); got != tt.child {
+				t.Errorf("childEnd(%s, %v).arrow() = %v, want %v",
+					tt.table.Name, tt.fk.Columns, got, tt.child)
+			}
+			if got := parentEnd(&tt.table, &tt.fk).arrow(); got != tt.parent {
+				t.Errorf("parentEnd(%s, %v).arrow() = %v, want %v",
+					tt.table.Name, tt.fk.Columns, got, tt.parent)
+			}
+		})
+	}
+}
+
 // TestEndArrow pins all four outcomes, so a fifth state cannot be added
-// without a failing test.
+// without a failing test - and so the crowtee case cannot be deleted as dead
+// code. Neither derivation reaches it: a child end is always optional and a
+// parent end is never many. arrow is a total mapping over the type all the
+// same.
 func TestEndArrow(t *testing.T) {
 	tests := []struct {
 		name string
@@ -217,12 +444,6 @@ func TestEndArrow(t *testing.T) {
 				t.Errorf("end%+v.arrow() = %v, want %v", tt.in, got, tt.want)
 			}
 		})
-	}
-
-	// The parent side is one and mandatory in every document, which is the same
-	// pair of primitives.
-	if parentArrow != "teetee" {
-		t.Errorf("parentArrow = %v, want teetee", parentArrow)
 	}
 }
 

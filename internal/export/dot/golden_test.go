@@ -212,27 +212,27 @@ func TestEdgeFixtureCoversItsCases(t *testing.T) {
 		{"a length winning over a precision", "NUMERIC(10)"},
 		{
 			"a self-referencing foreign key as a loop edge",
-			"\t\"categories\" -> \"categories\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_categories_parent\"];",
+			"\t\"categories\" -> \"categories\" [arrowtail=crowodot, arrowhead=teeodot, label=\"fk_categories_parent\"];",
 		},
 		{
 			"a composite foreign key equal to the composite primary key, as one 1:1 edge",
-			"\t\"edge_labels\" -> \"edge\" [arrowtail=teetee, arrowhead=teetee, label=\"fk_edge_labels_edge\"];",
+			"\t\"edge_labels\" -> \"edge\" [arrowtail=teeodot, arrowhead=teetee, label=\"fk_edge_labels_edge\"];",
 		},
 		{
 			"a foreign key made unique by an index alone, also 1:1",
-			"\t\"node_stats\" -> \"nodes\" [arrowtail=teetee, arrowhead=teetee, label=\"fk_node_stats_node\"];",
+			"\t\"node_stats\" -> \"nodes\" [arrowtail=teeodot, arrowhead=teetee, label=\"fk_node_stats_node\"];",
 		},
 		{
 			"an unnamed foreign key labelled with its column list",
-			"\t\"edge\" -> \"nodes\" [arrowtail=crowodot, arrowhead=teetee, label=\"from_node\"];",
+			"\t\"edge\" -> \"nodes\" [arrowtail=crowodot, arrowhead=teeodot, label=\"from_node\"];",
 		},
 		{
 			"a second foreign key between the same pair of tables",
-			"\t\"edge\" -> \"nodes\" [arrowtail=crowtee, arrowhead=teetee, label=\"fk_edge_to_node\"];",
+			"\t\"edge\" -> \"nodes\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_edge_to_node\"];",
 		},
 		{
-			"a foreign key naming a column the table does not define, which is not optional and does not crash",
-			"\t\"node_stats\" -> \"graph\" [arrowtail=crowtee, arrowhead=teetee, label=\"fk_node_stats_unknown_column\"];",
+			"a foreign key naming a column the table does not define leaves the parent end mandatory and does not crash",
+			"\t\"node_stats\" -> \"graph\" [arrowtail=crowodot, arrowhead=teetee, label=\"fk_node_stats_unknown_column\"];",
 		},
 		{"the section comment above the stubs", "\t// referenced by a foreign key but not defined in this document"},
 		{
