@@ -1,0 +1,11 @@
+line 30: table audit_log: storage engine myisam is not imported, and only InnoDB enforces the foreign keys a design document declares
+line 46: table metrics: partitioning is not imported
+line 66: column order.total: generated column is imported as an ordinary column
+line 72: index ix_order_body on table order: prefix length on column "body" is not imported; the whole column is recorded
+line 73: index ix_order_price on table order: descending column order is not imported
+line 75: index ft_order_body on table order: full-text index is not imported
+line 77: constraint ck_order_quantity on table order: check constraint is not imported
+line 62: order.status: the value list of type enum is not represented; imported as ENUM with no values
+line 63: order.flags: the value list of type set is not represented; imported as SET with no values
+line 68: order.updated_at: ON UPDATE CURRENT_TIMESTAMP is not represented
+line 74: table order: index ct_order_warehouse has the name of a foreign key of the same table, which is how MySQL names the index it creates to back one; not imported separately

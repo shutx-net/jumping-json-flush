@@ -46,6 +46,8 @@ direnv.
 | lint install.sh | `shellcheck --shell=sh install.sh` |
 | regenerate the pg_dump fixtures | `sh internal/importer/postgres/testdata/generate.sh` |
 | regenerate one major | `PGBIN=/usr/lib/postgresql/17/bin sh internal/importer/postgres/testdata/generate.sh` |
+| regenerate the mysqldump fixtures | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root sh internal/importer/mysql/testdata/generate.sh` |
+| regenerate them against a local server | `MYSQL_SOCKET=/var/run/mysqld/mysqld.sock sh internal/importer/mysql/testdata/generate.sh` |
 | run the DDL round trip | `PGBIN=/usr/lib/postgresql/17/bin sh internal/export/ddl/testdata/roundtrip.sh` |
 | round trip one document | `PGBIN=/usr/lib/postgresql/17/bin OUTDIR=/tmp/rt sh internal/export/ddl/testdata/roundtrip.sh edge.json` |
 | cross-build check | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
@@ -167,6 +169,25 @@ direnv.
   so in its own headers, and is not produced by the script. It covers dump shapes
   no installed pg_dump writes any more — unqualified names, `WITH (oids = false)` —
   and one deliberately broken file
+- `internal/importer/mysql/testdata/dump/mysql<series>/*.sql` is the same
+  arrangement for the second dialect, with one difference forced by MySQL's
+  versioning: a directory per release SERIES rather than per major, because 8.0 and
+  8.4 are different series of one major and their `mysqldump` output differs, so a
+  directory per major would hide the difference the captures exist to expose. The
+  supported range is stated over majors, is exactly what the captures cover, and
+  `TestCapturedSeriesCoverTheSupportedMajors` is what holds it there — adding
+  `mysql8.4/` is one directory and no code. `internal/importer/mysql/testdata/
+  generate.sh` connects to a server it did not start, because there is no portable
+  MySQL equivalent of `initdb` plus `pg_ctl`; its header carries a `docker run`
+  line and an `apt-get` line for getting one, and `MYSQL_SOCKET` for the local
+  package, whose root account authenticates through the socket and answers TCP with
+  "Access denied"
+- **`--default-character-set=utf8mb4` is not optional** anywhere a `mysql` or
+  `mysqldump` command appears. Without it a client may negotiate latin1 and every
+  Japanese `COMMENT` in a capture is encoded twice — and such a dump still lexes,
+  still parses, still imports and still round-trips, so the only symptom is
+  mojibake in a golden. `TestTheCapturedDumpsKeepTheirJapanese` and the `ci.yml`
+  selfcheck are what would notice
 - `go.mod` pins the toolchain in two directives that do different jobs. `go 1.26`
   is the floor: a go command older than that refuses to build, which is where the
   enforcement lives. `toolchain go1.26.7` is the exact release the go command

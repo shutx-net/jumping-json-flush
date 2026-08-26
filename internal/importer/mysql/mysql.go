@@ -75,18 +75,20 @@ func DefaultOptions() Options { return Options{} }
 func Import(src []byte, opt Options) (*model.Document, []Diagnostic, error) {
 	var d diagList
 
+	// The banner is read here, from the raw bytes, and not taken off the
+	// myDump the parse fills in - although parse reads exactly the same two
+	// values into exactly the same helper. The duplicated call buys the one
+	// thing that matters: a dump from a server this importer was not written
+	// against still SAYS so when it then fails to parse, which is the case
+	// where the warning explains the failure. Reading it afterwards would
+	// silence it precisely when it is worth the most.
+	version, versionLine := serverVersion(src)
+	checkDumpVersion(version, versionLine, &d)
+
 	dump, err := parse(src, &d)
 	if err != nil {
 		return nil, d.all(), exitcode.Wrap(exitcode.InvalidInput, opt.Source, err)
 	}
-	// After the parse rather than before it, which is the opposite of the
-	// PostgreSQL sibling's order and is forced by where the version lives: that
-	// one reads its banner out of the raw bytes and can check it first, while
-	// this one takes the server version off the intermediate representation the
-	// parse filled in. The diagnostic order is unaffected, because a version
-	// warning names line 5 and every parse warning names a later line.
-	checkDumpVersion(dump.ServerVersion, dump.ServerVersionLine, &d)
-
 	doc, err := build(dump, opt, &d)
 	if err != nil {
 		return nil, d.all(), exitcode.Wrap(exitcode.InvalidInput, opt.Source, err)

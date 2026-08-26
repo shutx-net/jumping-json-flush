@@ -1,0 +1,214 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "edge",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "audit_log",
+      "logicalName": "監査ログ",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "happened_at",
+          "logicalName": "happened_at",
+          "type": "DATETIME",
+          "nullable": false
+        },
+        {
+          "name": "payload",
+          "logicalName": "payload",
+          "type": "JSON",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "metrics",
+      "logicalName": "metrics",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "day",
+          "logicalName": "day",
+          "type": "DATE",
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "logicalName": "amount",
+          "type": "DOUBLE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id",
+          "day"
+        ]
+      }
+    },
+    {
+      "name": "order",
+      "logicalName": "注文",
+      "description": "予約語で名付けた表。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "key",
+          "logicalName": "注文キー",
+          "description": "O'Brien の \\path も、改行も入る。",
+          "type": "VARCHAR",
+          "length": 40,
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "注文状態",
+          "type": "ENUM",
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "flags",
+          "logicalName": "flags",
+          "type": "SET",
+          "nullable": true
+        },
+        {
+          "name": "price",
+          "logicalName": "price",
+          "type": "DECIMAL",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "'1'"
+        },
+        {
+          "name": "total",
+          "logicalName": "total",
+          "type": "DECIMAL",
+          "precision": 12,
+          "scale": 2,
+          "nullable": true
+        },
+        {
+          "name": "body",
+          "logicalName": "body",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "updated_at",
+          "logicalName": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "warehouse_id",
+          "logicalName": "warehouse_id",
+          "type": "INTEGER",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_order_key",
+          "columns": [
+            "key"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "ct_order_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "references": {
+            "table": "warehouses",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "SET DEFAULT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_body",
+          "columns": [
+            "body"
+          ]
+        },
+        {
+          "name": "ix_order_price",
+          "columns": [
+            "price"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "warehouses",
+      "logicalName": "倉庫",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "label",
+          "logicalName": "label",
+          "type": "VARCHAR",
+          "length": 60,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

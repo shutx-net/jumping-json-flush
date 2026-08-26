@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "legacy",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "members",
+      "logicalName": "会員",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "points",
+          "logicalName": "points",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "'0'"
+        },
+        {
+          "name": "joined_on",
+          "logicalName": "joined_on",
+          "type": "DATE",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_members_email",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_members_joined_on",
+          "columns": [
+            "joined_on"
+          ]
+        }
+      ]
+    }
+  ]
+}

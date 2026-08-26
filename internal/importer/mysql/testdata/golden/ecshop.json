@@ -1,0 +1,425 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "ecshop",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "オンラインショップの利用者。退会しても行は残す。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "logicalName": "display_name",
+          "type": "VARCHAR",
+          "length": 120,
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "logicalName": "note",
+          "type": "TEXT",
+          "nullable": true
+        },
+        {
+          "name": "referrer_id",
+          "logicalName": "referrer_id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": true
+        },
+        {
+          "name": "profile",
+          "logicalName": "profile",
+          "type": "JSON",
+          "nullable": true
+        },
+        {
+          "name": "active",
+          "logicalName": "active",
+          "type": "TINYINT",
+          "length": 1,
+          "nullable": false,
+          "default": "'1'"
+        },
+        {
+          "name": "born_on",
+          "logicalName": "born_on",
+          "type": "DATE",
+          "nullable": true
+        },
+        {
+          "name": "balance",
+          "logicalName": "残高",
+          "type": "DECIMAL",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "'0.00'"
+        },
+        {
+          "name": "registered_at",
+          "logicalName": "registered_at",
+          "type": "DATETIME",
+          "precision": 3,
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "logicalName": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_customers_email",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "ct_customers_referrer",
+          "columns": [
+            "referrer_id"
+          ],
+          "references": {
+            "table": "customers",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "SET NULL"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_customers_referrer",
+          "columns": [
+            "referrer_id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "order_lines",
+      "logicalName": "注文明細",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "order_id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "line_no",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "product_id",
+          "logicalName": "product_id",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "logicalName": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "'1'"
+        },
+        {
+          "name": "unit_price",
+          "logicalName": "unit_price",
+          "type": "DECIMAL",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "order_id",
+          "line_no"
+        ]
+      },
+      "foreignKeys": [
+        {
+          "name": "ct_order_lines_order",
+          "columns": [
+            "order_id"
+          ],
+          "references": {
+            "table": "orders",
+            "columns": [
+              "id"
+            ]
+          },
+          "onDelete": "CASCADE"
+        },
+        {
+          "name": "ct_order_lines_product",
+          "columns": [
+            "product_id"
+          ],
+          "references": {
+            "table": "products",
+            "columns": [
+              "id"
+            ]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_lines_product",
+          "columns": [
+            "product_id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "注文",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "customer_id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "注文状態",
+          "type": "VARCHAR",
+          "length": 16,
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "placed_at",
+          "logicalName": "placed_at",
+          "type": "DATETIME",
+          "precision": 6,
+          "nullable": false
+        },
+        {
+          "name": "shipped_at",
+          "logicalName": "shipped_at",
+          "type": "DATETIME",
+          "precision": 6,
+          "nullable": true
+        },
+        {
+          "name": "total",
+          "logicalName": "total",
+          "type": "DECIMAL",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      },
+      "foreignKeys": [
+        {
+          "name": "ct_orders_customer",
+          "columns": [
+            "customer_id"
+          ],
+          "references": {
+            "table": "customers",
+            "columns": [
+              "id"
+            ]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_orders_customer",
+          "columns": [
+            "customer_id"
+          ]
+        },
+        {
+          "name": "ix_orders_status_placed",
+          "columns": [
+            "status",
+            "placed_at"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "logicalName": "商品",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "sku",
+          "logicalName": "sku",
+          "type": "CHAR",
+          "length": 12,
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "name",
+          "type": "VARCHAR",
+          "length": 200,
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "logicalName": "price",
+          "type": "DECIMAL",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "weight",
+          "logicalName": "weight",
+          "type": "DOUBLE",
+          "nullable": true
+        },
+        {
+          "name": "released_on",
+          "logicalName": "released_on",
+          "type": "DATE",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "id"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_products_sku",
+          "columns": [
+            "sku"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "shipments",
+      "logicalName": "配送",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "order_id",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false
+        },
+        {
+          "name": "line_no",
+          "logicalName": "line_no",
+          "type": "INTEGER",
+          "nullable": false
+        },
+        {
+          "name": "carrier",
+          "logicalName": "carrier",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        },
+        {
+          "name": "tracking_no",
+          "logicalName": "tracking_no",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": true
+        },
+        {
+          "name": "shipped_on",
+          "logicalName": "shipped_on",
+          "type": "DATE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "columns": [
+          "order_id",
+          "line_no"
+        ]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_shipments_tracking",
+          "columns": [
+            "carrier",
+            "tracking_no"
+          ]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "ct_shipments_line",
+          "columns": [
+            "order_id",
+            "line_no"
+          ],
+          "references": {
+            "table": "order_lines",
+            "columns": [
+              "order_id",
+              "line_no"
+            ]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "CASCADE"
+        }
+      ]
+    }
+  ]
+}
