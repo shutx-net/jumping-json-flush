@@ -89,6 +89,44 @@ func TestEmptySectionsDisappear(t *testing.T) {
 	}
 }
 
+// TestTheCommentsPhaseExistsForAColumnAlone is the positive counterpart of
+// TestEmptySectionsDisappear. The guard walks tables first and columns second,
+// so a document whose TABLES are all named after themselves and one of whose
+// COLUMNS is not exercises the second half of the walk - the half that would go
+// unnoticed if the guard stopped at the tables, because every fixture that has
+// a column comment also has a table comment.
+//
+// A dialect without COMMENT ON has nowhere to put a fourth phase, which is why
+// this guard cannot be shared with the ones for indexes and foreign keys, and
+// why the section it decides on is postgres-only.
+func TestTheCommentsPhaseExistsForAColumnAlone(t *testing.T) {
+	doc := &model.Document{
+		FormatVersion: model.CurrentFormatVersion,
+		Database:      model.Database{Name: "shop", DBMS: model.DBMSPostgreSQL},
+		Tables: []model.Table{{
+			// The table is named after itself and carries no description, so
+			// nothing about it is worth a comment.
+			Name: "orders", LogicalName: "orders",
+			Columns: []model.Column{
+				{Name: "id", LogicalName: "id", Type: "BIGINT"},
+				{Name: "total", LogicalName: "合計", Type: "BIGINT"},
+			},
+			PrimaryKey: &model.PrimaryKey{Name: "pk_orders", Columns: []string{"id"}},
+		}},
+	}
+
+	src := render(t, doc)
+	if !strings.Contains(src, "\n-- Comments\n") {
+		t.Fatalf("the script has no Comments section although a column carries a comment:\n%s", src)
+	}
+	if strings.Contains(src, "COMMENT ON TABLE") {
+		t.Errorf("the script comments on the table, which is named after itself:\n%s", src)
+	}
+	if n := strings.Count(src, "COMMENT ON COLUMN"); n != 1 {
+		t.Errorf("COMMENT ON COLUMN appears %d times, want 1:\n%s", n, src)
+	}
+}
+
 // TestEdgeFixtureCoversItsCases names, one by one, the awkward cases the edge
 // golden is supposed to show, so that a regression reports which case broke
 // rather than dumping a diff of the whole file.

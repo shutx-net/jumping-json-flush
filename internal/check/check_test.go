@@ -247,6 +247,41 @@ func TestDocument(t *testing.T) {
 			want: nil,
 		},
 		{
+			// The reference names one column twice against a primary key over
+			// two, which is what makes this the case for the second half of
+			// sameColumnSet: every name in the reference IS in the primary key,
+			// so a containment test in one direction alone would call the two
+			// equal and let the foreign key through. internal/export/erd has
+			// exactly that shorter helper, and it is correct there only because
+			// the exporter runs after validation, where uniqueItems has already
+			// ruled out a repeated name. This package has to be total over
+			// documents that were never validated, and this is the input that
+			// tells the two apart.
+			//
+			// The near end names two columns so that the length check passes
+			// and the comparison is actually reached.
+			name: "a reference that repeats a column is not the primary key it resembles",
+			doc: document(
+				model.Table{
+					Name: "orders", LogicalName: "受注",
+					Columns: []model.Column{col("x"), col("y")},
+					ForeignKeys: []model.ForeignKey{{
+						Name: "fk_orders_customer", Columns: []string{"x", "y"},
+						References: model.Reference{Table: "customers", Columns: []string{"id", "id"}},
+					}},
+				},
+				model.Table{
+					Name: "customers", LogicalName: "顧客",
+					Columns:    []model.Column{col("id"), col("email")},
+					PrimaryKey: &model.PrimaryKey{Name: "pk_customers", Columns: []string{"id", "email"}},
+				},
+			),
+			want: []string{
+				"foreign key fk_orders_customer on table orders: references (id, id) of table customers, " +
+					"which no primary key, unique key or unique index there constrains to be unique",
+			},
+		},
+		{
 			name: "a foreign key onto a unique index is a valid target",
 			doc:  foreignKeyOnto(model.Table{Indexes: []model.Index{{Name: "ix_customers_email", Columns: []string{"email"}, Unique: true}}}),
 			want: nil,
@@ -356,6 +391,26 @@ func TestDocument(t *testing.T) {
 				Columns:    []model.Column{col("id"), col("email")},
 				PrimaryKey: &model.PrimaryKey{Name: "customers_key", Columns: []string{"id"}},
 				Indexes:    []model.Index{{Name: "customers_key", Columns: []string{"email"}}},
+			}),
+			want: []string{
+				`table customers: declares more than one constraint or index called "customers_key"`,
+			},
+		},
+		{
+			// The unique key collides with the PRIMARY key rather than with
+			// another unique key, and that is not arbitrary. The primary key's
+			// name is the first thing added to the set, so it is the only
+			// prior claimant a second constraint can find - and the identical
+			// branch guarding the primary key itself can therefore never
+			// report, because the set is empty when its own name goes in. That
+			// branch is left alone here rather than tested or deleted: this
+			// change adds tests and does not decide what to do about dead code.
+			name: "a primary key and a unique key sharing a name",
+			doc: document(model.Table{
+				Name: "customers", LogicalName: "顧客",
+				Columns:    []model.Column{col("id"), col("email")},
+				PrimaryKey: &model.PrimaryKey{Name: "customers_key", Columns: []string{"id"}},
+				UniqueKeys: []model.UniqueKey{{Name: "customers_key", Columns: []string{"email"}}},
 			}),
 			want: []string{
 				`table customers: declares more than one constraint or index called "customers_key"`,

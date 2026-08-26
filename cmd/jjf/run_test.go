@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1857,5 +1858,107 @@ func TestRunImportUnwritableOutput(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), out) {
 		t.Errorf("stderr = %q, want it to name the requested output path %s", &stderr, out)
+	}
+}
+
+// TestWriteDiagnosticsShapesALineLessWarning pins both shapes of an importer
+// warning. The source:line: prefix is the one editors and CI annotators already
+// parse, so its punctuation is a published interface rather than a formatting
+// preference, and a diagnostic with no line has to drop the number without
+// leaving the colon behind.
+//
+// No importer emits a zero-line diagnostic today. The branch exists because the
+// Diagnostic types in both importers document one - "pass 0 when no line
+// applies" - for the resolve-time warning that has no place in the file to
+// point at, and this is the only thing holding the CLI's half of that.
+func TestWriteDiagnosticsShapesALineLessWarning(t *testing.T) {
+	var buf bytes.Buffer
+	writeDiagnostics(&buf, "schema.sql", []warning{
+		{Line: 3, Message: "first"},
+		{Message: "second"},
+		{Line: 0, Message: "third"},
+	})
+	want := "schema.sql:3: warning: first\n" +
+		"schema.sql: warning: second\n" +
+		"schema.sql: warning: third\n"
+	if got := buf.String(); got != want {
+		t.Errorf("writeDiagnostics wrote %q, want %q", got, want)
+	}
+}
+
+// TestWriteFileAtomicallyLeavesNothingBehindWhenTheWriteFails holds the promise
+// the whole helper exists for: a failure part way through leaves no half
+// written document behind. The exporters write straight into the writer they
+// are handed, so a failure at the tenth of twenty sheets is an ordinary
+// outcome, and what must not survive it is a file - either at the destination
+// or beside it under a temporary name.
+//
+// Asserting that the DIRECTORY is empty is the load-bearing half. A version
+// that deleted the destination and forgot the temporary file would pass an
+// assertion about the destination alone, and would leave a stray dot-file next
+// to every failed export.
+func TestWriteFileAtomicallyLeavesNothingBehindWhenTheWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.xlsx")
+	boom := errors.New("boom")
+
+	err := writeFileAtomically(path, func(io.Writer) error { return boom })
+	if !errors.Is(err, boom) {
+		t.Fatalf("error got = %v, want the one the writer returned", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("stat %s got = %v, want the file not to exist", path, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("the output directory holds %v, want it empty", names)
+	}
+}
+
+// TestWriteFileAtomicallyReportsARenameFailure covers the last thing that can
+// go wrong, and the one a user is most likely to cause: naming an existing
+// directory as the output file. The write itself succeeds, so the failure
+// arrives at the rename, and it has to come back with the exit code that means
+// the output could not be written rather than as a bare error.
+func TestWriteFileAtomicallyReportsARenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.xlsx")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	// A non-empty directory, because renaming onto an EMPTY one succeeds on
+	// some systems and the test is about the failure.
+	if err := os.WriteFile(filepath.Join(path, "occupied"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := writeFileAtomically(path, func(w io.Writer) error {
+		_, err := w.Write([]byte("body"))
+		return err
+	})
+	if err == nil {
+		t.Fatal("writeFileAtomically returned no error, want one about the rename")
+	}
+	if got := exitcode.Of(err); got != exitcode.OutputFailed {
+		t.Errorf("exit code got = %v, want %v", got, exitcode.OutputFailed)
+	}
+	if !strings.Contains(err.Error(), "rename output file") {
+		t.Errorf("error got = %q, want it to name the rename", err.Error())
+	}
+	// The temporary file is still cleaned up on this path, which is what keeps
+	// a mistyped -o from littering the directory it named.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "out.xlsx" {
+		t.Errorf("the output directory holds %v, want only the directory that was already there", entries)
 	}
 }
