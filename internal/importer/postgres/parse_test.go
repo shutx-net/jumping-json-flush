@@ -471,11 +471,17 @@ func TestParseCreateIndex(t *testing.T) {
 }
 
 func TestParseCommentOn(t *testing.T) {
+	// The two IS NULL lines remove a comment rather than setting one, so they
+	// contribute nothing to want. They are both here because they take
+	// different arms: pg_dump writes neither, but a dump edited by hand or
+	// concatenated from two others can carry either, and a version that
+	// recorded an empty comment would put an empty logicalName in the document.
 	const src = `COMMENT ON TABLE public.users IS 'ユーザー';
 COMMENT ON COLUMN public.users.email IS 'メールアドレス
 連絡先として使う';
 COMMENT ON COLUMN users.id IS 'identifier';
 COMMENT ON TABLE public.users IS NULL;
+COMMENT ON COLUMN public.users.email IS NULL;
 COMMENT ON SCHEMA public IS 'standard schema';
 COMMENT ON FUNCTION public.f() IS 'a function';
 COMMENT ON INDEX public.users_pkey IS 'an index';`
