@@ -846,6 +846,16 @@ func TestParseErrors(t *testing.T) {
 			wantLine: 2,
 			wantMsg:  "expected a type name",
 		},
+		{
+			// A truncated file, which is what a dump interrupted mid-write
+			// looks like. The line reported is the one the argument list
+			// OPENED on rather than the end of the file, so the message points
+			// at the parenthesis that was never closed.
+			name:     "unterminated type argument list",
+			src:      "CREATE TABLE public.t (\n  a numeric(10",
+			wantLine: 2,
+			wantMsg:  "unterminated type argument list",
+		},
 	}
 
 	for _, tt := range tests {

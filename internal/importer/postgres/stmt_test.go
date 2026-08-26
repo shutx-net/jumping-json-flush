@@ -414,6 +414,70 @@ func TestAnUnnamedExclusionConstraintIsWarnedAndDropped(t *testing.T) {
 	}
 }
 
+// TestTypeArgumentsAreReadWhole pins the depth tracking in typeArgs: a
+// parenthesis inside an argument must not be mistaken for the end of the
+// argument list. The input is one PostgreSQL would reject, and it is here
+// because of what happens AFTER the list is read - the argument text is handed
+// to argInt, which cannot make a number of it, drops the precision with a
+// warning and leaves the column standing. A parser that ended the list at the
+// inner parenthesis would instead fail the whole statement.
+//
+// The joined-with-spaces argument text is what typeArgs really produces; it is
+// asserted rather than tidied because that text is what the warning quotes back
+// to the user.
+func TestTypeArgumentsAreReadWhole(t *testing.T) {
+	typ := parseType(t, "numeric((10),2)")
+	if want := []string{"( 10 )", "2"}; !slices.Equal(typ.Args, want) {
+		t.Errorf("type arguments got = %q, want %q", typ.Args, want)
+	}
+
+	var d diagList
+	ct, err := normalizeType(typ, "users.c", &d)
+	if err != nil {
+		t.Fatalf("normalizeType returned error %v, want no error", err)
+	}
+	if ct.Name != "NUMERIC" {
+		t.Errorf("type name got = %q, want %q", ct.Name, "NUMERIC")
+	}
+	if ct.Precision != nil || ct.Scale != nil {
+		t.Errorf("precision/scale got = %v/%v, want both dropped", ct.Precision, ct.Scale)
+	}
+	if warnings := messages(d.all()); len(warnings) != 1 ||
+		!strings.Contains(warnings[0], `precision "( 10 )" is not a number`) {
+		t.Errorf("warnings got = %v, want one naming the unreadable precision", warnings)
+	}
+}
+
+// TestDiagnosticsRenderTheirLine is the twin of the MySQL package's test of the
+// same name. Both importers publish the same contract on their Diagnostic: a
+// zero line means the warning is about the dump as a whole and prints without a
+// line prefix.
+//
+// No importer calls warnf with a zero line today. The branch is a promise the
+// type makes in its own comment - "Pass 0 when no line applies" - to whoever
+// writes the next resolve-time warning that has no place in the file to point
+// at, and this test is the only thing holding it.
+//
+// The nil half is a separate promise: all() on an empty list returns nil rather
+// than an empty slice, which is what lets a caller treat `warnings == nil` as
+// "this dump imported cleanly".
+func TestDiagnosticsRenderTheirLine(t *testing.T) {
+	var d diagList
+	d.warnf(12, "table %s: partitioning is not imported", "parts")
+	d.warnf(0, "this dump names no database")
+
+	want := []string{
+		"line 12: table parts: partitioning is not imported",
+		"this dump names no database",
+	}
+	if got := messages(d.all()); !slices.Equal(got, want) {
+		t.Errorf("diagnostics got = %v, want %v", got, want)
+	}
+	if got := (&diagList{}).all(); got != nil {
+		t.Errorf("an empty diagList rendered %v, want nil", got)
+	}
+}
+
 // TestConstraintNameLineIsWhereTheNameWasWritten reads a column definition
 // spread over four lines, which is the only shape where the constraint's line
 // and the statement's line differ. These numbers reach the user as the

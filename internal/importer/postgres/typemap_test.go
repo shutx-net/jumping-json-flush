@@ -28,6 +28,61 @@ func parseType(t *testing.T, sql string) pgType {
 	return typ
 }
 
+// wantIntp asserts an optional numeric attribute is present and equal to want.
+// The attributes are pointers because absent and zero are different answers, so
+// a test that dereferenced without checking would panic on the failure it is
+// there to report.
+func wantIntp(t *testing.T, attr string, got *int, want int) {
+	t.Helper()
+	if got == nil {
+		t.Errorf("%s got = absent, want %v", attr, want)
+		return
+	}
+	if *got != want {
+		t.Errorf("%s got = %v, want %v", attr, *got, want)
+	}
+}
+
+// TestPgTypeRendersItselfForDiagnostics pins what pgType.String writes, which
+// reaches a user inside "type %s: array dimension bound is not imported".
+//
+// Worth recording while covering it: that warning is the only production caller
+// of the method, and it formats the pgType with %s rather than calling String
+// directly, so the method reads as more used than it is. Its MySQL sibling
+// myType.String is in the same position. Neither is deleted here - a production
+// change for coverage's sake is a worse trade than a two-line test.
+func TestPgTypeRendersItselfForDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  pgType
+		want string
+	}{
+		{
+			name: "words and arguments",
+			typ:  pgType{Words: []string{"numeric"}, Args: []string{"10", "2"}},
+			want: "numeric(10,2)",
+		},
+		{
+			name: "an array of arrays",
+			typ:  pgType{Words: []string{"integer"}, ArrayDims: 2},
+			want: "integer[][]",
+		},
+		{
+			name: "several words",
+			typ:  pgType{Words: []string{"timestamp", "without", "time", "zone"}, Args: []string{"3"}},
+			want: "timestamp without time zone(3)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.typ.String(); got != tt.want {
+				t.Errorf("String() got = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // normalize is the whole phase under test: SQL text in, columnType out.
 func normalize(t *testing.T, sql string) (columnType, []Diagnostic) {
 	t.Helper()
@@ -241,6 +296,9 @@ func TestNormalizeTypeWarnings(t *testing.T) {
 		sql         string
 		wantName    string
 		wantMessage string
+		// check states what the column kept after the parameter was dropped,
+		// for the rows where that is the whole point of the warning.
+		check func(t *testing.T, ct columnType)
 	}{
 		{
 			name:        "interval field qualifier",
@@ -284,6 +342,51 @@ func TestNormalizeTypeWarnings(t *testing.T) {
 			wantName:    "VARCHAR",
 			wantMessage: "extra parameters of type character varying are not represented",
 		},
+		{
+			// PostgreSQL has no type that takes three parameters, so this input
+			// is one the server itself would refuse. The row is here because
+			// the message is published in docs/usage.md's list of what jjf says
+			// about a clause it cannot hold, and because the promise around it
+			// is structural: the first two parameters are kept and only the
+			// third is lost. A row asserting the sentence alone would still
+			// pass if the column stopped surviving.
+			name:        "extra precision-scale parameters",
+			sql:         "numeric(10,2,3)",
+			wantName:    "NUMERIC",
+			wantMessage: "extra parameters of type numeric are not represented",
+			check: func(t *testing.T, ct columnType) {
+				wantIntp(t, "precision", ct.Precision, 10)
+				wantIntp(t, "scale", ct.Scale, 2)
+			},
+		},
+		{
+			// Same shape for the time types, which reach the parameter through
+			// a different arm because timestamp(3) is a count of fractional
+			// digits rather than a length. Also rejected by PostgreSQL.
+			name:        "extra time-precision parameters",
+			sql:         "timestamp(3,4) without time zone",
+			wantName:    "TIMESTAMP",
+			wantMessage: "extra parameters of type timestamp without time zone are not represented",
+			check: func(t *testing.T, ct columnType) {
+				wantIntp(t, "precision", ct.Precision, 3)
+			},
+		},
+		{
+			// argInt's comment says a type parameter jjf cannot record is not a
+			// reason to lose the column, and this is the only thing holding it:
+			// the length is dropped, the column keeps its type. PostgreSQL
+			// would reject a word where a number belongs, so nothing but a
+			// hand-written file reaches this.
+			name:        "a length that is not a number",
+			sql:         "character varying(n)",
+			wantName:    "VARCHAR",
+			wantMessage: `length "n" is not a number; not imported`,
+			check: func(t *testing.T, ct columnType) {
+				if ct.Length != nil {
+					t.Errorf("length got = %v, want it dropped", *ct.Length)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -291,6 +394,9 @@ func TestNormalizeTypeWarnings(t *testing.T) {
 			got, warnings := normalize(t, tt.sql)
 			if got.Name != tt.wantName {
 				t.Errorf("normalizeType(%q) name got = %v, want %v", tt.sql, got.Name, tt.wantName)
+			}
+			if tt.check != nil {
+				tt.check(t, got)
 			}
 			if len(warnings) != 1 {
 				t.Fatalf("normalizeType(%q) warnings got = %v, want exactly 1", tt.sql, warnings)
