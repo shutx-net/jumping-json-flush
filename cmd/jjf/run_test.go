@@ -580,7 +580,7 @@ func TestRunExportErrors(t *testing.T) {
 			name:       "unsupported format names every format",
 			args:       []string{"export", "markdown", "testdata/valid.json"},
 			wantCode:   2,
-			wantStderr: "supported formats: xlsx, dot, ddl",
+			wantStderr: "supported formats: xlsx, dot, svg, ddl",
 		},
 		{
 			// A format name that differs only in case is unknown, exactly as
@@ -881,6 +881,88 @@ func checkDotSource(t *testing.T, b []byte) {
 	}
 	if !strings.HasSuffix(src, "}\n") {
 		t.Errorf("the output does not end with a closing brace and one newline: %q", src[max(0, len(src)-20):])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The svg format
+// ---------------------------------------------------------------------------
+
+// TestRunExportSVGAllowsATerminal is the mirror of
+// TestRunExportDotAllowsATerminal, and it is what makes the format table's
+// binary field mean something rather than describe one entry: svg is the
+// second format the field lets through, so a later change that generalised
+// the guard to "anything that is not xlsx" or narrowed it to "anything that
+// is a diagram" would have two tests to argue with instead of one. SVG is
+// text, so writing it to a terminal garbles nothing.
+func TestRunExportSVGAllowsATerminal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /dev/null to stand in for a terminal")
+	}
+	dev, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("cannot open %s: %v", os.DevNull, err)
+	}
+	defer dev.Close()
+	if fi, err := dev.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		t.Skipf("%s is not a character device on this system", os.DevNull)
+	}
+
+	var stderr bytes.Buffer
+	if code := run([]string{"export", "svg", "testdata/valid.json", "-o", "-"}, dev, &stderr); code != 0 {
+		t.Errorf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunExportSVGIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	var runs [2][]byte
+	for i := range runs {
+		out := filepath.Join(dir, fmt.Sprintf("run%d.svg", i))
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"export", "svg", "testdata/valid.json", "-o", out}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+		runs[i] = readSVGDocument(t, out)
+	}
+	if !bytes.Equal(runs[0], runs[1]) {
+		t.Errorf("two exports differ: %d vs %d bytes", len(runs[0]), len(runs[1]))
+	}
+}
+
+// readSVGDocument reads path and checks that it is the SVG jjf writes.
+func readSVGDocument(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	checkSVGDocument(t, b)
+	return b
+}
+
+// checkSVGDocument checks that b is the SVG document jjf writes. It is a shape
+// check, not a parse, in the same spirit as checkDotSource: the exporter's own
+// tests in internal/export/svg already read the bytes back with encoding/xml
+// and make ten statements about the geometry, so what is worth checking out
+// here is that the real binary wrote a whole file to the place it was asked to.
+func checkSVGDocument(t *testing.T, b []byte) {
+	t.Helper()
+	if !utf8.Valid(b) {
+		t.Fatal("the output is not valid UTF-8")
+	}
+	src := string(b)
+	if !strings.HasPrefix(src, `<?xml version="1.0" encoding="UTF-8"?>`) {
+		t.Errorf("the output does not open with the XML declaration:\n%.80s", src)
+	}
+	if !strings.Contains(src, "<svg ") {
+		t.Errorf("the output has no svg element:\n%.200s", src)
+	}
+	if !strings.HasSuffix(src, "</svg>\n") {
+		t.Errorf("the output does not end with a closing svg element and one newline: %q", src[max(0, len(src)-20):])
 	}
 }
 
