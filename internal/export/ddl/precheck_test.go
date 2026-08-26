@@ -191,7 +191,7 @@ func TestIdentityColumnPreconditions(t *testing.T) {
 // The dbms guard
 // ---------------------------------------------------------------------------
 
-func TestAcceptRefusesAMissingDBMS(t *testing.T) {
+func TestAcceptRefusesAnAbsentDBMS(t *testing.T) {
 	doc := loadDoc(t, "minimal.json")
 	doc.Database.DBMS = ""
 
@@ -207,15 +207,18 @@ func TestAcceptRefusesAMissingDBMS(t *testing.T) {
 	}
 }
 
-func TestAcceptRefusesANonPostgreSQLDBMS(t *testing.T) {
+// TestAcceptRefusesAnUnsupportedDBMS names MariaDB rather than any dbms value
+// a later commit might start writing, so that the case stays a refusal for as
+// long as the enum has a value jjf does not write.
+func TestAcceptRefusesAnUnsupportedDBMS(t *testing.T) {
 	doc := loadDoc(t, "minimal.json")
-	doc.Database.DBMS = model.DBMSMySQL
+	doc.Database.DBMS = model.DBMSMariaDB
 
 	err := Accept(doc)
 	if err == nil {
-		t.Fatal("Accept accepted a MySQL document")
+		t.Fatal("Accept accepted a MariaDB document")
 	}
-	if want := `ddl export supports PostgreSQL only; this document names "MySQL"`; !strings.Contains(err.Error(), want) {
+	if want := `ddl export supports ` + dialectNames() + `; this document names "MariaDB"`; !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to carry %q", err, want)
 	}
 	if got := exitcode.Of(err); got != exitcode.InvalidInput {
@@ -223,20 +226,58 @@ func TestAcceptRefusesANonPostgreSQLDBMS(t *testing.T) {
 	}
 }
 
-// TestAcceptChecksDBMSBeforeFindings pins the diagnosis order: a MySQL document
-// is told its target is unsupported, not lectured about PostgreSQL's index
-// namespace, because the remedy is a different one.
+// TestAcceptChecksDBMSBeforeFindings pins the diagnosis order: a document
+// naming a target jjf does not write is told exactly that, not lectured about
+// PostgreSQL's index namespace, because the remedy is a different one - change
+// the target or change the tool, not the contents of the document.
 func TestAcceptChecksDBMSBeforeFindings(t *testing.T) {
 	doc := loadDoc(t, "refused.json")
-	doc.Database.DBMS = model.DBMSMySQL
+	doc.Database.DBMS = model.DBMSMariaDB
 
 	err := Accept(doc)
 	var re *RefusedError
 	if errors.As(err, &re) {
-		t.Fatalf("Accept reported findings for a MySQL document: %v", err)
+		t.Fatalf("Accept reported findings for a MariaDB document: %v", err)
 	}
-	if !strings.Contains(err.Error(), "supports PostgreSQL only") {
+	if !strings.Contains(err.Error(), "ddl export supports ") {
 		t.Errorf("error = %q, want the dbms message", err)
+	}
+}
+
+// TestCheckAddsNothingForADBMSWithNoDialect is the other half of the same
+// rule, on the pure function rather than on Accept: asked what is wrong with a
+// document whose target jjf has no dialect for, Check answers with what is
+// wrong with the DOCUMENT and adds not one word about any database.
+func TestCheckAddsNothingForADBMSWithNoDialect(t *testing.T) {
+	doc := loadDoc(t, "refused.json")
+	doc.Database.DBMS = model.DBMSSQLite
+
+	want := check.Document(doc)
+	got := Check(doc)
+	if len(got) != len(want) {
+		t.Fatalf("Check reported %d finding(s), want internal/check's %d alone: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("finding %d = %v, want internal/check's %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestRefusedErrorNamesItsDialect pins the one fact the error type gained when
+// this package stopped being one dialect's: a refusal says which database it
+// was refused for, and cmd/jjf prints that sentence without composing it.
+func TestRefusedErrorNamesItsDialect(t *testing.T) {
+	err := Accept(loadDoc(t, "refused.json"))
+	var re *RefusedError
+	if !errors.As(err, &re) {
+		t.Fatalf("Accept returned %v, want a *RefusedError", err)
+	}
+	if re.Dialect != "PostgreSQL" {
+		t.Errorf("the refusal names the dialect %q, want PostgreSQL", re.Dialect)
+	}
+	if want := "PostgreSQL DDL generation"; !strings.Contains(re.Error(), want) {
+		t.Errorf("summary = %q, want it to carry %q", re.Error(), want)
 	}
 }
 
@@ -266,7 +307,7 @@ func TestAcceptCarriesEveryFinding(t *testing.T) {
 // TestCheckIsDeterministic runs each fixture twice. The namespace walk keeps a
 // map, and this is what would catch it leaking into the order of the findings.
 func TestCheckIsDeterministic(t *testing.T) {
-	for _, name := range append(fixtures, "refused.json") {
+	for _, name := range append(pgFixtures, "refused.json") {
 		t.Run(name, func(t *testing.T) {
 			doc := loadDoc(t, name)
 			first, second := Check(doc), Check(doc)

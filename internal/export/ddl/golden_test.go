@@ -14,11 +14,18 @@ import (
 
 var update = flag.Bool("update", false, "update golden files")
 
-// fixtures are the documents whose rendering is frozen. Between them they hold
-// every shape the generator has to survive: full.json is the ordinary
-// document, edge.json the awkward ones, minimal.json the smallest output there
-// is, where all three optional sections vanish.
-var fixtures = []string{"full.json", "edge.json", "minimal.json"}
+// pgFixtures are the PostgreSQL documents whose rendering is frozen. Between
+// them they hold every shape that dialect's writer has to survive: full.json is
+// the ordinary document, edge.json the awkward ones, minimal.json the smallest
+// output there is, where all three optional sections vanish.
+//
+// They stay directly under testdata/ rather than moving into a testdata/pg/
+// subdirectory beside the list a second dialect will need. The move would cost
+// a rename of every golden, an edit to roundtrip.sh - which resolves a bare
+// name beside itself - and an edit to two more files that quote those paths,
+// for no behavioural gain; the asymmetry is worth this paragraph and nothing
+// else.
+var pgFixtures = []string{"full.json", "edge.json", "minimal.json"}
 
 // ---------------------------------------------------------------------------
 // Fixtures and golden files
@@ -87,7 +94,7 @@ func render(t *testing.T, doc *model.Document) string {
 }
 
 func TestGolden(t *testing.T) {
-	for _, name := range fixtures {
+	for _, name := range pgFixtures {
 		t.Run(name, func(t *testing.T) {
 			checkGolden(t, goldenName(name), render(t, loadDoc(t, name)))
 		})
@@ -99,7 +106,7 @@ func TestGolden(t *testing.T) {
 // format records local timestamps, and nothing in this package reads the clock
 // at all.
 func TestFixturesAreDeterministic(t *testing.T) {
-	for _, name := range fixtures {
+	for _, name := range pgFixtures {
 		t.Run(name, func(t *testing.T) {
 			doc := loadDoc(t, name)
 			if first, second := render(t, doc), render(t, doc); first != second {
@@ -113,7 +120,7 @@ func TestFixturesAreDeterministic(t *testing.T) {
 // fixture Accept refuses could never be rendered, so its golden would pin
 // nothing and TestGolden would fail with a refusal instead of a diff.
 func TestGoldenFixturesAreAccepted(t *testing.T) {
-	for _, name := range fixtures {
+	for _, name := range pgFixtures {
 		t.Run(name, func(t *testing.T) {
 			doc := loadDoc(t, name)
 			if err := Accept(doc); err != nil {

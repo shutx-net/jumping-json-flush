@@ -971,15 +971,19 @@ func TestExportSVGRendersWhatDDLRefuses(t *testing.T) {
 	}
 }
 
-func TestRunExportDDLRefusesANonPostgreSQLDocument(t *testing.T) {
+// TestRunExportDDLRefusesAnUnsupportedDBMS reads a SQLite document rather than
+// the MySQL one it used to, so that the case keeps testing a refusal as
+// dialects are added: the message it pins is the one a reader gets when jjf
+// writes no DDL for their target at all.
+func TestRunExportDDLRefusesAnUnsupportedDBMS(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.sql")
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"export", "ddl", "testdata/mysql.json", "-o", out}, &stdout, &stderr)
+	code := run([]string{"export", "ddl", "testdata/sqlite.json", "-o", out}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
 	}
-	if want := `jjf: ddl export supports PostgreSQL only; this document names "MySQL"`; !strings.Contains(stderr.String(), want) {
+	if want := `jjf: ddl export supports PostgreSQL; this document names "SQLite"`; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }

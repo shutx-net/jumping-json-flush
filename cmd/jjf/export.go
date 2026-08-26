@@ -236,8 +236,12 @@ func reportRefusal(stderr io.Writer, input string, err error) error {
 		return err
 	}
 	writeFindings(stderr, input, "error", re.Findings)
-	return exitcode.Wrap(exitcode.InvalidInput, "",
-		fmt.Errorf("%d problem(s) prevent PostgreSQL DDL generation", len(re.Findings)))
+	// The summary line is the refusal's own Error(), which names the dialect
+	// that refused, so err is returned unchanged and the top level prints it.
+	// It used to be re-composed here, in a package that cannot see the dialect
+	// table: one sentence written in two places is one sentence that drifts,
+	// and this one now has to name a dialect only ddl knows.
+	return err
 }
 
 // loadDocument reads, validates and decodes a database design document.
