@@ -286,10 +286,10 @@ func TestExportHeader(t *testing.T) {
 	}
 }
 
-// TestExportHeaderHasNothingNondeterministic uses the same three probes
-// internal/export/dot's header test uses, for the same reason: a version would
-// make two builds of jjf disagree about one document, a path would make the
-// output depend on where the input sat, and a year is how a timestamp shows up.
+// TestExportHeaderHasNothingNondeterministic probes for the three ways a build
+// could leak into the file: a version would make two builds of jjf disagree
+// about one document, a path would make the output depend on where the input
+// sat, and a year is how a timestamp shows up.
 func TestExportHeaderHasNothingNondeterministic(t *testing.T) {
 	out := render(t, document(linked("customers")))
 	prologue := strings.SplitN(out, "<svg", 2)[0]

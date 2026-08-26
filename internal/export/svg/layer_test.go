@@ -33,7 +33,7 @@ func TestAssignRanksSingleNode(t *testing.T) {
 }
 
 // TestAssignRanksDocumentShape is the foreign-key shape of
-// internal/export/dot/testdata/full.json: customer_profiles and orders both
+// internal/export/svg/testdata/full.json: customer_profiles and orders both
 // reference customers, orders also references coupons, and order_lines
 // references orders.
 //
@@ -61,7 +61,8 @@ func TestAssignRanksDocumentShape(t *testing.T) {
 
 	// customers 2, customer_profiles 1, orders 1, order_lines 0, coupons 2.
 	// order_lines is leftmost and the two tables nothing references are
-	// rightmost, which is the direction `jjf export dot` draws it in.
+	// rightmost, which is the direction assignRanks fixes - see the
+	// rank-direction paragraph in layer.go.
 	want := []int{2, 1, 1, 0, 2}
 	if got := assignRanks(g, g.components[0]); !slices.Equal(got, want) {
 		t.Errorf("ranks = %v, want %v", got, want)

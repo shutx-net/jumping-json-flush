@@ -12,7 +12,7 @@
 // already has one is not a supported operation and will not become one:
 // knowing how to move an existing schema from one state to another means
 // knowing the state it is in, which means introspection, which is a different
-// tool. The .sql is a build artifact exactly as the .xlsx and the .dot are -
+// tool. The .sql is a build artifact exactly as the .xlsx and the .svg are -
 // regenerate it, never edit it, never treat it as the design - and the file
 // says so in its own first two lines.
 //
@@ -73,7 +73,7 @@ const indent = "    "
 // Nothing below this function returns an error. They all write into the
 // bufio.Writer, which latches its first write error and turns every later write
 // into a no-op, so Flush is the single place a failure can surface. This is
-// internal/export/dot's structure and its reasoning applies unchanged:
+// internal/export/svg's structure and its reasoning applies unchanged:
 // threading an error through every writer would add code and a type for no
 // extra information.
 func Export(dst io.Writer, doc *model.Document) error {
@@ -324,8 +324,7 @@ func commentText(physical, logical, description string) (string, bool) {
 
 // hasIndexes, hasForeignKeys and hasComments decide whether their section
 // exists at all. A document without one must still produce a syntactically
-// complete script with no dangling section comment and no dangling blank line -
-// internal/export/dot's hasForeignKeys is the same guard for the same reason.
+// complete script with no dangling section comment and no dangling blank line.
 
 func hasIndexes(doc *model.Document) bool {
 	for i := range doc.Tables {

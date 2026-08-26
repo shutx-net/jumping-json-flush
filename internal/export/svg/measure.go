@@ -87,7 +87,7 @@ var wideRanges = [][2]rune{
 // at most 1000, has room to spare for the same reason.
 //
 // The estimate was compared against the alternative on
-// internal/export/dot/testdata/full.json: an embedded graphviz overflowed 7 of
+// internal/export/svg/testdata/full.json: an embedded graphviz overflowed 7 of
 // 24 Japanese cells and an estimate like this one overflowed 0 of 19. Both
 // numbers were measured by the author of issue #32 on a prototype that is not
 // in this tree, not on this code.
@@ -147,15 +147,15 @@ func measureText(s string) Coord {
 
 // cellColumns is the number of cells in one column row of a table box: the key
 // marker, the physical name, the logical name and the rendered type. The
-// header spans exactly this many, so the two have to move together - the same
-// pairing columnCells carries in internal/export/dot.
+// header spans exactly this many, so the two have to move together: a fifth
+// cell means editing measureTable and the header span in the same change or
+// the box comes out ragged.
 const cellColumns = 4
 
-// stubNote is the second line of a stub box, and it is the same sentence
-// internal/export/dot's stub node carries, so that the two diagrams say the
-// same thing about the same document. The stub invents nothing else: no
-// columns, no keys, no types, because the document says nothing else about
-// that table.
+// stubNote is the second line of a stub box. It says, in the picture, the one
+// thing the document does say about that table: that it does not define it.
+// The stub invents nothing else - no columns, no keys, no types - because the
+// document says nothing else about it.
 const stubNote = "(not defined in this document)"
 
 // content is one box's measured interior: the strings that go in it and where
@@ -205,9 +205,11 @@ type content struct {
 // names, then one row per column with its key marker, physical name, logical
 // name and rendered type.
 //
-// The four cell strings are exactly the four internal/export/dot writes into
-// its HTML-like label, and they come from the same place: erd answers what the
-// document says, and both diagrams draw that one answer.
+// The four cell strings come from erd, which answers what the document says
+// about a column. Measuring is this package's job; deciding what a column's
+// type reads as, or which keys it takes part in, is not, and asking erd rather
+// than reimplementing it is what keeps the picture and the workbook talking
+// about the same document.
 func measureTable(t *model.Table) *content {
 	cells := make([][]string, len(t.Columns))
 	for i := range t.Columns {

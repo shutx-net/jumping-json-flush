@@ -11,7 +11,7 @@
     {
       "name": "graph",
       "logicalName": "グラフ & <図> \"面\"\u0001",
-      "description": "DOT の予約語と同じ名前で、主キーも外部キーも持たない。logicalName の末尾の \\u0001 は意図的である: XML 1.0 の Char が許さない文字が 論理名に入りうることを示すためのもので、SVG 側の書き出しは encoding/xml の EscapeText を通すので U+FFFD に置き換わる。生のバイトでは encoding/json が 落ちるのでエスケープ表記でしか書けない。dot 側の testdata/edge.json には入れていない: dot の TestFixturesRenderWellFormedLabels が HTML 風ラベルを encoding/xml で読むので、そちらに入れると既存のテストが落ちる。",
+      "description": "主キーも外部キーも持たないので、それ自身で 1 つの連結成分になる。logicalName は & < > \" を含み、末尾の \\u0001 は意図的である: XML 1.0 の Char が許さない文字が論理名に入りうることを示すためのもので、書き出しは encoding/xml の EscapeText を通すので U+FFFD に置き換わる。生のバイトでは encoding/json が落ちるので、エスケープ表記でしか書けない。",
       "columns": [
         {
           "name": "id",

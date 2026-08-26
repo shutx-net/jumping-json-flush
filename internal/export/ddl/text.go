@@ -12,12 +12,9 @@ import "strings"
 // preserves case: an unquoted Orders would reach PostgreSQL as orders and the
 // database would stop matching the document.
 //
-// Doubling an embedded quote is defensive rather than reachable - that pattern
-// forbids one - exactly as internal/export/dot's escapeString is.
-//
-// This is not dot's quoteID and deliberately does not share with it: DOT
-// escapes a backslash and a double quote with a backslash, SQL doubles the
-// delimiter and must leave a backslash alone. Same shape, different alphabet.
+// Doubling an embedded quote is defensive rather than reachable: that pattern
+// forbids one. It is here so that a future caller passing freer text cannot
+// open a hole, and the unit tests are the only place it is exercised.
 func quoteIdent(s string) string { return `"` + doubled(s, '"') + `"` }
 
 // quoteLiteral writes s as a SQL string literal.
@@ -41,10 +38,10 @@ func quoteLiteral(s string) string { return `'` + doubled(s, '\'') + `'` }
 
 // doubled returns s with every occurrence of c doubled.
 //
-// One pass, byte by byte, for the reason internal/export/dot/text.go gives:
-// chained replacements can escape their own output. Bytes of a multibyte UTF-8
-// sequence are all >= 0x80 and fall through untouched, so Japanese text
-// survives unchanged.
+// One pass, byte by byte: chained replacements can escape their own output,
+// and a sequence that handled the delimiter last would double what it had just
+// doubled. Bytes of a multibyte UTF-8 sequence are all >= 0x80 and fall through
+// untouched, so Japanese text survives unchanged.
 func doubled(s string, c byte) string {
 	var b strings.Builder
 	b.Grow(len(s))

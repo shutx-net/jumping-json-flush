@@ -67,10 +67,9 @@ func TestRenderType(t *testing.T) {
 	}
 }
 
-// TestMarker pins the whole mapping, the two empty answers included. Until this
-// package existed the rule was asserted only through rendered DOT, where a
-// wrong marker is one cell among four in one row of a golden file; here the
-// answer for one column is the whole assertion.
+// TestMarker pins the whole mapping, the two empty answers included, so that a
+// wrong marker is one failing assertion about one column rather than one cell
+// among four in one row of a golden file.
 func TestMarker(t *testing.T) {
 	// One table carries most of the cases so that the rows below differ in the
 	// column asked about and nothing else: id is the primary key alone,
@@ -134,7 +133,7 @@ func TestMarker(t *testing.T) {
 
 // TestEdgeLabel pins the fallback. It matters that the label is never empty:
 // two foreign keys between the same pair of tables are told apart by nothing
-// else, and internal/export/dot/testdata/edge.json holds exactly that pair.
+// else, and internal/export/svg/testdata/edge.json holds exactly that pair.
 func TestEdgeLabel(t *testing.T) {
 	tests := []struct {
 		name string

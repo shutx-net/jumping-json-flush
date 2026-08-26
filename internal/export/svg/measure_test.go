@@ -135,8 +135,8 @@ func ordersTable() *model.Table {
 func TestMeasureTable(t *testing.T) {
 	c := measureTable(ordersTable())
 
-	// The four cells are the four internal/export/dot writes, and they come
-	// from erd: this asserts the wiring, not the derivation.
+	// The four cells come from erd: this asserts the wiring, not the
+	// derivation, which internal/export/erd's own tests pin.
 	wantCells := [][]string{
 		{"PK", "id", "受注ID", "BIGINT"},
 		{"", "note", "備考", "VARCHAR(255)"},

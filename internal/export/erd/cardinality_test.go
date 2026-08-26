@@ -317,8 +317,6 @@ func TestParentEnd(t *testing.T) {
 // because it says it about BOTH ends at once: an inference that lands a minimum
 // on the wrong end swaps two values in one row here, where a reader sees the
 // whole relationship, rather than flipping one bool in a table about one side.
-// internal/export/dot's TestArrowStringsOfEachForeignKeyShape is the same table
-// again in the arrow types that reach the .dot file.
 func TestEndsOfEachForeignKeyShape(t *testing.T) {
 	tests := []struct {
 		name          string
