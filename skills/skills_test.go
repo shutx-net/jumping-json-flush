@@ -42,6 +42,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shutx-net/jumping-json-flush/internal/export/ddl"
+	"github.com/shutx-net/jumping-json-flush/internal/model"
 	schemadata "github.com/shutx-net/jumping-json-flush/schema"
 )
 
@@ -54,6 +56,15 @@ const skillFile = "SKILL.md"
 
 // fieldsReference is the reference file that reproduces the schema's enum values.
 var fieldsReference = filepath.Join("references", "fields.md")
+
+// The two reference files that tell an agent which database systems jjf writes
+// DDL for. ddlReference describes the script; typesReference is where a type is
+// chosen, and choosing one from a column jjf never reads is the mistake that
+// makes the claim worth a test.
+var (
+	ddlReference   = filepath.Join("references", "ddl-output.md")
+	typesReference = filepath.Join("references", "types.md")
+)
 
 // japaneseGuide is the human-facing Japanese guide. It sits outside skills/ on
 // purpose: an agent reads the English skill, and this document exists so that a
@@ -286,6 +297,116 @@ func TestDesignFormatReferenceListsEveryEnumValue(t *testing.T) {
 // accepts.
 func TestJapaneseGuideListsEveryEnumValue(t *testing.T) {
 	assertMentionsEveryEnumValue(t, japaneseGuide)
+}
+
+// TestDDLReferenceNamesEverySupportedDialect holds references/ddl-output.md to
+// the dialects internal/export/ddl actually writes.
+//
+// The set is not a literal here. It is derived by asking the exporter itself,
+// once per value of the schema's dbms enum, because a literal would pass while
+// lying: the day a third dialect ships, a hard-coded {PostgreSQL, MySQL} would
+// go on agreeing with itself and nothing would demand a word of documentation.
+// This way, adding a dialect fails this test until the reference names it.
+func TestDDLReferenceNamesEverySupportedDialect(t *testing.T) {
+	assertNamesEverySupportedDialect(t, filepath.Join(skillDir, ddlReference))
+}
+
+// TestTypesReferenceNamesEverySupportedDialect applies the same check to the
+// type reference, which carries a column per DBMS and a note saying which of
+// those columns "jjf export ddl" actually reads. A dialect missing from that
+// note is a column an agent has no reason to treat as load-bearing.
+func TestTypesReferenceNamesEverySupportedDialect(t *testing.T) {
+	assertNamesEverySupportedDialect(t, filepath.Join(skillDir, typesReference))
+}
+
+// TestSkillDescriptionMentionsBothImportDialects guards the frontmatter
+// description, which is what decides whether the skill loads at all. An agent
+// asked to build a document from a MySQL database never reaches the command
+// table if the description does not say that jjf can do it, so the dialect
+// names have to appear in the one field a host reads before anything else.
+//
+// The subcommand spellings are checked and not the display names: "jjf import
+// mysql" is what an agent types.
+func TestSkillDescriptionMentionsBothImportDialects(t *testing.T) {
+	path := filepath.Join(skillDir, skillFile)
+	fm, err := readFrontmatter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	description := fm.values["description"]
+	for _, want := range []string{"jjf import postgres", "jjf import mysql", "pg_dump", "mysqldump"} {
+		if !strings.Contains(description, want) {
+			t.Errorf("%s: the frontmatter description does not mention %q, so an agent asked about it may never load the skill",
+				path, want)
+		}
+	}
+}
+
+// assertNamesEverySupportedDialect checks that the document at path names every
+// dialect "jjf export ddl" writes.
+//
+// supportedDialects is what makes this a drift check rather than a restatement:
+// it asks internal/export/ddl, which is the only package that knows.
+func assertNamesEverySupportedDialect(t *testing.T, path string) {
+	t.Helper()
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	for _, name := range supportedDialects(t) {
+		if !bytes.Contains(src, []byte(name)) {
+			t.Errorf("%s does not mention %q, a database system jjf export ddl writes DDL for",
+				path, name)
+		}
+	}
+}
+
+// supportedDialects returns the dbms values internal/export/ddl writes, by
+// offering that package one trivially valid document per value of the schema's
+// dbms enum and seeing which ones it declines to reject.
+//
+// It goes through the exported Accept rather than through the dialect table,
+// which is unexported and should stay that way: the table is that package's
+// business, and widening its seam so that a documentation test can read it
+// would be the test dictating the design. What Accept answers is exactly the
+// question the documentation makes a claim about - would jjf write DDL for a
+// document naming this system - so the indirection costs nothing.
+//
+// The document is deliberately the smallest one that passes every check both
+// dialects make, so that the only reason Accept can refuse it is the dbms
+// value. A column that is nullable, has no default and is not autoIncrement,
+// in a table with no keys and no indexes, is that document. VARCHAR is avoided
+// because MySQL refuses one with no length.
+func supportedDialects(t *testing.T) []string {
+	t.Helper()
+
+	var supported []string
+	for _, value := range enumOf(t, "dbms") {
+		doc := &model.Document{
+			FormatVersion: model.CurrentFormatVersion,
+			Database:      model.Database{Name: "d", DBMS: model.DBMS(value)},
+			Tables: []model.Table{{
+				Name:        "t",
+				LogicalName: "t",
+				Columns: []model.Column{{
+					Name:        "c",
+					LogicalName: "c",
+					Type:        "INTEGER",
+					Nullable:    true,
+				}},
+			}},
+		}
+		if err := ddl.Accept(doc); err != nil {
+			continue
+		}
+		supported = append(supported, value)
+	}
+	if len(supported) == 0 {
+		t.Fatal("internal/export/ddl accepted no dbms value at all; the probe document is wrong, not the documentation")
+	}
+	return supported
 }
 
 // assertMentionsEveryEnumValue checks that the document at path reproduces every

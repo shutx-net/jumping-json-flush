@@ -1,6 +1,6 @@
 ---
 name: db-design
-description: Edits and validates jjf database design JSON, then regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx; change the JSON and export again. Covers table definitions, column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a PostgreSQL dump with jjf import postgres, JSON Schema validation with jjf validate, Excel export with jjf export xlsx, ER diagram export with jjf export svg, and PostgreSQL DDL export with jjf export ddl. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL database or a pg_dump file, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、ER図の SVG 出力、PostgreSQL の DDL 出力、既存DBからの設計書起こし、pg_dump の取り込み。
+description: Edits and validates jjf database design JSON and regenerates the Excel design document from it. The JSON is the single source of truth — never edit the generated .xlsx. Covers table and column definitions, data types, nullability, defaults, primary keys, foreign keys, indexes, bootstrapping a document from a pg_dump or mysqldump file with jjf import postgres and jjf import mysql, JSON Schema validation with jjf validate, Excel export with jjf export xlsx, ER diagram export with jjf export svg, and PostgreSQL or MySQL DDL export with jjf export ddl. Use when a repository holds a db-design.json, when asked to add or change a table, column, index, primary key or foreign key, when asked to update a database design document or DB schema, when asked to build a design document from an existing PostgreSQL or MySQL database, or when jjf validate fails. 日本語の依頼でも使う - DB設計、データベース設計書、テーブル定義、カラム定義、外部キー、インデックス、スキーマ検証、Excel出力、ER図の SVG 出力、PostgreSQL と MySQL の DDL 出力、既存DBからの設計書起こし、pg_dump と mysqldump の取り込み。
 license: MIT
 compatibility: Requires the jjf CLI on PATH. Follows the Agent Skills specification and uses only the frontmatter fields it defines, so the same directory loads unchanged in Claude Code, Codex, GitHub Copilot and other conforming hosts, as a claude.ai skill upload, and from the Anthropic Agent SDK.
 allowed-tools:
@@ -19,8 +19,8 @@ metadata:
 ## Overview
 
 `jjf` keeps a database design in a JSON document — called `db-design.json`
-below — and renders it as an Excel workbook, as an SVG ER diagram it draws
-itself, or as a PostgreSQL DDL script. The JSON is the single source of truth.
+below — and renders it as an Excel workbook, an SVG ER diagram it draws itself,
+or a DDL script in the dialect it names. The JSON is the single source of truth.
 Every generated file is a derived artifact: it is rebuilt from scratch on every
 export and is byte-identical for identical input.
 
@@ -40,7 +40,7 @@ how to recover when validation fails.
 - Add a table; add, change or remove a column; change a type; add an index or a key
 - Update the database design document, the DB schema, or the Excel design document
 - `jjf validate` failed and the document has to be fixed
-- Author a new jjf database design document, from scratch or from a `pg_dump` file
+- Author a new jjf database design document, from scratch or from a `pg_dump` or `mysqldump` file
 
 ## Authoritative sources
 
@@ -133,13 +133,14 @@ duplicates.
 | Command | Effect |
 | --- | --- |
 | `jjf import postgres schema.sql -o db-design.json` | Builds a document from a `pg_dump --schema-only` file, validating it before writing |
+| `jjf import mysql schema.sql -o db-design.json` | The same from a `mysqldump --no-data` file; `-schema` is an error here, because a MySQL schema is a database |
 | `jjf validate db-design.json` | Validates the structure, then reports what the document contradicts as warnings; prints `db-design.json: OK` |
 | `jjf validate -strict db-design.json` | Same, but any warning fails the run with exit code 2 |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | Validates, then writes the workbook and prints `db-design.xlsx: written` |
 | `jjf export xlsx db-design.json` | Same, writing next to the input with the extension replaced |
 | `jjf export xlsx db-design.json -o -` | Writes to standard output; refused when that is a terminal, because a workbook is binary |
 | `jjf export svg db-design.json -o er.svg` | Validates, then draws the ER diagram itself and writes it as SVG |
-| `jjf export ddl db-design.json -o schema.sql` | Validates, refuses a document that contradicts itself, then writes a PostgreSQL DDL script; PostgreSQL only |
+| `jjf export ddl db-design.json -o schema.sql` | Validates, refuses a document that contradicts itself, then writes a DDL script in the dialect `database.dbms` names: PostgreSQL and MySQL |
 | `jjf version` | Prints the tool version |
 
 Success goes to standard output; errors and usage go to standard error.
@@ -178,7 +179,7 @@ upgrade `jjf` rather than rewriting the document.
 
 A complete working document lives at `examples/db-design.example.json` in the
 jjf repository — a template for a new document written by hand. When the database
-already exists, `jjf import postgres` is the shorter path; see the recipe.
+already exists, `jjf import postgres` or `jjf import mysql` is shorter; see the recipe.
 
 ## Out of scope
 
@@ -189,7 +190,7 @@ that pretends otherwise.
   and naming conventions are the author's, and so are type compatibility across a
   foreign key and duplicate table names — those stay unchecked. What `jjf
   validate` does check is in [references/errors.md](references/errors.md).
-- Connecting to a database. A schema is imported from a `pg_dump` **file**, never from a live server
+- Connecting to a database. A schema is imported from a `pg_dump` or `mysqldump` **file**, never from a live server
 - Migrations, schema diffs, breaking-change detection
 - Mermaid or Markdown output, and no PNG or PDF: an ER diagram is vector output
   (`.svg`) and `jjf` never rasterises — that is a font problem, not a layout one

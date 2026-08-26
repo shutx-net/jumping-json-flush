@@ -105,7 +105,10 @@ Matched exactly, case included. `"postgres"`, `"MSSQL"` and `"SQL Server"` all
 fail validation.
 
 The field is descriptive for every command except `jjf export ddl`, which
-requires it and requires it to be `"PostgreSQL"`.
+requires it and writes the dialect it names. `"PostgreSQL"` and `"MySQL"` are
+written; the other four are refused with exit code 2, because a dialect ships
+only once an importer and a live-server round trip can check it end to end. See
+[ddl-output.md](ddl-output.md).
 
 ## `onUpdate` / `onDelete` — exactly these five values
 

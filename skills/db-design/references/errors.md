@@ -112,15 +112,68 @@ does. `xlsx` and `svg` render the same document happily, because a slightly
 broken document still makes a useful workbook and a useful diagram. See
 [ddl-output.md](ddl-output.md).
 
+The dialect named in the summary line is the document's own — `PostgreSQL DDL
+generation` for a PostgreSQL document and `MySQL DDL generation` for a MySQL
+one — so match the shape of the line and not one spelling of it. The findings
+below the summary differ by dialect too, because each states a fact about one
+database system.
+
 | Output | Cause | Fix |
 | --- | --- | --- |
-| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"` | `database.dbms` is absent; this is the only command that requires it | add `"dbms": "PostgreSQL"` — but only if that really is the target |
-| `jjf: ddl export supports PostgreSQL only; this document names "MySQL"` | the document targets another system | `jjf` generates no DDL for it; say so rather than producing PostgreSQL SQL |
-| `db-design.json: error: <finding>` followed by `jjf: 2 problem(s) prevent PostgreSQL DDL generation` | the document contradicts itself | one line per problem, in the shapes listed above. Run `jjf validate` and fix what it reports |
+| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" or "MySQL" to "database"` | `database.dbms` is absent; this is the only command that requires it | add the value that really is the target |
+| `jjf: ddl export supports PostgreSQL, MySQL; this document names "MariaDB"` | the document targets one of the four systems `jjf` writes no DDL for | say so plainly. Do **not** offer the MySQL script as near enough for MariaDB, and do not offer PostgreSQL SQL and hope |
+| `db-design.json: error: <finding>` followed by `jjf: 2 problem(s) prevent <dialect> DDL generation` | the document contradicts itself | one line per problem, in the shapes listed above and below. Run `jjf validate` and fix what it reports |
+
+PostgreSQL only:
+
+| Output | Cause | Fix |
+| --- | --- | --- |
 | `db-design.json: error: table order_items: declares index "ix_created", a name already used by index ix_created on table orders; PostgreSQL puts tables, indexes and the indexes behind PRIMARY KEY and UNIQUE in one namespace per schema` | two objects share a name PostgreSQL keeps in one schema-wide namespace: tables, indexes, `PRIMARY KEY` and `UNIQUE` names | rename one. Foreign key names are per table and may repeat |
 | `db-design.json: error: table orders: is the second table this document calls "orders"; PostgreSQL cannot create two tables of one name in a schema` | the document defines one table name twice; `jjf validate` does not report this | rename or remove one |
 | `db-design.json: error: column id on table orders: is autoIncrement and also declares a default; PostgreSQL refuses a column that is both an identity column and has a DEFAULT` | a column carries `autoIncrement` and `default` | drop one of the two |
 | `db-design.json: error: column id on table orders: is autoIncrement and declared nullable; PostgreSQL makes an identity column NOT NULL, so the database would not match the document` | an `autoIncrement` column says `"nullable": true` | set `"nullable": false` |
+
+MySQL only. The namespaces are the mirror image of PostgreSQL's: table names are
+schema-wide in both, but index names are **per table** here and foreign key names
+are **schema-wide**, which is the opposite of PostgreSQL on both counts.
+
+| Output | Cause | Fix |
+| --- | --- | --- |
+| `db-design.json: error: table orders: is the second table this document calls "orders"; MySQL cannot create two tables of one name in a schema` | the document defines one table name twice; `jjf validate` does not report this | rename or remove one |
+| `db-design.json: error: table order_items: declares foreign key "fk_parent", a name already used by foreign key fk_parent on table orders; InnoDB keeps foreign key names in one namespace per schema` | two foreign keys share a name; this is what PostgreSQL permits and MySQL does not | rename one, conventionally after the referencing table |
+| `db-design.json: error: column spare on table counters: is autoIncrement, and so is column "id" on the same table; MySQL allows one AUTO_INCREMENT column per table` | two `autoIncrement` columns in one table | keep one; the other is an ordinary column |
+| `db-design.json: error: column seq on table sequences: is autoIncrement and leads no key; MySQL needs it to be the first column of this table's primaryKey or of one of its uniqueKeys, and an entry in indexes cannot serve because the script creates it after the table` | an `autoIncrement` column leads no key | make it the first column of `primaryKey` or of a `uniqueKeys` entry. An `indexes` entry does not count |
+| `db-design.json: error: column id on table tallies: is autoIncrement and also declares a default; MySQL refuses a default on an AUTO_INCREMENT column` | a column carries `autoIncrement` and `default` | drop the `default` |
+| `db-design.json: error: column id on table drafts: is autoIncrement and declared nullable; MySQL makes an AUTO_INCREMENT column NOT NULL, so the database would not match the document` | an `autoIncrement` column says `"nullable": true` | set `"nullable": false` |
+| `db-design.json: error: table documents: declares index "ix_documents_body" over column "body", whose type is TEXT; MySQL refuses such a column in a key without a prefix length, which the document has nowhere to put` | a key or index covers a `TEXT`, `BLOB` or `JSON` column | drop the index, or index a `VARCHAR` column beside it. A prefix length cannot be expressed |
+| `db-design.json: error: column name on table labels: declares type "VARCHAR" and no length; MySQL has no default length for it, so the column would be a syntax error rather than a column` | `VARCHAR` or `VARBINARY` with no `length` | add `"length"`. `CHAR`, `BINARY`, `BIT` and `DECIMAL` have server defaults and need none |
+
+`SET DEFAULT` as a referential action produces **no** message and is not a
+refusal: MySQL 8 accepts the clause, stores it and dumps it back, and InnoDB
+simply never performs it. An `ENUM` or a `SET` without its values is not a
+refusal either — that script parses here and fails on the server. Both are in
+[ddl-output.md](ddl-output.md) under what the format cannot hold.
+
+## `jjf import` failures (exit code 2)
+
+`import` reads a dump **file** and never a server. It skips what it cannot map
+in silence, warns about what it maps but cannot hold, and fails outright only
+when the document it would write is not one it could then read back.
+
+| Output | Cause | Fix |
+| --- | --- | --- |
+| `jjf: unsupported dialect "oracle"; supported dialects: postgres, mysql` | a dialect `jjf` has no importer for | the two are `postgres`, for `pg_dump --schema-only`, and `mysql`, for `mysqldump --no-data` |
+| `jjf: -schema does not apply to the mysql dialect: a mysql dump holds one database, which is what the document describes` | `-schema` on a MySQL import | drop the flag. It belongs to `postgres` alone, where a database holds many schemas |
+| `jjf: schema.sql: line 6: table name "order-items" cannot be represented in a jjf document: names must match ^[A-Za-z_][A-Za-z0-9_]*$ and be at most 128 characters` | MySQL allows almost any character inside backticks, and the design format does not | rename the object in the database, or leave it out of the document. **Never** rename it in the JSON alone: the document would then describe a database that does not exist |
+| `jjf: schema.sql: database name "shop-2024" cannot be represented in a jjf document: names must match ^[A-Za-z_][A-Za-z0-9_]*$ and be at most 128 characters; pass -database <name>` | the dump's own database name is not a legal identifier | do what the message says: `-database <name>` |
+| `jjf: schema.sql: line 24: expected "," or ")" in table definition, got end of statement` | the file is truncated or is not a dump | check the file; `import` never guesses at a repair |
+| `jjf: 11 warning(s) with -strict` | `-strict` and the dump carries something the format cannot hold | read the warnings. Without `-strict` the document is still written and each warning names a line |
+
+A warning is not a failure. `ON UPDATE CURRENT_TIMESTAMP is not represented`,
+`parameters of type bigint are not represented` and
+`dump was produced by MySQL server 5.7.44-log; jjf supports 8 and may misread
+this file` all leave a document behind; they say what the format could not carry
+across, and each names the line it came from.
 
 ## Output failures (exit code 4)
 

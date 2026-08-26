@@ -60,7 +60,7 @@
 - テーブルを追加する。カラムを追加・変更・削除する。型を変える。インデックスやキーを張る
 - DB 設計書、DB スキーマ、Excel 設計書の更新を依頼された
 - `jjf validate` が失敗し、文書を直す必要がある
-- jjf 形式の DB 設計文書を新規に作る（ゼロから、または `pg_dump` の出力から）
+- jjf 形式の DB 設計文書を新規に作る（ゼロから、または `pg_dump` / `mysqldump` の出力から）
 
 ## 権威ある入力
 
@@ -260,6 +260,11 @@ enum の許容値は、試行錯誤せず一発で正しく書けるように全
 
 大文字小文字を含めて完全一致。`"postgres"` / `"MSSQL"` / `"SQL Server"` はすべて検証エラーになる。
 
+6 つすべてが `xlsx` と `svg` の対象だが、`jjf export ddl` が DDL を書けるのは
+`PostgreSQL` と `MySQL` の 2 つだけである。残る 4 つは終了コード 2 で拒否される。
+方言を増やすのは、取り込みと CI の実機往復で端から端まで検査できるようになってからで
+あり、MariaDB が MySQL と語彙を共有していても出力対象にならないのはそのためである。
+
 ### onUpdate と onDelete
 
 許容値はこの 5 つだけである。
@@ -318,16 +323,35 @@ enum の許容値は、試行錯誤せず一発で正しく書けるように全
 
 補足:
 
+- **この表のうち 2 列は生成に効く。** `jjf export ddl` は `database.dbms` に対応する列を
+  読み、書き分けるのは **PostgreSQL** と **MySQL** の 2 方言である。残る 4 つには
+  1 バイトも出力せず終了コード 2 で拒否するので、それらの列は DDL を手で書く人向けの
+  助言にとどまる。MariaDB は語彙を MySQL と共有するので列も共有しているが、出力対象
+  ではない。理由は型ではなく、取り込みと実機往復で検査できるかどうかである。
 - `NVARCHAR MAX` は、pattern が禁じている括弧を外して `NVARCHAR(MAX)` を表した綴りである。
   SQL Server の DDL を手で書く人が括弧を戻せるよう、`description` に「MAX 長」と
-  書いておく。`jjf export ddl` は PostgreSQL しか生成せず、この表の PostgreSQL 列しか
-  読まないので、括弧を戻すことはない。
+  書いておく。
 - `jjf export ddl` が知らない型は、名前がそのまま通り、パラメータは
   `length` → `precision` + `scale` → `precision` の優先順で再現される。
 - SQLite は型そのものではなく型親和性しか持たないため、`TEXT` / `INTEGER` / `REAL` /
   `BLOB` / `NUMERIC` に寄せる。
-- MySQL の `TINYINT` を真偽値に使う場合は `"length": 1` を添える慣例がある。
 - Oracle の `NUMBER` は `precision` と `scale` で用途を表す — 整数なら `"scale": 0`。
+
+MySQL を対象にする場合、生成される DDL が動くかどうかに直結する規則が 4 つある。
+
+- **`VARCHAR` と `VARBINARY` には `length` が要る。** MySQL に既定長が無いため、
+  `jjf export ddl` は構文エラーになる列を書くのではなく文書を拒否する。`CHAR`・
+  `BINARY`・`BIT`・`DECIMAL` はサーバ側に既定があるので不要である。
+- **`ENUM` と `SET` は表現できない。** 値リストの置き場がフォーマットに無いため、
+  `"type": "ENUM"` は値の無い `ENUM` になる。構文解析は通り、実行で落ちるスクリプトに
+  なるということである。PostgreSQL 列でユーザ定義型が抱える限界の MySQL 側の顔であり、
+  `VARCHAR` と文書外の `CHECK` で表すか、DDL に手を入れる前提で使う。
+- **真偽値の慣例は `TINYINT` に `"length": 1`** であり、MySQL から取り込むと必ずこの形に
+  なる。長さを保つ整数型は `TINYINT` だけで、他は落とす。表示幅が非推奨になり
+  `mysqldump` も書かなくなったからである。
+- **`UNSIGNED` は型名の一部**として書く（`"type": "BIGINT UNSIGNED"`）。schema の
+  pattern が空白を許すので通る。生成される DDL ではパラメータの後ろに置かれ、
+  `DECIMAL(10,2) UNSIGNED` となる。
 
 ## 編集レシピ
 
@@ -370,6 +394,33 @@ jjf import postgres schema.sql -o db-design.json
 
 取り込みに失敗した場合、ファイルは一切書かれない — 組み立てた文書を検証してから
 ディスクに触るため、書きかけの文書が残ることはない。
+
+### MySQL のダンプから初期化する
+
+もう一方の方言でも手順は同じで、効いているフラグが違う。
+
+```sh
+mysqldump --no-data --skip-dump-date --default-character-set=utf8mb4 mydb > schema.sql
+jjf import mysql schema.sql -o db-design.json
+```
+
+**スキーマのダンプにしているのは `--no-data` である。** 素の `mysqldump` は行も全部
+書き出すので、それは `jjf import` に渡すものではない。残る 2 つも毎回打つ価値がある。
+`--skip-dump-date` は実行ごとに変わる唯一の行を消し、`--default-character-set=utf8mb4`
+はクライアントが latin1 を交渉して日本語の `COMMENT` を二重に符号化するのを止める。
+そうやって日本語を失ったダンプも問題なく取り込めてしまうので、症状は文書の中の
+文字化けだけになる。
+
+扱えるのは MySQL 8 系サーバの `mysqldump --no-data` 出力である。論理名と警告について
+上に書いた 2 点はそのまま当てはまる。MySQL で保持できないものとしてさらに加わるのは、
+`ENUM` と `SET` の値リスト、`ON UPDATE CURRENT_TIMESTAMP`、生成カラム、索引の前置長、
+索引の昇降順、`FULLTEXT` と `SPATIAL` 索引、パーティション、そして表オプション
+（エンジン・文字集合・照合順序・行フォーマット）である。トリガ・ビュー・ルーチンは
+そもそも設計文書の対象ではないので、黙って読み飛ばす。
+
+`-database` と `-strict` は上と同じ意味である。**`-schema` はここではエラーになる。**
+何もしないフラグとして受け入れるのではなく拒否する。MySQL では schema がすなわち
+データベースであり、選ぶべき第二の階層が無いからである。
 
 ### テーブルを追加する
 
@@ -568,13 +619,14 @@ jjf import postgres schema.sql -o db-design.json
 | コマンド | 動作 |
 | --- | --- |
 | `jjf import postgres schema.sql -o db-design.json` | `pg_dump --schema-only` の出力から文書を組み立てる。書き出す前に検証する |
+| `jjf import mysql schema.sql -o db-design.json` | `mysqldump --no-data` の出力から同じことをする。`-schema` はここではエラーになる |
 | `jjf validate db-design.json` | 構造を検証し、続けて文書が自分自身と矛盾していないかを警告として報告する。`db-design.json: OK` を出力する |
 | `jjf validate -strict db-design.json` | 同じ。ただし警告が 1 件でもあれば終了コード 2 で失敗する |
 | `jjf export xlsx db-design.json -o db-design.xlsx` | 検証してからブックを書き、`db-design.xlsx: written` を出力する |
 | `jjf export xlsx db-design.json` | 同じ。入力の隣に、拡張子を置き換えた名前で出力する |
 | `jjf export xlsx db-design.json -o -` | 標準出力へ書く。`xlsx` はバイナリなので端末に直接出そうとした場合は拒否される |
 | `jjf export svg db-design.json -o er.svg` | 検証してから ER 図を `jjf` 自身が描き、SVG として書く |
-| `jjf export ddl db-design.json -o schema.sql` | 検証し、自分自身と矛盾する文書は拒否したうえで、PostgreSQL の DDL スクリプトを書く。PostgreSQL 専用 |
+| `jjf export ddl db-design.json -o schema.sql` | 検証し、自分自身と矛盾する文書は拒否したうえで、`database.dbms` が名乗る方言の DDL スクリプトを書く。書けるのは PostgreSQL と MySQL |
 | `jjf version` | ツールのバージョンを出力する |
 
 成功メッセージは標準出力、エラーと usage は標準エラーに出る。
@@ -677,7 +729,10 @@ db-design.json: warning: column created_at on table orders: declares the default
 助言しないこと。テーブル名の文書内での重複と、外部キー両端の型互換性も検査しない。
 インデックス名の schema 全体での一意性は `jjf validate` の検査対象ではない — 文書についての
 言明ではなく PostgreSQL の規則だからである — が、`jjf export ddl` は書き出す前にこれを
-検査する。`default` は式として読むだけで評価はしない。`jjf` はそれを実行せず、カラムの
+検査する。同じ形の規則が MySQL では裏返る。索引名は表ごとなので衝突してよく、代わりに
+外部キー名が schema 全体で一意でなければならない。どちらも「文書について」ではなく
+「その DBMS について」の言明なので、検査するのは `ddl` だけであり、文書が名乗る方言に
+よって内容が変わる。`default` は式として読むだけで評価はしない。`jjf` はそれを実行せず、カラムの
 `type` と突き合わせもせず、知らない関数が書いてあっても文句を言わない。
 
 ### 検証以前に落ちるもの（終了コード 2）
@@ -688,9 +743,9 @@ db-design.json: warning: column created_at on table orders: declares the default
 | `jjf: open db-design.json: no such file or directory` | パスの誤り | パスを確認する |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | この `jjf` より新しいフォーマットの文書 | `jjf` を更新する。**JSON を書き換えて回避しない** |
 | `jjf: unsupported format "csv"; supported formats: xlsx, svg, ddl` | 存在しない出力形式 | 形式は `xlsx`・`svg`・`ddl` |
-| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"` | `database.dbms` が無い。これを必須とするのは `jjf export ddl` だけである | 対象が本当に PostgreSQL なら `"dbms": "PostgreSQL"` を書く |
-| `jjf: ddl export supports PostgreSQL only; this document names "MySQL"` | 文書が別の DBMS を対象にしている | `jjf` はその DBMS の DDL を生成しない |
-| `db-design.json: error: <指摘>` に続く `jjf: 2 problem(s) prevent PostgreSQL DDL generation` | 文書が自分自身と矛盾している。`ddl` だけがこれを拒否する | `jjf validate` を実行して指摘を直す。表名・索引名・`PRIMARY KEY` と `UNIQUE` の名前の schema 全体での衝突と、identity 列の 2 つの前提は、`ddl` だけが検査する |
+| `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" or "MySQL" to "database"` | `database.dbms` が無い。これを必須とするのは `jjf export ddl` だけである | 本当の対象を書く |
+| `jjf: ddl export supports PostgreSQL, MySQL; this document names "MariaDB"` | 文書が、DDL を書けない 4 つの DBMS のいずれかを対象にしている | `jjf` はその DBMS の DDL を生成しない。MariaDB に MySQL のスクリプトを「ほぼ同じ」として渡さないこと |
+| `db-design.json: error: <指摘>` に続く `jjf: 2 problem(s) prevent <方言> DDL generation` | 文書が自分自身と矛盾している。`ddl` だけがこれを拒否する | 要約行が名乗る方言は文書自身のものである（PostgreSQL 文書なら `PostgreSQL DDL generation`、MySQL 文書なら `MySQL DDL generation`）。`jjf validate` を実行して指摘を直す。schema 全体での名前の衝突と `autoIncrement` 列の前提は `ddl` だけが検査し、その内容は方言ごとに違う |
 | `jjf: validate takes exactly one input file, got 0` | 入力パスを渡していない | パスを渡す |
 | `jjf: refusing to write a workbook to the terminal; redirect standard output or pass -o <file>` | 標準出力が端末の状態で `-o -` を使った | リダイレクトする、またはファイルパスを渡す |
 
@@ -792,7 +847,7 @@ CI での比較を可能にするためである。
   書く側の責任である。外部キー両端の型互換性、テーブル名の文書内での重複も未検査である
   （文書が自分自身と矛盾していないかは `jjf validate` が検査し、警告として報告する。
   [jjf の使い方](usage.ja.md#参照整合性の検査) を見よ）
-- 実データベースへの接続。スキーマの取り込みは `pg_dump` の**ファイル**からのみで、稼働中のサーバには接続しない
+- 実データベースへの接続。スキーマの取り込みは `pg_dump` / `mysqldump` の**ファイル**からのみで、稼働中のサーバには接続しない
 - マイグレーション管理、スキーマ差分、破壊的変更の検出。`jjf export ddl` が生成する
   DDL はスキーマを一から作るものであり、既存のスキーマを別の状態へ動かすことはしない
 - Mermaid / Markdown の出力と、PNG / PDF の出力。ER 図として出るのはベクタ
