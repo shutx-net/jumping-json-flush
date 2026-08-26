@@ -639,7 +639,9 @@ func TestStandaloneCreateIndex(t *testing.T) {
 		"CREATE INDEX `ix_a` ON `t` (`a`);\n"+
 		"CREATE UNIQUE INDEX `ix_b` ON `t` (`b`);\n"+
 		"CREATE INDEX `ix_using` USING BTREE ON `t` (`a`);\n"+
-		"CREATE FULLTEXT INDEX `ft_a` ON `t` (`a`);\n")
+		"CREATE FULLTEXT INDEX `ft_a` ON `t` (`a`);\n"+
+		"CREATE SPATIAL INDEX `sp_a` ON `t` (`a`);\n"+
+		"CREATE INDEX `ix_expr` ON `t` (((`a` + 1)));\n")
 	if len(dump.Indexes) != 3 {
 		t.Fatalf("indexes got = %+v, want 3", dump.Indexes)
 	}
@@ -649,8 +651,19 @@ func TestStandaloneCreateIndex(t *testing.T) {
 	if !dump.Indexes[0].Table.same(qname{Name: "t"}) {
 		t.Errorf("table got = %v, want t", dump.Indexes[0].Table)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0].Message, "full-text index") {
-		t.Fatalf("warnings got = %v, want one about a full-text index", messages(warnings))
+	// The last three statements each name something that is not an index over
+	// the columns the document would write down, and each is dropped with its
+	// own sentence. The full-text and spatial forms answer a MATCH ... AGAINST
+	// and an R-tree query respectively, and the third indexes an expression;
+	// importing any of them as a plain index would describe something the
+	// database does not have.
+	want := []string{
+		"line 8: index ft_a on table t: full-text index is not imported",
+		"line 9: index sp_a on table t: spatial index is not imported",
+		"line 10: index ix_expr on table t: expression index is not imported",
+	}
+	if got := messages(warnings); !slices.Equal(got, want) {
+		t.Fatalf("warnings got = %v, want %v", got, want)
 	}
 }
 
@@ -851,6 +864,16 @@ func TestBrokenStatementReportsItsLine(t *testing.T) {
 			wantLine: 1,
 			wantMsg:  "expected ON in CREATE INDEX",
 		},
+		{
+			// ENGINE is the one table option this parser reads rather than
+			// steps over, so it is the one that can fail. The message names
+			// what was expected, which is what makes it useful on a file that
+			// was cut short.
+			name:     "a table option with no value",
+			src:      "CREATE TABLE `t` (`a` int) ENGINE=;",
+			wantLine: 1,
+			wantMsg:  "expected an engine name after ENGINE",
+		},
 	}
 
 	for _, tt := range tests {
@@ -871,5 +894,320 @@ func TestBrokenStatementReportsItsLine(t *testing.T) {
 				t.Errorf("line got = %v, want %v", se.Line, tt.wantLine)
 			}
 		})
+	}
+}
+
+// TestAColumnCharacterSetAndCollationAreConsumed covers the one column
+// attribute in this file that mysqldump really does write for a schema the
+// captures do not contain. All nine COLLATEs in the committed dumps are the
+// TABLE option COLLATE=utf8mb4_0900_ai_ci, which is skipped as a table option
+// somewhere else entirely; the COLUMN form appears whenever a column's
+// character set differs from its table's, which is ordinary in a schema that
+// has grown over several years.
+//
+// A design document has nowhere to put a collation, so the attribute is
+// consumed and forgotten. What the test asserts is that consuming it costs
+// nothing else: the collation NAME must be eaten too, or it would fall to the
+// default arm and be stepped over one token at a time - which usually survives
+// and occasionally does not.
+func TestAColumnCharacterSetAndCollationAreConsumed(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+		"  `a` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin NOT NULL,\n"+
+		"  `b` varchar(20) COLLATE utf8mb4_bin DEFAULT 'x',\n"+
+		"  `c` varchar(20) CHARSET latin1 NOT NULL\n) ENGINE=InnoDB;")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	cols := dump.Tables[0].Columns
+	if len(cols) != 3 {
+		t.Fatalf("columns got = %+v, want 3", cols)
+	}
+	if got := cols[0].Type.String(); got != "varchar(20)" || !cols[0].NotNull {
+		t.Errorf("first column got = %+v, want a NOT NULL varchar(20)", cols[0])
+	}
+	if cols[1].Default != "'x'" {
+		t.Errorf("second column default got = %q, want %q", cols[1].Default, "'x'")
+	}
+	if !cols[2].NotNull {
+		t.Errorf("third column got = %+v, want NOT NULL", cols[2])
+	}
+}
+
+// TestADefaultEndsWhereACharacterSetBegins is the twin of the PostgreSQL
+// package's TestADefaultEndsWhereCOLLATEBegins and pins a coupling rather than
+// an arm. Two lists have to agree: parseColumnDefinition consumes COLLATE,
+// CHARACTER SET and CHARSET as attributes, and startsColumnAttribute names all
+// three among the words that end a DEFAULT expression. If either moved alone
+// the document's default would read `'x' COLLATE utf8mb4_bin`, and
+// internal/export/ddl copies a default out verbatim, so the round trip would
+// emit a script MySQL rejects - with no warning anywhere along the way.
+func TestADefaultEndsWhereACharacterSetBegins(t *testing.T) {
+	tests := []struct {
+		name      string
+		attribute string
+	}{
+		{name: "COLLATE", attribute: "COLLATE utf8mb4_bin"},
+		{name: "CHARACTER SET", attribute: "CHARACTER SET utf8mb4"},
+		{name: "CHARSET", attribute: "CHARSET utf8mb4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+				"  `a` varchar(20) DEFAULT 'x' "+tt.attribute+" NOT NULL\n);")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+			col := dump.Tables[0].Columns[0]
+			if !col.HasDefault || col.Default != "'x'" {
+				t.Errorf("default got = %q (present = %v), want exactly %q", col.Default, col.HasDefault, "'x'")
+			}
+			if !col.NotNull {
+				t.Errorf("column got = %+v, want NOT NULL", col)
+			}
+		})
+	}
+}
+
+// TestAColumnCONSTRAINTSymbolIsConsumed covers the arm whose comment explains
+// why the symbol is thrown away: MySQL allows a name here only in front of a
+// column CHECK, and the CHECK itself is dropped, so the name has nothing left
+// to belong to. The assertion that carries the weight is about the SECOND
+// column - a symbol that was not consumed would leave the parser reading the
+// rest of the column list from the wrong place.
+//
+// NOT NULL is written BEFORE the CHECK here, and that is not a stylistic
+// choice. Written after it - `int CHECK (a > 0) NOT NULL`, which MySQL accepts
+// - the NOT NULL is lost: the check arm ends with two independent accepts for
+// NOT and ENFORCED, so the NOT of a following NOT NULL is taken for the start
+// of NOT ENFORCED and the NULL left behind is read as an explicit NULL. The
+// column then comes out nullable with no warning. That is a defect rather than
+// a decision, so it is reported and left unpinned here: a test asserting either
+// answer would settle a behaviour question inside a change that only adds
+// tests.
+func TestAColumnCONSTRAINTSymbolIsConsumed(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+		"  `a` int NOT NULL CONSTRAINT `sym` CHECK (`a` > 0),\n"+
+		"  `b` int NOT NULL\n);")
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got = %v, want exactly 1", messages(warnings))
+	}
+	if want := "check constraint is not imported"; !strings.Contains(warnings[0].Message, want) {
+		t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, want)
+	}
+	if warnings[0].Line != 2 {
+		t.Errorf("warning line got = %v, want 2", warnings[0].Line)
+	}
+	table := dump.Tables[0]
+	if len(table.Columns) != 2 || !table.Columns[0].NotNull || !table.Columns[1].NotNull {
+		t.Fatalf("columns got = %+v, want two NOT NULL columns", table.Columns)
+	}
+	if len(table.Constraints) != 0 {
+		t.Errorf("constraints got = %+v, want none", table.Constraints)
+	}
+}
+
+// TestAnExplicitNULLIsTheDefaultAlready is the twin of the PostgreSQL test of
+// the same name and is worth the same little: the arm consumes a word the
+// default arm would consume anyway. What it asserts is that a tool spelling out
+// the nullability jjf assumes cannot end up setting NOT NULL.
+func TestAnExplicitNULLIsTheDefaultAlready(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (`a` int NULL, `b` int NOT NULL);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	cols := dump.Tables[0].Columns
+	if len(cols) != 2 {
+		t.Fatalf("columns got = %+v, want 2", cols)
+	}
+	if cols[0].NotNull {
+		t.Error("an explicit NULL set NotNull on the column, want it left false")
+	}
+	if !cols[1].NotNull {
+		t.Error("NOT NULL got = false, want true")
+	}
+}
+
+// TestMatchClausesAreConsumedWhateverTheySay is the same table as the
+// PostgreSQL package's test of the same name, transposed - and this time it is
+// MySQL that is catching up: the PostgreSQL MATCH FULL row has existed since
+// that importer was written and none of these did, which is worth knowing
+// before assuming the MySQL importer is uniformly the better tested of the two.
+//
+// The row that matters carries no warning. parseReferentialActions is a loop
+// whose default arm returns, so a MATCH spelling it failed to consume would end
+// the loop and silently drop the ON DELETE written after it. MySQL parses MATCH
+// and then ignores it, and InnoDB does not store it, so mysqldump never writes
+// one - these arms exist for hand-written SQL, which is exactly where all three
+// spellings turn up.
+func TestMatchClausesAreConsumedWhateverTheySay(t *testing.T) {
+	tests := []struct {
+		name        string
+		match       string
+		wantMessage string
+	}{
+		{
+			name:        "MATCH FULL",
+			match:       "MATCH FULL ",
+			wantMessage: "foreign key t_fk on table t: MATCH FULL is not imported",
+		},
+		{
+			name:        "MATCH PARTIAL",
+			match:       "MATCH PARTIAL ",
+			wantMessage: "foreign key t_fk on table t: MATCH PARTIAL is not imported",
+		},
+		{
+			name:  "MATCH SIMPLE",
+			match: "MATCH SIMPLE ",
+		},
+		{
+			name:  "no MATCH at all",
+			match: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "ALTER TABLE `t` ADD CONSTRAINT `t_fk` "+
+				"FOREIGN KEY (`a`) REFERENCES `u` (`b`) "+tt.match+"ON DELETE CASCADE;")
+			if tt.wantMessage == "" {
+				if len(warnings) != 0 {
+					t.Errorf("warnings got = %v, want none", messages(warnings))
+				}
+			} else {
+				if len(warnings) != 1 {
+					t.Fatalf("warnings got = %v, want exactly 1", messages(warnings))
+				}
+				if !strings.Contains(warnings[0].Message, tt.wantMessage) {
+					t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, tt.wantMessage)
+				}
+			}
+			if len(dump.Constraints) != 1 {
+				t.Fatalf("constraints got = %+v, want 1", dump.Constraints)
+			}
+			if got := dump.Constraints[0].OnDelete; got != "CASCADE" {
+				t.Errorf("on delete got = %q, want %q: the MATCH clause swallowed what followed it", got, "CASCADE")
+			}
+		})
+	}
+}
+
+// TestNoActionIsARecognisedReferentialAction covers the one action of the five
+// that no captured dump carries: NO ACTION is MySQL's default and mysqldump
+// leaves it out. jjf's own DDL writer states it, though, and so does a
+// hand-written script, so a parser that did not recognise it would fail on a
+// file this tool wrote.
+func TestNoActionIsARecognisedReferentialAction(t *testing.T) {
+	dump, warnings := mustParse(t, "ALTER TABLE `t` ADD CONSTRAINT `t_fk` "+
+		"FOREIGN KEY (`a`) REFERENCES `u` (`b`) ON DELETE NO ACTION ON UPDATE NO ACTION;")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	if len(dump.Constraints) != 1 {
+		t.Fatalf("constraints got = %+v, want 1", dump.Constraints)
+	}
+	c := dump.Constraints[0]
+	if c.OnDelete != "NO ACTION" || c.OnUpdate != "NO ACTION" {
+		t.Errorf("actions got = (%q, %q), want both %q", c.OnDelete, c.OnUpdate, "NO ACTION")
+	}
+}
+
+// TestAnExpressionKeyPartDropsTheWholeKey is the counterpart of
+// TestExpressionIndexIsDroppedWhole and of TestPrefixedIndexIsImportedAndReported,
+// and the three together state the rule: a narrowing that still covers the
+// named column is kept and reported, and anything the document cannot name at
+// all is dropped - but a KEY is dropped WHOLE where an index may be narrowed,
+// because a key that claimed uniqueness over the wrong columns would be a false
+// statement about the database, and a foreign key elsewhere may be resting on
+// it.
+//
+// The assertion that says this is the absence of a unique key over [a] alone.
+// A version that narrowed the key instead of dropping it would produce exactly
+// that, and a test asserting only the warning would not notice. mysqldump emits
+// functional key parts from MySQL 8.0.13 on, doubly parenthesised as below.
+func TestAnExpressionKeyPartDropsTheWholeKey(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		wantMessage string
+	}{
+		{
+			name:        "a unique key",
+			key:         "UNIQUE KEY `uq` (`a`,((`b` + 1)))",
+			wantMessage: "unique key uq on table t: expression key part is not imported; the key is dropped",
+		},
+		{
+			name:        "a primary key",
+			key:         "PRIMARY KEY ((`a` + 1))",
+			wantMessage: "primary key on table t: expression key part is not imported; the key is dropped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+				"  `a` int NOT NULL,\n"+
+				"  `b` int NOT NULL,\n"+
+				"  "+tt.key+",\n"+
+				"  KEY `ix` (`a`)\n) ENGINE=InnoDB;")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got = %v, want exactly 1", messages(warnings))
+			}
+			if !strings.Contains(warnings[0].Message, tt.wantMessage) {
+				t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, tt.wantMessage)
+			}
+			if warnings[0].Line != 4 {
+				t.Errorf("warning line got = %v, want 4", warnings[0].Line)
+			}
+			table := dump.Tables[0]
+			if len(table.Constraints) != 0 {
+				t.Errorf("constraints got = %+v, want none: the key is dropped, not narrowed", table.Constraints)
+			}
+			// The neighbour, declared after the dropped key: the rest of the
+			// element list must still be read.
+			if len(table.Indexes) != 1 || table.Indexes[0].Name != "ix" {
+				t.Errorf("indexes got = %+v, want ix over [a]", table.Indexes)
+			}
+		})
+	}
+}
+
+// TestAColumnListFollowedByAQueryKeepsItsColumns is a different statement from
+// TestTableWithoutItsOwnDefinitionIsReported's "a query" case, and the two are
+// easy to mistake for one. That one is CREATE TABLE t AS SELECT, which states
+// no columns at all, so the table is dropped. This one states its columns and
+// then fills them from a query: the columns written down are true and stay
+// imported, only the query is lost. Two forms, two messages, two outcomes.
+func TestAColumnListFollowedByAQueryKeepsItsColumns(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+		"  `a` int NOT NULL\n) AS SELECT `a` FROM `u`;")
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got = %v, want exactly 1", messages(warnings))
+	}
+	if want := "table t: the query a table is defined from is not imported"; !strings.Contains(warnings[0].Message, want) {
+		t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, want)
+	}
+	if len(dump.Tables) != 1 {
+		t.Fatalf("tables got = %+v, want 1", dump.Tables)
+	}
+	cols := dump.Tables[0].Columns
+	if len(cols) != 1 || cols[0].Name != "a" || !cols[0].NotNull {
+		t.Errorf("columns got = %+v, want one NOT NULL column a", cols)
+	}
+}
+
+// TestATemporaryTableIsATable covers two loops that are one behaviour: classify
+// steps over the words between CREATE and TABLE to decide what the statement
+// is, and parseCreateTable steps over the same words to read it. They have to
+// agree, and one input is the honest way to say so - if only one of them
+// skipped TEMPORARY, this statement would either be classified as something
+// else and skipped in silence, or be classified right and then fail to parse.
+func TestATemporaryTableIsATable(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TEMPORARY TABLE `t` (`a` int);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	if len(dump.Tables) != 1 || dump.Tables[0].Name.Name != "t" {
+		t.Fatalf("tables got = %+v, want one table t", dump.Tables)
 	}
 }

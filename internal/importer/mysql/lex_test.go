@@ -152,6 +152,30 @@ func TestLexStrings(t *testing.T) {
 			want: []string{`string:a\%b\_c`},
 		},
 		{
+			// \b completes the table above. It is separate only because
+			// writing 0x08 into the row above would make that row's expected
+			// value harder to read than the escapes it is about.
+			name: "a backspace escape",
+			src:  `'a\bb'`,
+			want: []string{"string:a\bb"},
+		},
+		{
+			// The divergence this lexer's own comment argues for: \f is
+			// PostgreSQL's escape and MySQL has none, so the server reads it as
+			// the letter f and so does this. The PostgreSQL package's table
+			// decodes the same bytes to a form feed, and the two are meant to
+			// differ - nothing is shared between them.
+			//
+			// The comment makes the same claim about \v, and that half is
+			// deliberately not a row here: the PostgreSQL lexer does not decode
+			// \v either, although PostgreSQL documents it, so the two files
+			// disagree about who owns that escape. A row asserting either
+			// answer would settle that by fiat.
+			name: "an escape that belongs to the other dialect",
+			src:  `'a\fb'`,
+			want: []string{"string:afb"},
+		},
+		{
 			name: "an unknown escape yields the escaped character",
 			src:  `'a\qb'`,
 			want: []string{"string:aqb"},
