@@ -52,10 +52,12 @@ func TestDialectDBMSValuesAreDistinct(t *testing.T) {
 // spellings no validated document can carry - and would make "Postgres" mean
 // something in this package and nothing in every other.
 func TestLookupDialectIsExact(t *testing.T) {
-	if _, ok := lookupDialect(model.DBMSPostgreSQL); !ok {
-		t.Error("lookupDialect does not resolve model.DBMSPostgreSQL")
+	for _, dbms := range []model.DBMS{model.DBMSPostgreSQL, model.DBMSMySQL} {
+		if _, ok := lookupDialect(dbms); !ok {
+			t.Errorf("lookupDialect does not resolve %q, which the table claims", dbms)
+		}
 	}
-	for _, spelling := range []model.DBMS{"postgresql", "Postgres", "POSTGRESQL", " PostgreSQL", ""} {
+	for _, spelling := range []model.DBMS{"postgresql", "Postgres", "POSTGRESQL", " PostgreSQL", "mysql", "MYSQL", "My SQL", ""} {
 		if _, ok := lookupDialect(spelling); ok {
 			t.Errorf("lookupDialect resolved %q, which is not a dbms value the schema permits", spelling)
 		}
@@ -84,9 +86,13 @@ func TestDialectNamesListsEveryEntry(t *testing.T) {
 // them, so that adding a dialect has to delete a line here deliberately. A
 // derived list would silently agree with whatever the table said and would
 // assert nothing.
+//
+// MariaDB heads the list on purpose. It is the value a reader will most expect
+// to find supported, because it takes the same DDL MySQL does - and it is
+// refused because it has no importer and no live-server leg, so it could only
+// ship on golden files, which is what design/ddl-export.md's gate forbids.
 func TestUnsupportedDBMSValuesAreRefused(t *testing.T) {
 	for _, dbms := range []model.DBMS{
-		model.DBMSMySQL,
 		model.DBMSMariaDB,
 		model.DBMSSQLite,
 		model.DBMSOracle,
@@ -97,5 +103,22 @@ func TestUnsupportedDBMSValuesAreRefused(t *testing.T) {
 				t.Errorf("lookupDialect resolved %q; if a dialect for it has been added, this line is what has to be removed", dbms)
 			}
 		})
+	}
+}
+
+// TestDialectValuesReadsAsASentence pins the other half of the message an
+// author with no dbms gets. dialectNames is a list of what jjf can do;
+// dialectValues is what to type, so it quotes each value as the JSON it is and
+// joins the last two with "or" rather than a comma - a document may name one
+// target, not both.
+func TestDialectValuesReadsAsASentence(t *testing.T) {
+	got := dialectValues()
+	for _, d := range dialects() {
+		if !strings.Contains(got, `"`+d.name+`"`) {
+			t.Errorf("dialectValues() = %q, which does not offer %q as a JSON value", got, d.name)
+		}
+	}
+	if len(dialects()) > 1 && !strings.Contains(got, " or ") {
+		t.Errorf("dialectValues() = %q, which does not say that only one may be chosen", got)
 	}
 }

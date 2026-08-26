@@ -307,7 +307,7 @@ func TestAcceptCarriesEveryFinding(t *testing.T) {
 // TestCheckIsDeterministic runs each fixture twice. The namespace walk keeps a
 // map, and this is what would catch it leaking into the order of the findings.
 func TestCheckIsDeterministic(t *testing.T) {
-	for _, name := range append(pgFixtures, "refused.json") {
+	for _, name := range append(allFixtures(), "refused.json", "mysql/refused.json") {
 		t.Run(name, func(t *testing.T) {
 			doc := loadDoc(t, name)
 			first, second := Check(doc), Check(doc)
@@ -351,9 +351,19 @@ func TestCheckIsTotal(t *testing.T) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// twoTablesSharing builds the smallest consistent two-table document and hands
-// both tables to mutate, so that a test states only the mistake it is about.
+// twoTablesSharing builds the smallest consistent two-table PostgreSQL document
+// and hands both tables to mutate, so that a test states only the mistake it is
+// about.
 func twoTablesSharing(t *testing.T, mutate func(a, b *model.Table)) *model.Document {
+	t.Helper()
+	return twoTablesSharingFor(t, model.DBMSPostgreSQL, mutate)
+}
+
+// twoTablesSharingFor is the same document under a named target, for the tests
+// that assert an inversion: the same mistake is a finding under one dialect and
+// nothing under the other, and a test that could only build one of the two
+// would have to state half its claim in prose.
+func twoTablesSharingFor(t *testing.T, dbms model.DBMS, mutate func(a, b *model.Table)) *model.Document {
 	t.Helper()
 
 	table := func(name string) model.Table {
@@ -372,7 +382,7 @@ func twoTablesSharing(t *testing.T, mutate func(a, b *model.Table)) *model.Docum
 	}
 	doc := &model.Document{
 		FormatVersion: model.CurrentFormatVersion,
-		Database:      model.Database{Name: "t", DBMS: model.DBMSPostgreSQL},
+		Database:      model.Database{Name: "t", DBMS: dbms},
 		Tables:        []model.Table{table("a"), table("b")},
 	}
 	mutate(&doc.Tables[0], &doc.Tables[1])
@@ -381,3 +391,441 @@ func twoTablesSharing(t *testing.T, mutate func(a, b *model.Table)) *model.Docum
 
 // strp returns a pointer to s, for model.Column's optional default.
 func strp(s string) *string { return &s }
+
+// ---------------------------------------------------------------------------
+// The MySQL preconditions
+// ---------------------------------------------------------------------------
+
+// TestMySQLCheckReportsEveryPrecondition pins the wording of every MySQL
+// refusal, in the order they come out: everything internal/check reports first,
+// then the MySQL-specific findings in document order.
+func TestMySQLCheckReportsEveryPrecondition(t *testing.T) {
+	checkGolden(t, "mysql/refused.txt", findingLines(Check(loadDoc(t, "mysql/refused.json"))))
+}
+
+// TestMySQLForeignKeyNamesAreSchemaWide asserts the inversion in both
+// directions at once, so that neither half can be changed alone. InnoDB keeps
+// foreign key names in a per-database namespace and answers a collision with
+// "Duplicate foreign key constraint name"; PostgreSQL keeps them in
+// pg_constraint, which is unique per table, and accepts both.
+func TestMySQLForeignKeyNamesAreSchemaWide(t *testing.T) {
+	share := func(a, b *model.Table) {
+		a.ForeignKeys = []model.ForeignKey{{
+			Name:       "fk_parent",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "b", Columns: []string{"id"}},
+		}}
+		b.ForeignKeys = []model.ForeignKey{{
+			Name:       "fk_parent",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "a", Columns: []string{"id"}},
+		}}
+	}
+
+	got := Check(twoTablesSharingFor(t, model.DBMSMySQL, share))
+	if len(got) != 1 {
+		t.Fatalf("MySQL reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, "one namespace per schema") {
+		t.Errorf("finding = %v, want it to say why MySQL refuses", got[0])
+	}
+	if got := Check(twoTablesSharingFor(t, model.DBMSPostgreSQL, share)); len(got) != 0 {
+		t.Errorf("PostgreSQL reported %v for the same document, want nothing", got)
+	}
+}
+
+// TestMySQLIndexNamesMayRepeatAcrossTables is the other half of the same
+// inversion. An index name lives in the table in MySQL and in the schema in
+// PostgreSQL, so the document that is legal for one is illegal for the other.
+func TestMySQLIndexNamesMayRepeatAcrossTables(t *testing.T) {
+	share := func(a, b *model.Table) {
+		a.Indexes = []model.Index{{Name: "ix_created", Columns: []string{"id"}}}
+		b.Indexes = []model.Index{{Name: "ix_created", Columns: []string{"id"}}}
+	}
+
+	if got := Check(twoTablesSharingFor(t, model.DBMSMySQL, share)); len(got) != 0 {
+		t.Errorf("MySQL reported %v, want nothing: an index name is per table there", got)
+	}
+	if got := Check(twoTablesSharingFor(t, model.DBMSPostgreSQL, share)); len(got) != 1 {
+		t.Errorf("PostgreSQL reported %d finding(s) for the same document, want 1: %v", len(got), got)
+	}
+}
+
+// TestMySQLTableNamesAreSchemaWide covers the one namespace rule the two
+// dialects agree on, so that the agreement is pinned as deliberate rather than
+// left to look like a gap in the MySQL walk.
+func TestMySQLTableNamesAreSchemaWide(t *testing.T) {
+	doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, b *model.Table) { b.Name = a.Name })
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, "second table this document calls") {
+		t.Errorf("finding = %v, want it to name the duplicate table", got[0])
+	}
+}
+
+// TestMySQLAutoIncrementPreconditions covers all four rules and the shapes that
+// must NOT produce a finding. Each was run against a live MySQL 8.0 first: the
+// first two are ERROR 1075, the third is ERROR 1067, and the fourth is the
+// silent one, where the server takes the statement and stores the column NOT
+// NULL.
+func TestMySQLAutoIncrementPreconditions(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(t *model.Table)
+		want    string
+		wantLen int
+	}{
+		{
+			name: "the leading column of the primary key",
+			mutate: func(tb *model.Table) {
+				tb.Columns[0].AutoIncrement = true
+			},
+			wantLen: 0,
+		},
+		{
+			name: "the leading column of a composite primary key",
+			mutate: func(tb *model.Table) {
+				tb.Columns[0].AutoIncrement = true
+				tb.PrimaryKey.Columns = []string{"id", "n"}
+			},
+			wantLen: 0,
+		},
+		{
+			name: "the leading column of a unique key",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement = true
+				tb.UniqueKeys = []model.UniqueKey{{Name: "uq_n", Columns: []string{"n", "id"}}}
+			},
+			wantLen: 0,
+		},
+		{
+			name: "the second column of a key, which leads nothing",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement = true
+				tb.PrimaryKey.Columns = []string{"id", "n"}
+			},
+			want:    "leads no key",
+			wantLen: 1,
+		},
+		{
+			name: "a column no key names at all",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement = true
+			},
+			want:    "leads no key",
+			wantLen: 1,
+		},
+		{
+			// MySQL itself would take this in one statement, and the generated
+			// script cannot, because the index is created a phase after the
+			// table. The message says so, and this case is why.
+			name: "a column only an index leads",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement = true
+				tb.Indexes = []model.Index{{Name: "ix_n", Columns: []string{"n"}}}
+			},
+			want:    "an entry in indexes cannot serve",
+			wantLen: 1,
+		},
+		{
+			name: "a second AUTO_INCREMENT column",
+			mutate: func(tb *model.Table) {
+				tb.Columns[0].AutoIncrement = true
+				tb.Columns[1].AutoIncrement = true
+			},
+			want:    "one AUTO_INCREMENT column per table",
+			wantLen: 1,
+		},
+		{
+			name: "one that also declares a default",
+			mutate: func(tb *model.Table) {
+				tb.Columns[0].AutoIncrement, tb.Columns[0].Default = true, strp("1")
+			},
+			want:    "refuses a default on an AUTO_INCREMENT column",
+			wantLen: 1,
+		},
+		{
+			name: "one declared nullable",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement, tb.Columns[1].Nullable = true, true
+				tb.UniqueKeys = []model.UniqueKey{{Name: "uq_n", Columns: []string{"n"}}}
+			},
+			want:    "makes an AUTO_INCREMENT column NOT NULL",
+			wantLen: 1,
+		},
+		{
+			// Two rules broken by one column is one authoring mistake, the rule
+			// internal/check's checkColumnDefault already follows.
+			name: "nullable and leading no key at once",
+			mutate: func(tb *model.Table) {
+				tb.Columns[1].AutoIncrement, tb.Columns[1].Nullable = true, true
+			},
+			want:    "makes an AUTO_INCREMENT column NOT NULL",
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) { tt.mutate(a) })
+			got := Check(doc)
+			if len(got) != tt.wantLen {
+				t.Fatalf("Check reported %d finding(s), want %d: %v", len(got), tt.wantLen, got)
+			}
+			if tt.wantLen == 0 {
+				return
+			}
+			if !strings.Contains(got[0].Message, tt.want) {
+				t.Errorf("finding = %v, want it to mention %q", got[0], tt.want)
+			}
+		})
+	}
+}
+
+// TestMySQLRefusesAKeyOverATextColumn walks the whole TEXT, BLOB and JSON
+// family through all three kinds of key. MySQL answers the first two with ERROR
+// 1170 and JSON with ERROR 3152, and neither has a remedy the document format
+// can express - a prefix length and a generated column both need a field the
+// schema does not have.
+func TestMySQLRefusesAKeyOverATextColumn(t *testing.T) {
+	// keys are the three places a column may be named, each of which reaches a
+	// different walk in myKeyFindings.
+	keys := []struct {
+		name   string
+		attach func(tb *model.Table)
+	}{
+		{"a primary key", func(tb *model.Table) { tb.PrimaryKey = &model.PrimaryKey{Columns: []string{"n"}} }},
+		{"a unique key", func(tb *model.Table) {
+			tb.PrimaryKey = nil
+			tb.UniqueKeys = []model.UniqueKey{{Name: "uq_n", Columns: []string{"n"}}}
+		}},
+		{"an index", func(tb *model.Table) {
+			tb.PrimaryKey = nil
+			tb.Indexes = []model.Index{{Name: "ix_n", Columns: []string{"n"}}}
+		}},
+	}
+	types := []struct {
+		name    string
+		refused bool
+	}{
+		{"TEXT", true},
+		{"TINYTEXT", true},
+		{"MEDIUMTEXT", true},
+		{"LONGTEXT", true},
+		{"BLOB", true},
+		{"TINYBLOB", true},
+		{"MEDIUMBLOB", true},
+		{"LONGBLOB", true},
+		{"JSON", true},
+		// Written in the case a hand-authored document is likely to use, to
+		// pin that the comparison folds ASCII case and nothing else.
+		{"longtext", true},
+		{"VARCHAR", false},
+		{"BIGINT", false},
+	}
+
+	for _, key := range keys {
+		for _, ty := range types {
+			t.Run(key.name+" over "+ty.name, func(t *testing.T) {
+				doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+					a.Columns[1].Type = ty.name
+					a.Columns[1].Length = intp(64)
+					key.attach(a)
+				})
+				got := Check(doc)
+				if !ty.refused {
+					if len(got) != 0 {
+						t.Fatalf("Check reported %v for a %s column, want nothing", got, ty.name)
+					}
+					return
+				}
+				if len(got) != 1 {
+					t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+				}
+				if !strings.Contains(got[0].Message, ty.name) {
+					t.Errorf("finding = %v, want it to name the type", got[0])
+				}
+				if got[0].Where != "table a" {
+					t.Errorf("finding is about %q, want the table that declares the key", got[0].Where)
+				}
+			})
+		}
+	}
+}
+
+// TestMySQLReportsOneFindingPerKey holds the walk to one finding for a
+// composite key over two impossible columns: that is one key to redesign, not
+// two mistakes to fix.
+func TestMySQLReportsOneFindingPerKey(t *testing.T) {
+	doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+		a.Columns[0].Type = "TEXT"
+		a.Columns[1].Type = "BLOB"
+		a.PrimaryKey = &model.PrimaryKey{Columns: []string{"id", "n"}}
+	})
+	if got := Check(doc); len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+}
+
+// TestMySQLRefusesALengthlessVarchar covers R1's half of M8: a bare VARCHAR is
+// ERROR 1064 rather than a column of some default width, and mysqldump always
+// writes the length, so the refusal is unreachable from an imported document
+// and cannot break the round trip.
+func TestMySQLRefusesALengthlessVarchar(t *testing.T) {
+	tests := []struct {
+		name    string
+		ty      string
+		length  *int
+		refused bool
+	}{
+		{"VARCHAR with no length", "VARCHAR", nil, true},
+		{"VARBINARY with no length", "VARBINARY", nil, true},
+		{"varchar in lower case", "varchar", nil, true},
+		{"VARCHAR with a length", "VARCHAR", intp(255), false},
+		// The types with a server default of their own, which is why the list
+		// names two spellings rather than every type whose parenthesis is
+		// usually written.
+		{"CHAR with no length", "CHAR", nil, false},
+		{"BINARY with no length", "BINARY", nil, false},
+		{"BIT with no length", "BIT", nil, false},
+		{"DECIMAL with no precision", "DECIMAL", nil, false},
+		// The other half of M8: every ENUM column is in this state, including
+		// one the importer has just produced, so refusing would make the round
+		// trip fail by construction.
+		{"ENUM with no value list", "ENUM", nil, false},
+		{"SET with no value list", "SET", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				a.Columns[1].Type = tt.ty
+				a.Columns[1].Length = tt.length
+			})
+			got := Check(doc)
+			if !tt.refused {
+				if len(got) != 0 {
+					t.Fatalf("Check reported %v, want nothing", got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if !strings.Contains(got[0].Message, "no default length") {
+				t.Errorf("finding = %v, want it to say why", got[0])
+			}
+		})
+	}
+}
+
+// TestMySQLDoesNotRefuseSetDefault exists so that a well-meaning later change
+// has to argue with a test.
+//
+// SET DEFAULT reads like a refusal waiting to be written, and the MySQL manual
+// says InnoDB rejects it. MySQL 8.0.46 does not: it takes the clause, records
+// it, and mysqldump writes it back, so a document jjf itself imported can carry
+// one - and refusing it would refuse a document jjf wrote. What InnoDB declines
+// to do is perform the action at run time, which is a fact about the engine
+// rather than about the DDL, and design/ddl-export.md records it as drift under
+// the MySQL table.
+func TestMySQLDoesNotRefuseSetDefault(t *testing.T) {
+	for _, action := range []model.ReferentialAction{model.ActionSetDefault, model.ActionCascade, model.ActionRestrict, model.ActionSetNull, model.ActionNoAction} {
+		t.Run(string(action), func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				a.Columns[1].Nullable = true
+				a.ForeignKeys = []model.ForeignKey{{
+					Name:       "fk_a_b",
+					Columns:    []string{"n"},
+					References: model.Reference{Table: "b", Columns: []string{"id"}},
+					OnUpdate:   action,
+					OnDelete:   action,
+				}}
+			})
+			if got := Check(doc); len(got) != 0 {
+				t.Errorf("Check reported %v for ON DELETE %s, which MySQL accepts", got, action)
+			}
+		})
+	}
+}
+
+// TestMySQLAcceptsWhatPostgreSQLRefusesAndBack is the claim of the dialect axis
+// in one test: one document, two targets, two different answers. Without the
+// axis one of the two would be wrong.
+func TestMySQLAcceptsWhatPostgreSQLRefusesAndBack(t *testing.T) {
+	// Each half is legal in one dialect and not in the other: an index name
+	// repeated across tables is PostgreSQL's collision alone, a foreign key
+	// name repeated across tables is MySQL's alone.
+	both := func(a, b *model.Table) {
+		a.Indexes = []model.Index{{Name: "ix_created", Columns: []string{"id"}}}
+		b.Indexes = []model.Index{{Name: "ix_created", Columns: []string{"id"}}}
+		a.ForeignKeys = []model.ForeignKey{{
+			Name:       "fk_parent",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "b", Columns: []string{"id"}},
+		}}
+		b.ForeignKeys = []model.ForeignKey{{
+			Name:       "fk_parent",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "a", Columns: []string{"id"}},
+		}}
+	}
+
+	pg := Check(twoTablesSharingFor(t, model.DBMSPostgreSQL, both))
+	my := Check(twoTablesSharingFor(t, model.DBMSMySQL, both))
+	if len(pg) != 1 || !strings.Contains(pg[0].Message, `index "ix_created"`) {
+		t.Errorf("PostgreSQL reported %v, want the repeated index name alone", pg)
+	}
+	if len(my) != 1 || !strings.Contains(my[0].Message, `foreign key "fk_parent"`) {
+		t.Errorf("MySQL reported %v, want the repeated foreign key name alone", my)
+	}
+}
+
+// TestMySQLRefusedErrorNamesItsDialect is TestRefusedErrorNamesItsDialect for
+// the second dialect: the summary line a user reads says which database refused,
+// and cmd/jjf prints that sentence without composing it.
+func TestMySQLRefusedErrorNamesItsDialect(t *testing.T) {
+	err := Accept(loadDoc(t, "mysql/refused.json"))
+	var re *RefusedError
+	if !errors.As(err, &re) {
+		t.Fatalf("Accept returned %v, want a *RefusedError", err)
+	}
+	if re.Dialect != "MySQL" {
+		t.Errorf("the refusal names the dialect %q, want MySQL", re.Dialect)
+	}
+	if want := "problem(s) prevent MySQL DDL generation"; !strings.Contains(re.Error(), want) {
+		t.Errorf("summary = %q, want it to carry %q", re.Error(), want)
+	}
+}
+
+// TestMySQLNamespacesDoNotBleedIntoEachOther covers the one interaction two
+// separate namespaces make possible: a table and a foreign key may share a
+// name, and a collision reported in one namespace must not silence a collision
+// in the other. One shared "reported" set would pass every other test in this
+// file and fail this one.
+func TestMySQLNamespacesDoNotBleedIntoEachOther(t *testing.T) {
+	doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, b *model.Table) {
+		// A foreign key named after a table, which MySQL allows.
+		a.ForeignKeys = []model.ForeignKey{{
+			Name:       "b",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "b", Columns: []string{"id"}},
+		}}
+		b.ForeignKeys = []model.ForeignKey{{
+			Name:       "b",
+			Columns:    []string{"id"},
+			References: model.Reference{Table: "a", Columns: []string{"id"}},
+		}}
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, "foreign key") {
+		t.Errorf("finding = %v, want the foreign key collision rather than a table one", got[0])
+	}
+}

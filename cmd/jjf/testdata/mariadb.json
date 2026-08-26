@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "notes",
+    "logicalName": "メモ帳",
+    "dbms": "MariaDB"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "A document naming the dialect a reader is most likely to expect jjf to write, and which it refuses. MariaDB takes the same DDL MySQL does; it is refused because it has no importer and no live-server leg, so it could ship on golden files alone.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

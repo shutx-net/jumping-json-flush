@@ -1,0 +1,257 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "refused",
+    "logicalName": "拒否",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "description": "A nullable primary key column, a default that is a bare word, and a foreign key naming a table this document does not define. Its foreign key name and its index name are both spent here, so the two tables below can try to take them back.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "logicalName": "作成日時",
+          "type": "DATETIME",
+          "nullable": false,
+          "default": "now"
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_parent",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_created",
+          "columns": ["created_at"]
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "logicalName": "受注明細",
+      "description": "A foreign key repeating the name the table above uses, which InnoDB keeps per schema and refuses, and an index repeating the name the table above uses, which MySQL keeps per table and allows - so exactly one of the two is reported here.",
+      "columns": [
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "qty",
+          "logicalName": "数量",
+          "type": "INT",
+          "nullable": false
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_parent",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_created",
+          "columns": ["qty"]
+        }
+      ]
+    },
+    {
+      "name": "counters",
+      "logicalName": "計数器",
+      "description": "Two AUTO_INCREMENT columns. The first leads the primary key and is fine; the second is the one MySQL refuses, because a table may have one.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "計数器ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "spare",
+          "logicalName": "予備",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      }
+    },
+    {
+      "name": "sequences",
+      "logicalName": "採番",
+      "description": "An AUTO_INCREMENT column whose only key is an index. MySQL would take it in one statement, but the generated script creates the index a phase after the table, so at CREATE TABLE the column leads nothing.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "採番ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "seq",
+          "logicalName": "連番",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_sequences",
+        "columns": ["id"]
+      },
+      "indexes": [
+        {
+          "name": "ix_sequences_seq",
+          "columns": ["seq"]
+        }
+      ]
+    },
+    {
+      "name": "tallies",
+      "logicalName": "集計",
+      "description": "An AUTO_INCREMENT column that also carries a default, which MySQL answers with an invalid default value.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "集計ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "default": "1",
+          "autoIncrement": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_tallies",
+        "columns": ["id"]
+      }
+    },
+    {
+      "name": "drafts",
+      "logicalName": "下書き",
+      "description": "An AUTO_INCREMENT column declared nullable. This is the silent one: MySQL takes the statement and stores the column NOT NULL, leaving the database and the document disagreeing. It leads a unique key rather than the primary key, so that C5 does not report the same column first.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "下書きID",
+          "type": "BIGINT",
+          "nullable": true,
+          "autoIncrement": true
+        },
+        {
+          "name": "body",
+          "logicalName": "本文",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        }
+      ],
+      "uniqueKeys": [
+        {
+          "name": "uq_drafts_id",
+          "columns": ["id"]
+        }
+      ]
+    },
+    {
+      "name": "documents",
+      "logicalName": "文書",
+      "description": "An index over a TEXT column. MySQL needs a prefix length there and the document format has nowhere to put one, so there is no correct DDL to write.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "文書ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "logicalName": "本文",
+          "type": "TEXT",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_documents",
+        "columns": ["id"]
+      },
+      "indexes": [
+        {
+          "name": "ix_documents_body",
+          "columns": ["body"]
+        }
+      ]
+    },
+    {
+      "name": "labels",
+      "logicalName": "ラベル",
+      "description": "A VARCHAR with no length. MySQL has no default width for one and answers a bare VARCHAR with a syntax error, so the column cannot be written at all.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "ラベルID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "名称",
+          "type": "VARCHAR",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_labels",
+        "columns": ["id"]
+      }
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注 (二重定義)",
+      "description": "A second table of a name the document already used. internal/check does not report this; MySQL cannot create it.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

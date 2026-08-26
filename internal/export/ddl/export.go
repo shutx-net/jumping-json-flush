@@ -24,7 +24,17 @@
 // prove nothing but that the generator emits what it emitted, so the table in
 // dialect.go is short on purpose and grows one entry at a time.
 // design/ddl-export.md states that gate and records what each dialect decided.
-// The dialects supported today are PostgreSQL.
+// The dialects supported today are PostgreSQL and MySQL.
+//
+// The two writers differ in more than a delimiter, and the differences are
+// enumerated as M1 to M8 in that document rather than discovered by reading the
+// code: MySQL writes three phases instead of four, because it has no COMMENT ON
+// statement and the comments have to ride on the definitions themselves; it
+// quotes with backticks; autoIncrement is AUTO_INCREMENT and carries four rules
+// PostgreSQL's identity columns do not; its foreign key names are schema-wide
+// while its index names are per table, which is the exact inverse of
+// PostgreSQL; and a backslash inside a string literal is an escape character
+// there and an ordinary byte here.
 //
 // The output is deterministic: the same document always produces the same
 // bytes, because nothing here reads the clock, no tool version and no input
@@ -34,10 +44,14 @@
 // The schema has no place for these, so the script never contains them: CHECK
 // constraints, CREATE TYPE, schemas other than the default, collations, partial
 // and expression indexes, index methods, DEFERRABLE, storage parameters,
-// partitioning, and row-level security. Nor are database.logicalName and
-// database.description emitted: with no CREATE SCHEMA and no CREATE DATABASE
-// there is no object for a COMMENT ON to attach to, and the importer never
-// fills either field, so the round trip loses nothing.
+// partitioning, and row-level security. The MySQL script is the same idea
+// against a different grammar: no CHECK constraints, no triggers, no views, no
+// table options - engine, character set, collation, row format, partitioning -
+// and no ON UPDATE CURRENT_TIMESTAMP, because a script that guessed at an
+// engine or a collation would be writing a design decision nobody made. Nor are
+// database.logicalName and database.description emitted: with no CREATE SCHEMA
+// and no CREATE DATABASE there is no object for a COMMENT ON to attach to, and
+// the importer never fills either field, so the round trip loses nothing.
 //
 // One of those omissions has a sharp edge worth stating plainly. Column types
 // are opaque strings, so a document naming a user-defined type - an enum or a
@@ -45,6 +59,16 @@
 // statement in it creates. The script parses and fails on execution. That is a
 // limitation of the document format, not a bug here, and closing it would mean
 // teaching the schema about type definitions.
+//
+// ENUM and SET are the same edge in MySQL, one step sharper: their parenthesis
+// holds a value list rather than a number, the format has nowhere to keep one,
+// and MySQL answers a bare ENUM at parse time rather than on execution. They
+// are emitted as the document writes them all the same, because every ENUM
+// column is in that state - including one the importer has just produced from a
+// real database - so refusing them would refuse documents jjf itself wrote. A
+// VARCHAR with no length is not the same case and IS refused: mysqldump always
+// writes the length, so the refusal is unreachable from an imported document
+// and cannot break the round trip.
 package ddl
 
 import (
@@ -57,8 +81,14 @@ import (
 
 // indent is the leading whitespace of one item inside CREATE TABLE. Four
 // spaces, which is what pg_dump writes, so a generated script and a dump of the
-// database it created read alike. Every dialect takes the same rule from its
-// own dump tool, and they all happen to agree on four.
+// database it created read alike.
+//
+// mysqldump writes two, and the MySQL writer indents with four anyway. One
+// constant for the package rather than a width per dialect, because the round
+// trip compares DOCUMENTS and never SQL text - design/ddl-export.md says so for
+// both dialects - so the width buys a reader's eye and nothing else, and two
+// scripts from one tool that indent differently would cost more than they
+// bought.
 const indent = "    "
 
 // Export renders doc and writes it to dst as a DDL script in the dialect the

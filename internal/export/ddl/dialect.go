@@ -68,6 +68,16 @@ func dialects() []dialect {
 			check: pgCheck,
 			write: pgWriteScript,
 		},
+		// PostgreSQL stays first because it is the dialect every existing
+		// document and every existing test names, and because the order here
+		// is the order dialectNames prints - which is what a reader meets in
+		// the refusal message.
+		{
+			dbms:  model.DBMSMySQL,
+			name:  "MySQL",
+			check: myCheck,
+			write: myWriteScript,
+		},
 	}
 }
 
@@ -106,4 +116,27 @@ func dialectNames() string {
 		names = append(names, entry.name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// dialectValues lists the dbms values as a document would have to spell them,
+// for the message a document that names no target gets.
+//
+// A separate sentence from dialectNames' comma-separated list, because the two
+// are answering different questions: that one says what jjf can do, this one
+// says what to type. Hence the quotes, which are the JSON the author is being
+// asked to write, and the "or", which says only one of them may be chosen.
+func dialectValues() string {
+	values := make([]string, 0, len(dialects()))
+	for _, entry := range dialects() {
+		values = append(values, `"`+entry.name+`"`)
+	}
+	switch len(values) {
+	case 0:
+		// Unreachable while the table has entries, and total anyway: a
+		// message with a gap in it is worse than one that says nothing.
+		return ""
+	case 1:
+		return values[0]
+	}
+	return strings.Join(values[:len(values)-1], ", ") + " or " + values[len(values)-1]
 }

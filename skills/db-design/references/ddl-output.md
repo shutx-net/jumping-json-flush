@@ -1,9 +1,9 @@
 # Reading the generated DDL script
 
-How `jjf export ddl` writes its PostgreSQL script and what it will not write.
-The format is fixed inside `jjf` and cannot be driven from the JSON, so a request
-to change the shape of the SQL cannot be satisfied by editing the document — say
-so.
+How `jjf export ddl` writes its script, for each of the two dialects it writes,
+and what it will not write. The format is fixed inside `jjf` and cannot be driven
+from the JSON, so a request to change the shape of the SQL cannot be satisfied by
+editing the document — say so.
 
 Back to [SKILL.md](../SKILL.md).
 
@@ -11,7 +11,8 @@ Back to [SKILL.md](../SKILL.md).
 
 ```sh
 jjf export ddl db-design.json -o schema.sql
-psql -d mydb -f schema.sql
+psql -d mydb -f schema.sql            # a PostgreSQL document
+mysql mydb < schema.sql               # a MySQL one
 ```
 
 Leave `-o` out and the script goes next to the input with the extension replaced:
@@ -38,22 +39,25 @@ The script **creates a schema from nothing**. It is not a migration, and it must
 not be offered as one: applying a design to a database that already has a schema
 needs to know the state that database is in, which `jjf` never looks at.
 
-## PostgreSQL only
+## Which dialect
 
-`database.dbms` must be present and must be `PostgreSQL`. This is the only
-command that reads the field, and it reads it strictly.
+`database.dbms` decides, it must be present, and this is the only command that
+reads it. `PostgreSQL` and `MySQL` are written. `MariaDB`, `SQLite`, `Oracle` and
+`SQLServer` are refused, because each is written only when it can be checked
+against a real database end to end and those four cannot be.
 
 ```text
-jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"
-jjf: ddl export supports PostgreSQL only; this document names "MySQL"
+jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" or "MySQL" to "database"
+jjf: ddl export supports PostgreSQL, MySQL; this document names "MariaDB"
 ```
 
-Both exit 2. For a document targeting another system, say that `jjf` does not
-generate DDL for it rather than producing PostgreSQL SQL and hoping.
+Both exit 2. For a document targeting one of the refused four, say that `jjf`
+does not generate DDL for it. Do **not** offer the MySQL script as near enough
+for MariaDB, and do not offer PostgreSQL SQL and hope.
 
 ## The four statement phases
 
-The script is meant to be run top to bottom into an empty schema.
+The PostgreSQL script is meant to be run top to bottom into an empty schema.
 
 1. `CREATE TABLE` for every table, with `PRIMARY KEY` and `UNIQUE` inline
 2. `CREATE [UNIQUE] INDEX` for every index
@@ -68,6 +72,37 @@ work with no ordering between tables.
 double-quoted, always, so `order` and `user` are legal table names; type names
 are never quoted. `default` is copied out verbatim.
 
+## The MySQL script
+
+The same three phases, and no fourth: MySQL has no `COMMENT ON` statement, so
+the comments are folded into `CREATE TABLE`.
+
+```sql
+CREATE TABLE `order` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '受注ID',
+    `user` BIGINT UNSIGNED NOT NULL COMMENT '利用者ID',
+    `status` VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT '受注状態',
+    `total` DECIMAL(10,2) UNSIGNED NOT NULL DEFAULT 0.00 COMMENT '合計金額',
+    `placed_at` DATETIME(3) NOT NULL COMMENT '受注日時',
+    PRIMARY KEY (`id`)
+) COMMENT='受注
+A table named after a reserved word.';
+
+CREATE INDEX `ix_order_status` ON `order` (`status`);
+ALTER TABLE `order` ADD CONSTRAINT `fk_order_user` FOREIGN KEY (`user`) REFERENCES `user` (`id`) ON DELETE RESTRICT;
+```
+
+- `autoIncrement` becomes `AUTO_INCREMENT`, after `NOT NULL` and after any
+  `DEFAULT` — the order `mysqldump` writes
+- every identifier is backtick-quoted, always
+- `logicalName` and `description` are joined by a real newline and become
+  `COMMENT '...'` on the column and `COMMENT='...'` on the table
+- a backslash inside a comment is doubled, because MySQL reads one as an escape
+- `TINYINT` keeps its `length`; every other integer type drops one, because a
+  display width is deprecated and `mysqldump` no longer writes one
+- a `UNSIGNED` or `ZEROFILL` in the `type` goes after the parameters:
+  `DECIMAL(10,2) UNSIGNED`
+
 ## The refusal
 
 `ddl` is the only export that refuses a document, and it writes nothing when it
@@ -81,8 +116,11 @@ jjf: 1 problem(s) prevent PostgreSQL DDL generation
 
 Most of the reasons are the ones `jjf validate` reports as warnings, so a
 refusal usually means running `jjf validate` and fixing what it lists; see
-[errors.md](errors.md). Two groups are checked **only** here, because they are
-facts about PostgreSQL rather than about the document:
+[errors.md](errors.md). The rest are checked **only** here, because they are
+facts about one database system rather than about the document — so they differ
+by dialect, and the summary line names the dialect that refused.
+
+PostgreSQL:
 
 - **The schema-wide namespace.** Table names, index names, and the names of
   `PRIMARY KEY` and `UNIQUE` constraints share one namespace per schema and must
@@ -90,6 +128,22 @@ facts about PostgreSQL rather than about the document:
   tables may both have an `fk_parent`
 - **Identity columns.** An `autoIncrement` column may not also carry a `default`,
   and may not be `nullable`
+
+MySQL, where the namespaces are inverted:
+
+- **Table names** are schema-wide, as they are everywhere
+- **Foreign key names** are schema-wide too, so two tables may not both have an
+  `fk_parent`. **Index names are per table**, so two tables may both have an
+  `ix_created` — the opposite of PostgreSQL on both counts
+- **`AUTO_INCREMENT`**: one per table; it must be the first column of the
+  table's `primaryKey` or of one of its `uniqueKeys`; it may not carry a
+  `default`; it may not be `nullable`. Naming it in `indexes` does not help,
+  because the script creates an index a phase after the table — give the column
+  a `uniqueKeys` entry, or make it lead the primary key
+- **No key over a `TEXT`, `BLOB` or `JSON` column.** Index a `VARCHAR` column
+  instead, or drop the key; do **not** ask for a prefix length, as the format has
+  nowhere to put one
+- **No `VARCHAR` or `VARBINARY` without a `length`.** Add the length
 
 There is no `-strict` for export and there must not be one. A refusal is not a
 warning that can be waived.
@@ -99,9 +153,11 @@ warning that can be waived.
 The design format has no place for these, so they never appear: `CHECK`
 constraints, `CREATE TYPE`, schemas other than the default, collations, partial
 and expression indexes, index methods, `DEFERRABLE`, storage parameters,
-partitioning, row-level security, and comments on the database itself.
+partitioning, row-level security, and comments on the database itself. In a
+MySQL script, also never: triggers, views, and table options — engine, character
+set, collation, row format, partitioning — and `ON UPDATE CURRENT_TIMESTAMP`.
 
-Two consequences to state plainly rather than work around:
+Three consequences to state plainly rather than work around:
 
 - **A user-defined type is named but never created.** A `type` of `ORDER_STATUS`
   produces `"status" ORDER_STATUS`, and nothing in the file creates that type. The
@@ -111,9 +167,18 @@ Two consequences to state plainly rather than work around:
   `length: 11` is written `INTEGER`, because `integer(11)` is not valid
   PostgreSQL. For a type `jjf` does not recognise, the name and its parameters are
   reproduced exactly as the document states them
+- **`ENUM` and `SET` cannot carry their values.** A `type` of `ENUM` produces
+  `` `status` ENUM ``, which MySQL rejects when it parses the script. There is
+  nowhere in the format to put a value list, so do **not** invent one and do not
+  smuggle it into the `type` string — tell the user the format cannot express it,
+  and that a `VARCHAR` is what the document can hold. (`VARCHAR` without a
+  `length` is a different case and is refused outright, with a message saying so.)
 
 `ON UPDATE NO ACTION` and `ON DELETE NO ACTION` do not survive a round trip
-through a database: `NO ACTION` is PostgreSQL's default, so `pg_dump` omits it
-and `jjf import` records nothing. The script also assumes
-`standard_conforming_strings = on`, PostgreSQL's default since 9.1, and emits no
-`SET` of its own.
+through a database: `NO ACTION` is the default in both systems, so neither
+`pg_dump` nor `mysqldump` writes it and `jjf import` records nothing. In MySQL, a
+named `primaryKey` also comes back unnamed, because MySQL calls every primary key
+`PRIMARY`, and `SET DEFAULT` as a referential action is stored and dumped back
+but never performed. The PostgreSQL script assumes
+`standard_conforming_strings = on`, PostgreSQL's default since 9.1; neither
+script emits a `SET` of its own.

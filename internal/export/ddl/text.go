@@ -31,6 +31,27 @@ func quotedList(quote func(string) string, cols []string) string {
 	return strings.Join(quoted, ", ")
 }
 
+// constraintPrefix names a constraint, or returns nothing when the document
+// leaves it unnamed and the database is left to invent one. The schema permits
+// both for a primary key and for a unique key.
+//
+// It is shared and parameterised by the quoting function, the shape doubled and
+// quotedList already have, because both dialects spell a named constraint
+// CONSTRAINT <quoted> and one call inside a two-line function is not worth
+// writing that function twice.
+//
+// MySQL accepts CONSTRAINT <name> PRIMARY KEY (...) and then calls the
+// resulting key PRIMARY, because that is what it calls every primary key.
+// Emitting the name anyway is deliberate - the document said it - and the fact
+// that it does not survive a round trip is documented drift rather than a
+// reason to drop it here.
+func constraintPrefix(quote func(string) string, name string) string {
+	if name == "" {
+		return ""
+	}
+	return "CONSTRAINT " + quote(name) + " "
+}
+
 // doubled returns s with every occurrence of c doubled.
 //
 // One pass, byte by byte: chained replacements can escape their own output,

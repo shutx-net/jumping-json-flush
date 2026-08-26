@@ -10,7 +10,7 @@ Usage:
 Formats:
   xlsx  Excel workbook
   svg   SVG entity relationship diagram
-  ddl   PostgreSQL DDL script (.sql)
+  ddl   PostgreSQL or MySQL DDL script (.sql)
 
 Without -o the output goes next to the input, with its extension replaced by
 the one of the chosen format. "-o -" writes to standard output, which must not

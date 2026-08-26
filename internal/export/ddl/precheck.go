@@ -23,7 +23,10 @@ import (
 // The dialect lookup comes first, before a single finding is computed: a
 // MariaDB document has no business being lectured about PostgreSQL's index
 // namespace, and the remedy is a different one - change the target or change
-// the tool, not the contents of the document.
+// the tool, not the contents of the document. MariaDB is the live example
+// rather than a hypothetical one, and it stays refused deliberately: it has no
+// importer and no live-server leg, so it could only ship on golden files,
+// which is what design/ddl-export.md's gate exists to forbid.
 //
 // This is also the only place in jjf that reads database.dbms, and it reads it
 // strictly. An absent value is an error rather than a default: guessing
@@ -57,11 +60,13 @@ func Accept(doc *model.Document) error {
 // cmd/jjf/export.go's exportUsage makes for the format list, applied to the
 // message that matters most.
 //
-// An absent value gets its own sentence naming a value to write, because a
+// An absent value gets its own sentence naming the values to write, because a
 // list of what is supported does not tell an author what the fix looks like.
+// That list is generated too, from the same table, so the sentence cannot come
+// to offer a dialect jjf has stopped writing or omit one it has started.
 func errNoDialect(d model.DBMS) error {
 	if d == "" {
-		return fmt.Errorf(`ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"`)
+		return fmt.Errorf(`ddl export needs the document to name its target; add "dbms": %s to "database"`, dialectValues())
 	}
 	return fmt.Errorf("ddl export supports %s; this document names %q", dialectNames(), d)
 }

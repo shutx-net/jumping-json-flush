@@ -971,6 +971,29 @@ func TestExportSVGRendersWhatDDLRefuses(t *testing.T) {
 	}
 }
 
+// TestRunExportDDLWritesMySQL is the second dialect reached the way a user
+// reaches it: through the CLI, with nothing said on the command line about
+// which dialect to write. The document's own database.dbms is the whole of the
+// choice.
+func TestRunExportDDLWritesMySQL(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.sql")
+	var stdout, stderr bytes.Buffer
+
+	if code := run([]string{"export", "ddl", "testdata/mysql.json", "-o", out}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	src := string(readDDLScript(t, out))
+	if want := "CREATE TABLE `customers` ("; !strings.Contains(src, want) {
+		t.Errorf("the output does not carry %q, so it is not MySQL:\n%s", want, src)
+	}
+	if strings.Contains(src, `"customers"`) {
+		t.Errorf("the output quotes an identifier the PostgreSQL way:\n%s", src)
+	}
+}
+
 // TestRunExportDDLRefusesAnUnsupportedDBMS reads a SQLite document rather than
 // the MySQL one it used to, so that the case keeps testing a refusal as
 // dialects are added: the message it pins is the one a reader gets when jjf
@@ -983,8 +1006,30 @@ func TestRunExportDDLRefusesAnUnsupportedDBMS(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
 	}
-	if want := `jjf: ddl export supports PostgreSQL; this document names "SQLite"`; !strings.Contains(stderr.String(), want) {
+	if want := `jjf: ddl export supports PostgreSQL, MySQL; this document names "SQLite"`; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+// TestRunExportDDLRefusesMariaDB has a fixture of its own rather than sharing
+// SQLite's, because the two refusals are the same message for opposite reasons.
+// Nobody expects jjf to write SQLite DDL; MariaDB takes the DDL MySQL takes, so
+// its refusal is the one that has to be deliberate - it has no importer and no
+// live-server leg, and design/ddl-export.md's gate forbids shipping a dialect
+// on golden files alone.
+func TestRunExportDDLRefusesMariaDB(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.sql")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"export", "ddl", "testdata/mariadb.json", "-o", out}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
+	}
+	if want := `jjf: ddl export supports PostgreSQL, MySQL; this document names "MariaDB"`; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("the refused export left a file at %s", out)
 	}
 }
 
@@ -996,7 +1041,10 @@ func TestRunExportDDLRefusesADocumentWithNoDBMS(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
 	}
-	if want := `jjf: ddl export needs the document to name its target`; !strings.Contains(stderr.String(), want) {
+	// The sentence offers every value a document may name, so that an author
+	// who has to add the field is not told about one dialect and left to find
+	// the other.
+	if want := `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" or "MySQL" to "database"`; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }

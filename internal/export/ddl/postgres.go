@@ -101,10 +101,10 @@ func pgWriteCreateTable(w *bufio.Writer, t *model.Table) {
 		items = append(items, pgColumnItem(&t.Columns[i]))
 	}
 	if pk := t.PrimaryKey; pk != nil {
-		items = append(items, pgConstraintPrefix(pk.Name)+"PRIMARY KEY ("+quotedList(pgQuoteIdent, pk.Columns)+")")
+		items = append(items, constraintPrefix(pgQuoteIdent, pk.Name)+"PRIMARY KEY ("+quotedList(pgQuoteIdent, pk.Columns)+")")
 	}
 	for _, uk := range t.UniqueKeys {
-		items = append(items, pgConstraintPrefix(uk.Name)+"UNIQUE ("+quotedList(pgQuoteIdent, uk.Columns)+")")
+		items = append(items, constraintPrefix(pgQuoteIdent, uk.Name)+"UNIQUE ("+quotedList(pgQuoteIdent, uk.Columns)+")")
 	}
 
 	for i, item := range items {
@@ -155,16 +155,6 @@ func pgColumnItem(c *model.Column) string {
 	return b.String()
 }
 
-// pgConstraintPrefix names a constraint, or returns nothing when the document
-// leaves it unnamed and PostgreSQL is left to invent one. The schema permits
-// both for a primary key and for a unique key.
-func pgConstraintPrefix(name string) string {
-	if name == "" {
-		return ""
-	}
-	return "CONSTRAINT " + pgQuoteIdent(name) + " "
-}
-
 // ---------------------------------------------------------------------------
 // Phase 2: indexes
 // ---------------------------------------------------------------------------
@@ -202,7 +192,7 @@ func pgWriteForeignKeys(w *bufio.Writer, doc *model.Document) {
 		t := &doc.Tables[i]
 		for _, fk := range t.ForeignKeys {
 			fmt.Fprintf(w, "ALTER TABLE %s ADD %sFOREIGN KEY (%s) REFERENCES %s (%s)",
-				pgQuoteIdent(t.Name), pgConstraintPrefix(fk.Name), quotedList(pgQuoteIdent, fk.Columns),
+				pgQuoteIdent(t.Name), constraintPrefix(pgQuoteIdent, fk.Name), quotedList(pgQuoteIdent, fk.Columns),
 				pgQuoteIdent(fk.References.Table), quotedList(pgQuoteIdent, fk.References.Columns))
 			if fk.OnUpdate != "" {
 				fmt.Fprintf(w, " ON UPDATE %s", fk.OnUpdate)

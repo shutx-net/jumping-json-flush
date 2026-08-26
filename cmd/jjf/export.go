@@ -102,8 +102,16 @@ func exportFormats() []exportFormat {
 		// comment that it reports nothing, ever. DDL a database rejects is
 		// worth nothing at all, so this format alone refuses what the other
 		// two render.
+		//
+		// It is also the only entry whose output depends on the document's
+		// content beyond its structure: which dialect is written is the
+		// document's own database.dbms, and jjf never guesses one. The summary
+		// names both dialects rather than deriving them from
+		// internal/export/ddl, because deriving them would mean exporting the
+		// dialect table out of the package that owns it for one line of help
+		// text.
 		{
-			name: "ddl", ext: ".sql", summary: "PostgreSQL DDL script (.sql)",
+			name: "ddl", ext: ".sql", summary: "PostgreSQL or MySQL DDL script (.sql)",
 			accept: ddl.Accept, render: ddl.Export,
 		},
 	}
