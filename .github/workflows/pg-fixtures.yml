@@ -45,8 +45,13 @@ name: PostgreSQL fixtures
 # The workflow keeps its name. It is what the path filter below, DEVELOPERS.md
 # and "gh workflow run pg-fixtures.yml" all refer to, and a scheduled workflow
 # that changes identity loses the schedule GitHub attached to it. What it has
-# always been is everything about jjf that needs a real server; the fixtures
-# were simply the first of those.
+# always been is everything about jjf that needs a real PostgreSQL server; the
+# fixtures were simply the first of those. Its counterpart for the second
+# dialect is mysql-fixtures.yml, a file of its own rather than more jobs here,
+# so that each workflow's matrix, path filter, schedule and concurrency group is
+# about one database - and internal/export/ddl/** is on both path filters,
+# because the dialect seam is shared and a change to it has to run both round
+# trips.
 #
 # Nothing here is ever committed. The regenerated dumps live in the runner's
 # checkout for the length of the job and leave it only as a build artifact.

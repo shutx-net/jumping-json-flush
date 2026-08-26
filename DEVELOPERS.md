@@ -50,6 +50,9 @@ direnv.
 | regenerate them against a local server | `MYSQL_SOCKET=/var/run/mysqld/mysqld.sock sh internal/importer/mysql/testdata/generate.sh` |
 | run the DDL round trip | `PGBIN=/usr/lib/postgresql/17/bin sh internal/export/ddl/testdata/roundtrip.sh` |
 | round trip one document | `PGBIN=/usr/lib/postgresql/17/bin OUTDIR=/tmp/rt sh internal/export/ddl/testdata/roundtrip.sh edge.json` |
+| run the MySQL DDL round trip | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root sh internal/export/ddl/testdata/roundtrip-mysql.sh` |
+| round trip one MySQL document | `MYSQL_HOST=127.0.0.1 OUTDIR=/tmp/rt-mysql sh internal/export/ddl/testdata/roundtrip-mysql.sh edge.json` |
+| start a MySQL for the two MySQL scripts | `docker run --rm -d --name jjf-mysql -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -p 3306:3306 mysql:8.0` |
 | cross-build check | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
 
 ## Things to watch out for
@@ -111,6 +114,26 @@ direnv.
   the diffs and the intermediate SQL survive a failure; and it writes nothing into
   the checkout, which the workflow gates on with the same `git status --porcelain`
   shape the gofmt check uses
+- `internal/export/ddl/testdata/roundtrip-mysql.sh` is the same thing for the
+  second dialect, over `internal/export/ddl/testdata/mysql/{full,edge,minimal}.json`,
+  and it runs in the `verify` leg of `.github/workflows/mysql-fixtures.yml`. The
+  gate is the same one: the **second** pass equals the first, never that the first
+  equals the input. What MySQL does on the way in and does not undo — an unnamed
+  key comes back named after its first column, a `PRIMARY KEY`'s name is gone
+  because MySQL calls every primary key `PRIMARY`, an index appears behind every
+  foreign key that had none, an unnamed foreign key comes back
+  `<table>_ibfk_<n>`, `DEFAULT 0` comes back `DEFAULT '0'` and `DEFAULT (1 + 2)`
+  doubly parenthesised, `NO ACTION` and `DEFAULT NULL` disappear, `DECIMAL(8)`
+  becomes `DECIMAL(8,0)` and `BOOLEAN` becomes `TINYINT(1)` — is reported into the
+  job summary and gated on purpose *not*, for the reason the PostgreSQL bullet
+  above gives. Unlike its sibling it does **not** start the server: it connects to
+  one it was pointed at and drops and recreates two databases per document,
+  `<name>_pass1` and `<name>_pass2`, so never aim it at a server holding anything
+  you want to keep. It needs no prelude and must not grow one — MySQL has no
+  `CREATE TYPE`, so the `ENUM` gap could not be closed by one anyway. `MYSQL` and
+  `MYSQLDUMP` exist because **the client version decides the dump's shape**, so CI
+  points them at wrappers that `docker exec` into the server's own container and
+  the two are the same build by construction
 - `internal/importer/postgres/testdata/dump/pg<major>/*.sql` is real
   `pg_dump --schema-only` output, one directory per PostgreSQL major, regenerated
   from `testdata/source/*.sql` by
@@ -139,7 +162,11 @@ direnv.
   server, and holds the regenerated dumps to the committed goldens with the
   importer's own test suite. It runs weekly, on pull requests that touch
   `internal/importer/postgres/**` or `internal/export/ddl/**`, and on demand with
-  `gh workflow run pg-fixtures.yml`. It never commits what it regenerates: the
+  `gh workflow run pg-fixtures.yml`. `internal/export/ddl/**` is on
+  `mysql-fixtures.yml`'s path filter as well, so a change to the shared dialect
+  seam installs six PostgreSQL majors *and* starts a MySQL container: that is the
+  correct cost of a seam two dialects share, and it is stated here rather than
+  discovered. It never commits what it regenerates: the
   dumps leave the runner as the `dump-pg<major>` artifact and the round trip's
   working files as `roundtrip-pg<major>`, and nothing else. Four things turn it
   red, and the job summary says which. A dump no longer imports to its golden — a
@@ -187,7 +214,33 @@ direnv.
   Japanese `COMMENT` in a capture is encoded twice — and such a dump still lexes,
   still parses, still imports and still round-trips, so the only symptom is
   mojibake in a golden. `TestTheCapturedDumpsKeepTheirJapanese` and the `ci.yml`
-  selfcheck are what would notice
+  selfcheck are what would notice. The DDL round trip is where the flag matters
+  most and can help least: a latin1 connection corrupts the text *stably*, so the
+  second pass would compare mojibake against mojibake and pass. That is why both
+  scripts write the flag into a wrapper function instead of at a call site
+- `.github/workflows/mysql-fixtures.yml` is `pg-fixtures.yml`'s counterpart, a
+  file of its own so that each workflow's matrix, path filter, schedule and
+  concurrency group is about one database. It derives its matrix from the
+  committed capture directories — `internal/importer/mysql/testdata/dump/mysql*` —
+  starts `mysql:<series>` with `docker run`, and points `MYSQL` and `MYSQLDUMP` at
+  two wrapper scripts that `docker exec` into that container, which is the whole
+  reason it does not use a `services:` container: a service gives the server and
+  leaves the client to the runner image, and the client is what decides the dump's
+  shape. Three things turn it red. The regenerated dump no longer imports to its
+  golden, or its text changed in something other than the two banner lines
+  (`-- MySQL dump ... Distrib` and `-- Server version`, which move only when the
+  server does) — regenerate locally and commit the result. Or the round trip's
+  second pass is not the first, or the generated DDL did not apply at all — read
+  the `roundtrip-mysql<series>` artifact. Note that the committed captures were
+  taken with Ubuntu's `mysql-server` package and the workflow dumps with Oracle's
+  container image; both are 8.0, their versions show only in those two ignored
+  lines, and anything else that differs is the news this job exists to deliver.
+  There is deliberately **no** upstream-series job: the PostgreSQL one is a single
+  `apt-cache` command, while the MySQL equivalent means enumerating Docker Hub
+  tags and telling an innovation release from an LTS, so noticing 8.4 or 9.x is a
+  human's job for now. Do not make it a required status check, for the reason the
+  PostgreSQL bullet gives, and remember that GitHub disables a scheduled workflow
+  after 60 days without a commit
 - `go.mod` pins the toolchain in two directives that do different jobs. `go 1.26`
   is the floor: a go command older than that refuses to build, which is where the
   enforcement lives. `toolchain go1.26.7` is the exact release the go command

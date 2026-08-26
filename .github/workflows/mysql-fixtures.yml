@@ -1,0 +1,716 @@
+name: MySQL fixtures
+
+# The mysqldump captures under internal/importer/mysql/testdata/dump/ are static
+# files. go test reads them and never starts a database, which is what keeps the
+# test suite free of a database and a network - testdata/generate.sh says so in
+# its own header. The price of that arrangement is that nothing notices when a
+# real mysqldump stops writing what was captured. This workflow is the missing
+# half: it regenerates the fixtures against live servers, one captured release
+# series per leg, and holds the result to the committed goldens.
+#
+# It is .github/workflows/pg-fixtures.yml's counterpart, and a file of its own
+# rather than more jobs in that one. pg-fixtures.yml keeps its name because the
+# path filter, DEVELOPERS.md and "gh workflow run pg-fixtures.yml" all refer to
+# it, and because a scheduled workflow that changes identity loses the schedule
+# GitHub attached to it; adding MySQL jobs to it would have made the name a lie,
+# and renaming it to something dialect-neutral would have paid the schedule for
+# nothing. Two files keep each workflow's matrix, path filter, schedule and
+# concurrency group about one database, and keep a MySQL failure from cancelling
+# a PostgreSQL run through a shared concurrency group.
+#
+# What it cannot do is compare the regenerated files with the committed ones byte
+# for byte. Two lines of a mysqldump move with the server, and only with it:
+#
+#   -- MySQL dump 10.13  Distrib 8.0.46, for Linux (x86_64)
+#   -- Server version    8.0.46-0ubuntu0.24.04.3
+#
+# The first is the dumping client's build and the second the server's, and a
+# patch release changes both. --skip-dump-date, which generate.sh already
+# passes, removes the one line that would otherwise differ on every single run.
+# So those two are ignored here the way pg-fixtures.yml ignores its four, and
+# everything below them is the schema: a change there means mysqldump has
+# started writing something different for the same input.
+#
+# THE COMMITTED CAPTURES AND THIS JOB DO NOT COME FROM THE SAME BUILD. The
+# mysql8.0 fixtures were taken with Ubuntu's mysql-server package and this job
+# dumps with Oracle's mysql:8.0 container image. Both are the 8.0 series, the two
+# banner lines above are where their versions show, and the comparison ignores
+# exactly those. If anything ELSE differs, that is news rather than noise, and it
+# is the news this job exists to deliver: read the diff in the job summary before
+# concluding that the committed fixture is stale. pg-fixtures.yml carries the
+# same admission about its pg16 leg for the same reason.
+#
+# The server is a container this job starts itself, with the clients taken out of
+# that same container through two wrapper scripts, rather than a "services:"
+# entry with a client from apt. GitHub does offer MySQL as a service container,
+# which is one fewer step - but the service gives the SERVER only, and mysqldump's
+# output shape depends on the CLIENT version, so a capture taken by whatever
+# mysql-client the runner image happens to carry is a capture of nothing in
+# particular. Running both commands out of the server's own image makes them the
+# same build by construction, for every series in the matrix, with no apt step
+# and no version to pin. That is the same call pg-fixtures.yml's apt step makes
+# when it installs PostgreSQL 16 from PGDG rather than using the runner's own.
+#
+# It carries the other verification that needs a live server as well: the DDL
+# round trip design/ddl-export.md specifies. The golden files under
+# internal/export/ddl/testdata/golden/mysql/ prove only that the generator emits
+# what it emitted - nothing in them says the SQL executes, and nothing says the
+# importer reads back what the generator wrote. So the verify leg also takes
+# three design documents twice around
+# document -> jjf export ddl -> the server -> mysqldump -> jjf import mysql ->
+# document, with internal/export/ddl/testdata/roundtrip-mysql.sh.
+#
+# What it asserts there is that the SECOND pass equals the first, and not that
+# the first equals the document that went in. MySQL renames an unnamed key after
+# its first column, forgets the name a PRIMARY KEY was given, creates an index
+# behind a foreign key that has none, quotes a numeric default and drops a
+# NO ACTION; all of that is MySQL's behaviour rather than jjf's, it has happened
+# by the end of the first pass, and freezing it would make a MySQL release a jjf
+# failure with no jjf change to make. So it is reported into the job summary and
+# never gated. Anything that moves between the first pass and the second is the
+# generator and the importer disagreeing with each other, which is a defect, and
+# that is the gate.
+#
+# WHAT IS MISSING, DELIBERATELY: there is no job here that notices a MySQL
+# release nobody has captured. pg-fixtures.yml has one, and it can have one
+# because "what does upstream offer" is a single apt-cache command against
+# apt.postgresql.org. The MySQL equivalent means enumerating Docker Hub tags
+# through an API, deciding which of them name a release series rather than an
+# alias, and telling an innovation release from an LTS - a different mechanism
+# with failure modes of its own. A scheduled job's only way to say anything is to
+# go red, so a flaky one teaches people to ignore it, which is the warning
+# pg-fixtures.yml's own upstream job carries at length. Until that is built,
+# noticing MySQL 8.4 or 9.x is a human's job; the importer meanwhile claims
+# exactly the majors it has captures for, and
+# TestCapturedSeriesCoverTheSupportedMajors is what holds it to that.
+#
+# Nothing here is ever committed. The regenerated dumps live in the runner's
+# checkout for the length of the job and leave it only as a build artifact.
+
+on:
+  # The schedule is the reason this workflow exists. What it looks for happens
+  # upstream and is never announced by a commit here: a MySQL patch release that
+  # changes what mysqldump writes. Weekly bounds the discovery delay to seven
+  # days. The minute is not zero on purpose - schedules on the hour queue behind
+  # everybody else's - and neither the minute nor the hour is pg-fixtures.yml's,
+  # so the two do not start together and contend for runners.
+  #
+  # GitHub runs a schedule only from the default branch, and disables it after 60
+  # days without a commit to the repository, so a long quiet stretch ends with
+  # this workflow silently switched off.
+  schedule:
+    - cron: '41 5 * * 2'
+  # Not every pull request: this one starts a database container per series and
+  # takes minutes, and only the importer's own directory can invalidate the
+  # relationship between a dump, the importer and a golden. This file is in the
+  # list so that a pull request which changes the job runs the job - including
+  # the one that introduces it, which is the only way to rehearse it before it
+  # reaches the default branch, because workflow_dispatch does not appear until
+  # then.
+  #
+  # The generator's own directory is on the list for the same reason the
+  # importer's is: it is the other half of the round trip, and a pull request
+  # that changes what jjf emits has to run the job that applies it to a server.
+  # internal/export/ddl/** is on pg-fixtures.yml's filter too, so a change to
+  # the shared dialect seam runs both workflows - six PostgreSQL installs and a
+  # MySQL container. That is the correct cost of a seam two dialects share, and
+  # it is stated here and in DEVELOPERS.md rather than discovered.
+  #
+  # cmd/jjf/**, internal/model/** and internal/check/** are deliberately not
+  # listed, exactly as they are not on the sibling's filter: every pull request
+  # touching the CLI would then pay for a database, and what those packages could
+  # break shows up in the weekly run, which is what the schedule is for.
+  #
+  # These jobs must not be made required status checks. A path filtered workflow
+  # does not run for an unrelated pull request, and a required check that never
+  # runs blocks the merge for ever.
+  pull_request:
+    paths:
+      - 'internal/importer/mysql/**'
+      - 'internal/export/ddl/**'
+      - '.github/workflows/mysql-fixtures.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A pull request cancels its own earlier run. A scheduled run cancels nothing: a
+# weekly answer that was cancelled is a week without an answer. The group is this
+# workflow's own, so a MySQL run and a PostgreSQL run of the same ref never
+# cancel each other.
+concurrency:
+  group: mysql-fixtures-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  series:
+    name: series
+    runs-on: ubuntu-24.04
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: read
+        name: read the captured series
+        # The matrix is derived from the committed fixtures instead of being
+        # written out here, so that this workflow cannot disagree with the
+        # repository about which servers exist. testdata/dump/mysql<series>/ is
+        # the list, and TestCapturedSeriesCoverTheSupportedMajors already holds
+        # that list to minSupportedMajor..maxSupportedMajor in
+        # internal/importer/mysql. Committing a mysql8.4 capture therefore
+        # extends this job by itself, and no edit here can be forgotten - which
+        # is the whole reason the captures are kept per SERIES: 8.0 and 8.4 are
+        # different series of one major whose mysqldump output differs.
+        #
+        # The series name is also the Docker Hub tag the verify job runs, so a
+        # captured series with no image is one red leg and not a broken matrix.
+        # testdata/dump/synthetic/ is hand-written and is not a series; the
+        # digit after "mysql" is what keeps it out.
+        run: |
+          series="$(ls -d internal/importer/mysql/testdata/dump/mysql[0-9]* 2>/dev/null |
+            sed 's#.*/mysql##' | sort -V)"
+          if [ -z "$series" ]; then
+            echo "::error::no testdata/dump/mysql<series> directory found; this job is reading the wrong path"
+            exit 1
+          fi
+          list="$(printf '%s\n' "$series" | jq -R . | jq -sc .)"
+          printf 'series: %s\n' "$list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: verify (mysql${{ matrix.series }})
+    needs: series
+    # ubuntu-latest, where the sibling workflow pins ubuntu-24.04. Nothing this
+    # job compares comes from the runner image: the server and both clients are
+    # the container's, and the runner supplies only docker, git and the Go the
+    # go.mod directive names. Pinning here would be copying the sibling's reason
+    # rather than having one.
+    runs-on: ubuntu-latest
+    # A container that never becomes ready would otherwise sit on the six hour
+    # default.
+    timeout-minutes: 20
+    strategy:
+      # One series whose image cannot be pulled, or that diverged, must not hide
+      # the state of the others. A series leaving Docker Hub one day has to cost
+      # exactly one red leg.
+      fail-fast: false
+      matrix:
+        series: ${{ fromJSON(needs.series.outputs.list) }}
+    env:
+      # The container name is referred to by the two steps that start it and
+      # wrap it, so it is named once here rather than repeated. The wrappers
+      # cannot join it: they live under RUNNER_TEMP, which this block cannot
+      # see, so each step that needs them spells ${{ runner.temp }}/bin.
+      MYSQL_CONTAINER: jjf-mysql
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # The go directive of go.mod is the single source of the Go version.
+          go-version-file: go.mod
+
+      - id: server
+        name: start MySQL ${{ matrix.series }}
+        # The id is what the round trip step at the end of this job reads. It
+        # needs a server, the two wrappers and jjf and nothing else, so this is
+        # the honest dependency: guarding it on the regeneration instead would
+        # delete the second, independent answer at the moment it is most useful.
+        #
+        # --rm because the runner is thrown away anyway and a leftover container
+        # would only matter to somebody running these lines by hand.
+        #
+        # The readiness loop pings over TCP and not over the socket on purpose:
+        # the image's entrypoint starts a temporary server on the socket alone
+        # while it initialises the data directory, so a socket ping answers
+        # "ready" while the port is still closed and the very next command fails.
+        run: |
+          docker run --rm -d --name "$MYSQL_CONTAINER" \
+            -e MYSQL_ALLOW_EMPTY_PASSWORD=1 \
+            -p 3306:3306 "mysql:${{ matrix.series }}"
+
+          # The liveness check inside the loop is what keeps a container that
+          # started and then died from costing two minutes and then reporting a
+          # timeout: with --rm it is gone by then, so even its log is lost. The
+          # log is taken before the exit in both branches for the same reason.
+          ready=0
+          i=0
+          while [ "$i" -lt 60 ]; do
+            if docker exec "$MYSQL_CONTAINER" \
+                 mysqladmin ping --protocol=TCP -h 127.0.0.1 -u root --silent >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            if [ -z "$(docker ps -q -f "name=^${MYSQL_CONTAINER}$")" ]; then
+              echo "::error::the mysql:${{ matrix.series }} container stopped before it answered"
+              exit 1
+            fi
+            i=$((i + 1))
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$MYSQL_CONTAINER" 2>&1 | tail -50
+            echo "::error::mysql:${{ matrix.series }} did not answer on 127.0.0.1:3306 within two minutes"
+            exit 1
+          fi
+          echo "ok  mysql:${{ matrix.series }} is up"
+
+      - id: wrappers
+        name: point mysql and mysqldump into the container
+        # mysqldump's output shape depends on the CLIENT version, so a capture
+        # taken by a client that does not match the server it dumped is a capture
+        # of nothing. These two wrappers are how client and server become the
+        # same build by construction; generate.sh and roundtrip-mysql.sh both
+        # take the commands from MYSQL and MYSQLDUMP precisely so that this can
+        # be done without either of them learning what Docker is.
+        #
+        # "docker exec -i" and not "docker exec": both scripts feed SQL on
+        # stdin, which is itself a choice they made so that the command need not
+        # see this checkout.
+        #
+        # The smoke test is here, in the step that writes the wrappers, rather
+        # than left to the first real use. A wrapper that cannot reach its
+        # container fails like a missing command, and a missing command three
+        # steps later reads as "generate.sh is broken".
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          for prog in mysql mysqldump; do
+            printf '#!/bin/sh\nexec docker exec -i %s %s "$@"\n' \
+              "$MYSQL_CONTAINER" "$prog" > "$RUNNER_TEMP/bin/$prog"
+            chmod +x "$RUNNER_TEMP/bin/$prog"
+          done
+
+          "$RUNNER_TEMP/bin/mysql" --protocol=TCP -h 127.0.0.1 -u root \
+            --default-character-set=utf8mb4 \
+            --execute="CREATE DATABASE IF NOT EXISTS jjf_smoke"
+          "$RUNNER_TEMP/bin/mysqldump" --protocol=TCP -h 127.0.0.1 -u root \
+            --default-character-set=utf8mb4 --no-data --skip-dump-date jjf_smoke \
+            > "$RUNNER_TEMP/smoke.sql"
+          "$RUNNER_TEMP/bin/mysql" --protocol=TCP -h 127.0.0.1 -u root \
+            --default-character-set=utf8mb4 --execute="DROP DATABASE jjf_smoke"
+
+          # The banner is what generate.sh reads to decide which directory a
+          # capture belongs in, so a dump without one would put this leg's files
+          # somewhere nobody is looking.
+          if ! grep -q '^-- Server version' "$RUNNER_TEMP/smoke.sql"; then
+            echo "::error::the mysqldump wrapper produced no server version banner"
+            cat "$RUNNER_TEMP/smoke.sql"
+            exit 1
+          fi
+          sed -n '1,2p;/^-- Server version/p' "$RUNNER_TEMP/smoke.sql"
+
+      - id: regenerate
+        name: regenerate the mysql${{ matrix.series }} fixtures
+        # generate.sh, unchanged, driven exactly the way its header documents.
+        # The connection is the default one - 127.0.0.1:3306 as root with no
+        # password - because that is what the container publishes and what its
+        # own header's docker line describes; MYSQL_SOCKET is for a distribution
+        # package's auth_socket root and has nothing to do here.
+        #
+        # The id is what the steps below read: after a failed pull or a failed
+        # regeneration there are no fresh dumps, and an empty diff would read as
+        # "ok".
+        env:
+          MYSQL: ${{ runner.temp }}/bin/mysql
+          MYSQLDUMP: ${{ runner.temp }}/bin/mysqldump
+        run: sh internal/importer/mysql/testdata/generate.sh
+
+      - name: the regeneration landed in this leg's own directory
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # generate.sh reads the series out of the dump's own banner rather than
+        # taking it from a parameter, so a container whose server is not the
+        # series this leg is named after writes a directory nobody committed -
+        # and every comparison below would then pass, because it would be looking
+        # at the untouched committed files. An untracked path under dump/ is
+        # exactly that situation and nothing else, so it is the gate.
+        run: |
+          out="$(git status --porcelain --untracked-files=all \
+            -- internal/importer/mysql/testdata/dump | grep '^??' || true)"
+          if [ -n "$out" ]; then
+            echo "::error::the regeneration wrote a dump directory this repository has not captured; the container is not mysql ${{ matrix.series }}"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "ok  the regeneration wrote only into directories this repository committed"
+
+      - name: the regenerated dumps still import to the committed goldens
+        # The assertion, and not a new one: this is the importer's own test suite
+        # reading the dumps that were just written, which is exactly what
+        # TestImportAgreesAcrossMysqldumpSeries does for the committed ones. Only
+        # this leg's series is fresh; any other directory is the committed
+        # capture and passes here as it does in CI.
+        #
+        # -count=1 because setup-go restores the build cache, and a cached test
+        # result is not an answer about files this job has just written.
+        run: go test -count=1 ./internal/importer/mysql/
+
+      - name: nothing outside testdata/dump was written
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # generate.sh promises in its header that nothing outside its scratch
+        # directory and testdata/dump/ is written. This is where that promise is
+        # checked, on the one machine that runs the script with nobody watching.
+        # git status exits 0 whether or not it printed anything, so the output
+        # has to be the gate - the same shape as the gofmt check in ci.yml.
+        run: |
+          out="$(git status --porcelain -- . ':(exclude)internal/importer/mysql/testdata/dump')"
+          if [ -n "$out" ]; then
+            echo "::error::the regeneration wrote outside testdata/dump/"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "ok  the regeneration stayed inside testdata/dump/"
+
+      - name: the dump text, ignoring what cannot be stable
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # Two lines of a mysqldump move with the server and only with it: the
+        # "MySQL dump ... Distrib" banner, which is the dumping client's build,
+        # and "-- Server version", which is the server's. Everything else is the
+        # schema, and a change there means mysqldump has started writing
+        # something different for the same input. That is news even when the
+        # imported document survived it, which is why this is a gate of its own
+        # and not part of the step above: the documents can agree while the
+        # fixture has gone stale.
+        #
+        # git diff -I takes a POSIX extended regular expression and wants git
+        # 2.30 or newer.
+        run: |
+          if git diff --exit-code \
+               -I '^-- MySQL dump [0-9.]+  Distrib ' \
+               -I '^-- Server version' \
+               -- "internal/importer/mysql/testdata/dump/mysql${{ matrix.series }}"; then
+            echo "ok  mysqldump ${{ matrix.series }} still writes the committed fixture"
+            exit 0
+          fi
+          echo "::error::mysqldump ${{ matrix.series }} no longer writes the committed fixture; regenerate it and commit the result"
+          exit 1
+
+      - name: what changed
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        # A failed golden comparison above prints both documents in full - the
+        # authoritative answer, and an unreadable one: ecshop alone is some four
+        # hundred lines of JSON. This step says the same thing as a diff, per
+        # fixture, and puts it in the job summary next to the mysqldump this run
+        # used and the one the fixture was captured with.
+        #
+        # It is not a gate. The two steps above are, and a document that differs
+        # here has already failed one of them; the annotations it writes are the
+        # readable half of that failure.
+        env:
+          SERIES: ${{ matrix.series }}
+        run: |
+          base=internal/importer/mysql/testdata
+          dumpdir="$base/dump/mysql$SERIES"
+          work="$RUNNER_TEMP/mysql$SERIES"
+          mkdir -p "$work"
+
+          # A built binary and not "go run": go run reports its own exit status,
+          # and this step reads jjf's.
+          go build -o "$work/jjf" ./cmd/jjf
+
+          # emit <heading> <file>: a fenced block in the job summary, bounded so
+          # that a wholesale divergence cannot overflow it. Tilde fences, because
+          # a diff may legitimately contain backticks.
+          emit() {
+            {
+              printf '### %s\n\n~~~diff\n' "$1"
+              sed -n '1,400p' "$2"
+              [ "$(wc -l < "$2")" -le 400 ] && : || printf '... truncated; the artifact has the whole file\n'
+              printf '~~~\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          {
+            printf '## mysql%s\n\n' "$SERIES"
+            printf '| | server |\n| --- | --- |\n'
+            printf '| this run | %s |\n' \
+              "$(sed -n 's/^-- Server version[[:space:]]*//p' "$dumpdir/ecshop.sql" | head -1)"
+            printf '| the committed capture | %s |\n\n' \
+              "$(git show "HEAD:$dumpdir/ecshop.sql" | sed -n 's/^-- Server version[[:space:]]*//p' | head -1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! git diff --exit-code \
+                 -I '^-- MySQL dump [0-9.]+  Distrib ' \
+                 -I '^-- Server version' \
+                 -- "$dumpdir" > "$work/dump.diff"; then
+            emit "what mysqldump writes has changed" "$work/dump.diff"
+          fi
+
+          # source/ is the fixture list, read exactly the way generate.sh reads
+          # it, so the two can never disagree about which fixtures exist.
+          for src in "$base"/source/*.sql; do
+            name="$(basename "$src" .sql)"
+            status=0
+            "$work/jjf" import mysql "$dumpdir/$name.sql" -o "$work/$name.json" \
+              >/dev/null 2>"$work/$name.warn" || status=$?
+
+            if [ "$status" -ne 0 ]; then
+              echo "::error::mysql${SERIES}/${name}: jjf import failed with exit ${status}"
+              sed 's/^/    /' "$work/$name.warn"
+              emit "$name no longer imports" "$work/$name.warn"
+              continue
+            fi
+
+            # jjf import writes exactly the bytes model.Encode produces, which is
+            # exactly what testdata/golden/<name>.json holds, so this diff is the
+            # document level divergence itself and not an approximation of it.
+            if diff -u \
+                 --label "golden/$name.json" \
+                 --label "mysql$SERIES/$name.sql imported by this run" \
+                 "$base/golden/$name.json" "$work/$name.json" > "$work/$name.diff"; then
+              echo "ok  mysql${SERIES}/${name} imports to the committed golden"
+            else
+              echo "::error::mysql${SERIES}/${name}: the imported document is not the committed golden"
+              cat "$work/$name.diff"
+              emit "$name imports to a different document" "$work/$name.diff"
+            fi
+
+            # The warnings are printed, never compared: they carry line numbers,
+            # which move with the dump header, so they legitimately differ
+            # between series. TestImportFixtures pins them for the series the
+            # goldens were built from.
+            if [ -s "$work/$name.warn" ]; then
+              {
+                printf '<details><summary>%s: warnings from this run</summary>\n\n~~~\n' "$name"
+                cat "$work/$name.warn"
+                printf '~~~\n\n</details>\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          printf 'The regenerated dumps are in the dump-mysql%s artifact. ' "$SERIES" >> "$GITHUB_STEP_SUMMARY"
+          printf 'jjf import mysql <file>.sql -o - reproduces the document above from one.\n\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
+        with:
+          # The dumps this run produced, so that a divergence can be read in full
+          # rather than through a diff, and so that a maintainer can drop them
+          # into a checkout to reproduce it. This is the only way they leave the
+          # runner: nothing here commits them.
+          name: dump-mysql${{ matrix.series }}
+          path: internal/importer/mysql/testdata/dump/mysql${{ matrix.series }}
+          if-no-files-found: error
+
+      - id: roundtrip
+        name: the second pass of the DDL round trip equals the first
+        if: ${{ !cancelled() && steps.wrappers.outcome == 'success' }}
+        # The steps above are about a dump this repository has already captured.
+        # This one is about SQL jjf writes, and it is the only thing anywhere
+        # that runs that SQL: testdata/golden/mysql/*.sql prove that the
+        # generator emits what it emitted, and no golden file can say that MySQL
+        # accepts it or that the importer reads back what was written.
+        #
+        # roundtrip-mysql.sh takes full.json, edge.json and minimal.json from
+        # internal/export/ddl/testdata/mysql/ - the list
+        # internal/export/ddl/golden_test.go calls fixtures, because between them
+        # they hold every shape the generator has to survive - twice around
+        # document -> jjf export ddl -> a database -> mysqldump -> jjf import
+        # mysql -> document. Applying the DDL with the mysql client is itself an
+        # assertion: in batch mode it stops at the first error and exits
+        # non-zero, so a generator that emits something the server rejects fails
+        # here first.
+        #
+        # The generator's own fixtures and not the importer's goldens, which
+        # would have been the tempting shortcut - one set of documents for both
+        # halves. They cannot be used: internal/importer/mysql/testdata/golden/
+        # edge.json records an index over a TEXT column, because the dump it came
+        # from has one with a prefix length the design format has nowhere to put,
+        # and jjf export ddl refuses exactly that document. Refusing it is
+        # correct - MySQL rejects such an index without a prefix length - and it
+        # is why the two halves keep their own fixtures.
+        #
+        # The gate is that the second pass equals the first, not that the first
+        # equals the document: an unnamed key comes back named after its first
+        # column, a PRIMARY KEY's name is gone, an index appears behind a foreign
+        # key, a numeric default comes back quoted. The step below reports those
+        # and gates nothing.
+        #
+        # No prelude, and none should be added. roundtrip.sh applies
+        # edge.prelude.sql because its edge.json names a PostgreSQL type no
+        # generated statement creates; MySQL has no CREATE TYPE, so the
+        # equivalent gap - an ENUM without its value list - could not be closed
+        # by a prelude at all, and the MySQL edge fixture closes it by not using
+        # one.
+        #
+        # It speaks to the same container the regeneration did, through the same
+        # two wrappers, so the client that writes the dump is the server's own
+        # build here as well.
+        env:
+          MYSQL: ${{ runner.temp }}/bin/mysql
+          MYSQLDUMP: ${{ runner.temp }}/bin/mysqldump
+          OUTDIR: ${{ runner.temp }}/roundtrip-mysql${{ matrix.series }}
+          SERIES: ${{ matrix.series }}
+        run: |
+          # A built binary and not "go run": go run reports its own exit status,
+          # and this step reads jjf's. It is built into RUNNER_TEMP and not into
+          # OUTDIR so that the artifact below carries diffs and SQL and no
+          # binary.
+          go build -o "$RUNNER_TEMP/jjf-roundtrip" ./cmd/jjf
+
+          status=0
+          JJF="$RUNNER_TEMP/jjf-roundtrip" sh internal/export/ddl/testdata/roundtrip-mysql.sh || status=$?
+
+          # result.txt is one "ok <name>" or "FAIL <name>" line per document.
+          # Its absence is not "nothing failed": it means the script did not get
+          # as far as its first document.
+          if [ ! -f "$OUTDIR/result.txt" ]; then
+            echo "::error::mysql${SERIES}: the round trip wrote no result.txt; it never reached its first document"
+            exit 1
+          fi
+
+          while read -r verdict name; do
+            if [ "$verdict" = ok ]; then
+              echo "ok  mysql${SERIES}/${name} reaches the same document twice"
+              continue
+            fi
+            echo "::error::mysql${SERIES}/${name}: the second pass of the round trip is not the first"
+            if [ -s "$OUTDIR/$name.fixedpoint.diff" ]; then
+              cat "$OUTDIR/$name.fixedpoint.diff"
+            fi
+          done < "$OUTDIR/result.txt"
+
+          # The same check as "nothing outside testdata/dump was written", made
+          # again: that step ran before the round trip did, so nothing would
+          # notice if this one wrote into the checkout. The exclusion is the
+          # same, so that a legitimately regenerated testdata/dump/ is not
+          # mistaken for it, and the OUTPUT is the gate because git status exits
+          # 0 whether or not it printed anything - the shape ci.yml's gofmt
+          # check uses.
+          out="$(git status --porcelain -- . ':(exclude)internal/importer/mysql/testdata/dump')"
+          if [ -n "$out" ]; then
+            echo "::error::the round trip wrote into the checkout"
+            printf '%s\n' "$out"
+            exit 1
+          fi
+          echo "ok  the round trip wrote nothing into the checkout"
+
+          exit "$status"
+
+      - name: what the round trip changed
+        if: ${{ !cancelled() && steps.roundtrip.outcome != 'skipped' }}
+        # Not a gate. The step above is, and what this writes is the readable
+        # half of a failure - plus the one thing the gate deliberately does not
+        # assert. The document against the first pass is where "what does MySQL
+        # 8.0 do to my design" is visible at all, and it is rendered every run
+        # and not only on failure, because a report that appears only when
+        # something is broken never establishes the baseline that would make a
+        # future change legible.
+        #
+        # emit() is the one from "what changed" above, duplicated on purpose: a
+        # composite action for eight lines of shell would be more machinery than
+        # the duplication costs, which is the argument pg-fixtures.yml already
+        # makes about its apt block and ci.yml makes about expect().
+        env:
+          SERIES: ${{ matrix.series }}
+          OUTDIR: ${{ runner.temp }}/roundtrip-mysql${{ matrix.series }}
+        run: |
+          printf '## mysql%s - the DDL round trip\n\n' "$SERIES" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ! -f "$OUTDIR/result.txt" ]; then
+            printf 'The round trip produced nothing to report; the step above says why.\n\n' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<'PREAMBLE'
+          The gate is that the **second** pass equals the first, as documents. It is not
+          that the first pass equals the document that went in, and the differences below
+          are expected rather than news. MySQL rewrites parts of a design on the way in,
+          and mysqldump then renders what it stored:
+
+          - a column written `BOOLEAN` comes back as `TINYINT` with a length of 1, because
+            that is what MySQL stores it as
+          - an index appears behind every foreign key whose columns are not already the
+            leading columns of a key, because InnoDB requires one and creates it
+          - a named `PRIMARY KEY` loses its name: MySQL calls every primary key `PRIMARY`
+            and keeps no other
+          - an unnamed `UNIQUE` key comes back named after its first column, and a unique
+            index comes back as a unique key, because MySQL does not distinguish them
+          - an unnamed `FOREIGN KEY` comes back as `<table>_ibfk_<n>`, InnoDB's own name
+          - `ON UPDATE NO ACTION` and `ON DELETE NO ACTION` disappear, because NO ACTION is
+            the default and nothing is stored; `DEFAULT NULL` disappears for the same
+            reason
+          - a numeric default comes back quoted (`DEFAULT 0` as `DEFAULT '0'`), an
+            arithmetic one doubly parenthesised, and a function name in one lowercased
+          - a type is rewritten to what the server stores and jjf spells it its own way:
+            `DECIMAL(8)` becomes `DECIMAL(8,0)`, `FLOAT(24)` becomes `FLOAT`, `INT` becomes
+            `INTEGER`
+          - the tables come back in the server's order rather than the document's, and
+            `database.logicalName` is gone, because no `CREATE DATABASE` is generated for a
+            comment to attach to
+
+          Table options - the engine, the character set, the collation - are in the dump
+          and in none of these diffs: the design format has nowhere to hold them, so the
+          importer drops them.
+
+          Anything else is worth a look.
+
+          PREAMBLE
+
+          # emit <heading> <file>: a fenced block in the job summary, bounded so
+          # that a wholesale divergence cannot overflow it. Tilde fences,
+          # because a diff may legitimately contain backticks.
+          emit() {
+            {
+              printf '### %s\n\n~~~diff\n' "$1"
+              sed -n '1,400p' "$2"
+              [ "$(wc -l < "$2")" -le 400 ] && : || printf '... truncated; the artifact has the whole file\n'
+              printf '~~~\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          while read -r verdict name; do
+            if [ -s "$OUTDIR/$name.fixedpoint.diff" ]; then
+              emit "$name does not reach a fixed point" "$OUTDIR/$name.fixedpoint.diff"
+            elif [ "$verdict" != ok ]; then
+              printf '### %s failed before the two passes could be compared\n\n' "$name" \
+                >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            if [ -s "$OUTDIR/$name.input.diff" ]; then
+              printf '<details><summary>%s: what the database made of the document</summary>\n\n' \
+                "$name" >> "$GITHUB_STEP_SUMMARY"
+              emit "$name.json against the first pass" "$OUTDIR/$name.input.diff"
+              printf '</details>\n\n' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f "$OUTDIR/$name.input.diff" ]; then
+              printf '%s survives the first pass unchanged.\n\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            # Printed, never compared: the warnings carry line numbers, which
+            # move with the dump header. The same call the step above makes.
+            if [ -s "$OUTDIR/$name.pass1.warn" ]; then
+              {
+                printf '<details><summary>%s: warnings from the first import</summary>\n\n~~~\n' "$name"
+                cat "$OUTDIR/$name.pass1.warn"
+                printf '~~~\n\n</details>\n\n'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < "$OUTDIR/result.txt"
+
+          {
+            printf 'Both passes of the DDL, both dumps, both documents, the warnings and all '
+            printf 'three diffs are in the roundtrip-mysql%s artifact. To do one pass by hand:\n\n' "$SERIES"
+            printf '~~~sh\n'
+            printf 'jjf export ddl internal/export/ddl/testdata/mysql/full.json -o /tmp/pass0.sql\n'
+            printf 'mysql --default-character-set=utf8mb4 <an empty database> < /tmp/pass0.sql\n'
+            printf 'mysqldump --default-character-set=utf8mb4 --no-data --skip-dump-date <that database> |\n'
+            printf '  jjf import mysql /dev/stdin -database logistics -o -\n'
+            printf '~~~\n\n'
+            printf 'The whole thing, locally, against a server of your own: '
+            printf '`MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root '
+            printf 'sh internal/export/ddl/testdata/roundtrip-mysql.sh`\n\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.roundtrip.outcome != 'skipped' }}
+        with:
+          # Every intermediate the round trip produced - the DDL of both passes,
+          # both mysqldump outputs, both documents, both warning streams and all
+          # three diffs - so that a divergence can be read in full rather than
+          # through a truncated summary, and so that a maintainer can drop the
+          # first pass document into a checkout and export it again. This is the
+          # only way these files leave the runner: nothing here commits them.
+          name: roundtrip-mysql${{ matrix.series }}
+          path: ${{ runner.temp }}/roundtrip-mysql${{ matrix.series }}
+          if-no-files-found: error
