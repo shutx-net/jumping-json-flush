@@ -56,7 +56,8 @@
 | enum | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`。`onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 `dbms` は `jjf export ddl` を除くすべてのコマンドにとって説明的な値であり、
-`jjf export ddl` だけがこれを必須とし、`PostgreSQL` であることを要求する。
+`jjf export ddl` だけがこれを必須とし、名乗られた方言で書く。書けるのは
+`PostgreSQL` と `MySQL` の 2 つで、残る 4 つは終了コード 2 で拒否される。
 他に分岐するものは無い。
 
 ### import 時の PostgreSQL 型の扱い

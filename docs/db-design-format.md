@@ -58,7 +58,8 @@ The essentials:
 | Enums | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`. `onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 `dbms` is descriptive for every command except `jjf export ddl`, which requires
-it and requires it to be `PostgreSQL`. Nothing else in `jjf` branches on it.
+it and writes the dialect it names: `PostgreSQL` and `MySQL` are written, and the
+other four are refused with exit code 2. Nothing else in `jjf` branches on it.
 
 ### PostgreSQL types on import
 

@@ -6,16 +6,17 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 `jjf` keeps a database design in one JSON file and generates the rest: an Excel
-design document, an ER diagram it draws itself as SVG, and a PostgreSQL DDL
-script. The JSON is the source of truth — every generated file is a build
+design document, an ER diagram it draws itself as SVG, and a PostgreSQL or MySQL
+DDL script. The JSON is the source of truth — every generated file is a build
 artifact, regenerated rather than edited.
 
 ```sh
 jjf import postgres schema.sql -o db-design.json   # build it from a pg_dump file
+jjf import mysql    schema.sql -o db-design.json   # or from a mysqldump one
 jjf validate db-design.json                        # check it
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel design document
 jjf export svg  db-design.json -o er.svg           # ER diagram
-jjf export ddl  db-design.json -o schema.sql       # PostgreSQL DDL script
+jjf export ddl  db-design.json -o schema.sql       # DDL, in the dialect it names
 ```
 
 - **No dependencies.** `go.mod` has no `require` block at all — the JSON Schema
@@ -46,16 +47,20 @@ Pinning a version, Windows, CI and uninstalling are in
 
 ## What each command does
 
-- **`import`** reads a `pg_dump --schema-only` **file** — `jjf` never connects to
-  a database — and validates what it built before writing it. What the format
-  cannot hold, such as a `CHECK` constraint, is reported with its line number
+- **`import`** reads a `pg_dump --schema-only` or `mysqldump --no-data` **file**
+  — `jjf` never connects to a database — and validates what it built before
+  writing it. What the format cannot hold, such as a `CHECK` constraint, is
+  reported with its line number
 - **`validate`** reports **every violation at once**, each with a JSON Pointer,
   against the schema embedded in the binary. It then checks the document against
   itself — a foreign key with no target, a nullable primary key column, a default
   that is not a SQL expression — as warnings; `-strict` makes them a failure
 - **`export`** validates first, so a failing document produces no output at all,
   not even a single byte. `ddl` alone also refuses a document that contradicts
-  itself, because SQL a database rejects is worth nothing
+  itself, because SQL a database rejects is worth nothing. It writes the dialect
+  `database.dbms` names, which is **PostgreSQL** or **MySQL**: a dialect ships
+  only once an importer and a live-server round trip in CI can check it end to
+  end, so the other four `dbms` values are refused rather than approximated
 
 Exit code 2 means bad input; 3 means a JSON Schema violation and nothing else.
 Every command and its options are in [`docs/usage.md`](docs/usage.md)
