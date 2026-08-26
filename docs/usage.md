@@ -88,21 +88,22 @@ column's `type`, and does not object to a function it has never heard of.
 ```sh
 jjf export xlsx db-design.json -o db-design.xlsx
 jjf export dot  db-design.json -o er.dot
+jjf export svg  db-design.json -o er.svg
 jjf export ddl  db-design.json -o schema.sql
 ```
 
-Three formats are supported: `xlsx`, an Excel design document; `dot`, a Graphviz
-entity relationship diagram; and `ddl`, a PostgreSQL DDL script. They share the
-same contract.
+Four formats are supported: `xlsx`, an Excel design document; `dot`, a Graphviz
+entity relationship diagram; `svg`, the same diagram drawn by `jjf` itself; and
+`ddl`, a PostgreSQL DDL script. They share the same contract.
 
 - The input is always validated first. **A document that fails validation
   produces no output file at all, not even a single byte**
 - Leave `-o` out and the output goes **next to the input, with the extension
   replaced by the one of the chosen format** (`docs/db-design.json` →
-  `docs/db-design.xlsx`, `docs/db-design.dot` or `docs/db-design.sql`). `ddl` is
-  the one format whose extension is not its name: a `.ddl` file is nothing, and
-  calling the format `sql` would promise arbitrary SQL rather than one
-  schema-creating script
+  `docs/db-design.xlsx`, `docs/db-design.dot`, `docs/db-design.svg` or
+  `docs/db-design.sql`). `ddl` is the one format whose extension is not its
+  name: a `.ddl` file is nothing, and calling the format `sql` would promise
+  arbitrary SQL rather than one schema-creating script
 - `-o -` writes to standard output. It is **refused when standard output is a
   terminal and the format is binary**, which today means `xlsx` alone; a pipe or
   a redirect is always fine
@@ -111,8 +112,8 @@ same contract.
 - **The same input always produces byte-identical output**, in every format
 - **`ddl` alone refuses a document that contradicts itself** (exit code 2). SQL a
   database rejects is worth nothing, while a slightly broken document still makes
-  a useful workbook and a useful diagram — so `xlsx` and `dot` render it and
-  `jjf validate` is where those contradictions are reported
+  a useful workbook and a useful diagram — so `xlsx`, `dot` and `svg` render it
+  and `jjf validate` is where those contradictions are reported
 
 ### xlsx
 
@@ -169,6 +170,45 @@ The crow's foot notation is **inferred**; the JSON never states a cardinality.
 - The parent side is **optional** when any foreign key column is nullable — a
   child row may then exist while pointing at no parent — and **mandatory** when
   every one of them is `NOT NULL`
+
+### svg
+
+```sh
+jjf export svg db-design.json -o er.svg
+```
+
+`jjf` **draws** this one. There is no graphviz, no renderer and nothing to
+install: the ranking, the ordering, the coordinates and the text metrics are all
+its own, and the `.svg` opens in a browser and displays in a README as it is.
+That is the whole difference from `dot`, which writes a description for a
+program you supply.
+
+```text
+db-design.json --[jjf]--> er.svg
+```
+
+- SVG is text, so **`-o -` may be written to a terminal here** too, unlike `xlsx`
+- The picture is the one `dot` describes: one box per table, one row per column
+  carrying the `PK` / `FK` markers, the physical and logical names and the type,
+  and one relationship per foreign key. The crow's foot rules are
+  [the same rules](#cardinality) — both exporters read them out of one shared
+  derivation, so a disagreement between the two diagrams would be a bug rather
+  than a choice
+- A foreign key naming a table the document does **not** define is drawn as a
+  dashed stub, exactly as in `dot`. The exporter checks nothing and reports
+  nothing, ever: such a document is legal and the diagram shows exactly what the
+  JSON claims. `jjf validate` is where the same document is reported, as a
+  warning
+- **The background is an opaque white rectangle**, not transparency. A
+  transparent diagram of dark text is unreadable on a dark-mode README — the
+  likeliest place this file is looked at — and making it follow the theme would
+  need a `<style>` block carrying `prefers-color-scheme`, which is exactly what
+  GitHub's SVG sanitiser strips: the file would be right in a browser and wrong
+  where it was made to go
+- **The layout has no knobs**, and will not grow any. `jjf` owns this drawing
+  the way it owns the workbook: no flag for the direction, the spacing or the
+  splines. Wanting to choose those yourself is what `jjf export dot` and your
+  own graphviz are for, and that route is not going away
 
 ### ddl
 
@@ -297,9 +337,10 @@ it and `jjf import` records nothing. That is expected rather than a bug.
 
 #### Byte-for-byte determinism
 
-**The same input always produces a byte-identical `.xlsx`, `.dot` and `.sql`.** No
-generation timestamp is embedded, no tool version is written into the output, the
-ZIP timestamps are fixed, and nothing depends on Go's map iteration order.
+**The same input always produces a byte-identical `.xlsx`, `.dot`, `.svg` and
+`.sql`.** No generation timestamp is embedded, no tool version is written into
+the output, the ZIP timestamps are fixed, and nothing depends on Go's map
+iteration order.
 
 ```sh
 jjf export xlsx db-design.json -o a.xlsx

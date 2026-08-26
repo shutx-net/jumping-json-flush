@@ -258,9 +258,14 @@ func TestExportKeyMarkers(t *testing.T) {
 
 // columnLogicalName is a test-side lookup, kept out of the exporter because
 // the exporter walks the columns it is printing rather than searching for one.
+// It walks the slice itself rather than borrowing internal/export/erd's
+// findColumn, which is unexported there and is a piece of the cardinality
+// derivation rather than a lookup this package is entitled to.
 func columnLogicalName(t *model.Table, column string) string {
-	if c := findColumn(t, column); c != nil {
-		return c.LogicalName
+	for i := range t.Columns {
+		if t.Columns[i].Name == column {
+			return t.Columns[i].LogicalName
+		}
 	}
 	return ""
 }

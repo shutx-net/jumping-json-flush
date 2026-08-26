@@ -15,8 +15,8 @@ might make into states a document cannot reach.
 
 Everything else is derived: Excel workbooks and ER diagrams for people, DDL for
 a database. The canonical source is the JSON. Every generated file — `.xlsx`,
-`.dot`, `.sql` — is a derived artifact, must never be treated as authoritative
-data, and is meant to be regenerated rather than edited or kept.
+`.dot`, `.svg`, `.sql` — is a derived artifact, must never be treated as
+authoritative data, and is meant to be regenerated rather than edited or kept.
 
 Initial scope:
 

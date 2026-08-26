@@ -36,7 +36,7 @@ direnv.
 | run | `go run ./cmd/jjf validate examples/db-design.example.json` |
 | test | `go test ./...` |
 | test (race) | `CGO_ENABLED=1 go test -race ./...` |
-| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/dot/ ./internal/export/ddl/ ./internal/importer/postgres/ -update` |
+| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/dot/ ./internal/export/svg/ ./internal/export/ddl/ ./internal/importer/postgres/ -update` |
 | coverage | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
 | vet | `go vet ./...` |
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
@@ -70,16 +70,16 @@ direnv.
   that was removed
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
-- Only the seven packages that own goldens define the `-update` flag, so
+- Only the eight packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
 - `jjf export ddl` is the only exporter that refuses its input. A document that
-  contradicts itself still makes a useful workbook and a useful diagram, so `xlsx`
-  and `dot` render it; SQL a database rejects is worth nothing, so `ddl` writes
-  nothing and exits **2**, not 4 — 4 has to keep meaning that the environment
-  stopped the write, which is all `writeFileAtomically` produces. The asymmetry is
-  pinned by `TestOnlyDDLRefusesFindings`, so deleting the format table's `accept`
-  field has to argue with a test
+  contradicts itself still makes a useful workbook and a useful diagram, so
+  `xlsx`, `dot` and `svg` render it; SQL a database rejects is worth nothing, so
+  `ddl` writes nothing and exits **2**, not 4 — 4 has to keep meaning that the
+  environment stopped the write, which is all `writeFileAtomically` produces. The
+  asymmetry is pinned by `TestOnlyDDLRefusesFindings`, so deleting the format
+  table's `accept` field has to argue with a test
 - The DDL round trip — document → `jjf export ddl` → live PostgreSQL → `pg_dump`
   → `jjf import` → document — runs in the `verify` leg of
   `.github/workflows/pg-fixtures.yml`, one PostgreSQL major per leg, driven by

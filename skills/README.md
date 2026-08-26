@@ -145,10 +145,10 @@ skills/db-design`.
 
 `allowed-tools` pre-approves `Read` and three `jjf` subcommands only — `import`,
 which reads a dump and writes a document, `validate`, which reads, and `export`,
-which writes a workbook, a Graphviz DOT file or a DDL script. The two that write
-take their path from the user. Editing the JSON still goes through the usual
-permission prompt, on purpose: pre-approving `Write` and `Edit` would be a
-privilege escalation for whoever installs the skill.
+which writes a workbook, an SVG or Graphviz DOT diagram, or a DDL script. The
+two that write take their path from the user. Editing the JSON still goes
+through the usual permission prompt, on purpose: pre-approving `Write` and
+`Edit` would be a privilege escalation for whoever installs the skill.
 
 The specification calls `allowed-tools` a space-separated string. This skill
 writes it as a YAML list, because its patterns contain spaces —

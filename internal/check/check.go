@@ -196,7 +196,7 @@ func reportMissingColumns(t *model.Table, label string, cols []string, f *findin
 // All three sources count. A plain UNIQUE INDEX is a valid foreign key target
 // in PostgreSQL, not only a UNIQUE constraint, so which of the equivalent
 // spellings the author picked must not change the answer - the same reasoning
-// internal/export/dot/cardinality.go gives for the diagram. They are walked in
+// internal/export/erd/cardinality.go gives for the diagram. They are walked in
 // the order a reader would look for them: primary key, unique keys, unique
 // indexes. A non-unique index is not a source of uniqueness and is skipped.
 func constrainedUnique(t *model.Table, cols []string) bool {
@@ -222,7 +222,7 @@ func constrainedUnique(t *model.Table, cols []string) bool {
 // does not matter, so a foreign key on (b, a) against a primary key on (a, b)
 // is still the same target.
 //
-// Containment is checked in BOTH directions. internal/export/dot has a helper
+// Containment is checked in BOTH directions. internal/export/erd has a helper
 // of the same idea that compares lengths and then containment one way, which is
 // correct only because $defs/columnNameList carries uniqueItems: true and the
 // exporter is only ever reached after validation. This package must be total

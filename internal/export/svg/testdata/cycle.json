@@ -1,0 +1,191 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "billing",
+    "logicalName": "請求",
+    "description": "レイアウトが持つべき形のうち、既存の fixture のどれも持っていないものを集めたもの: 異なる 2 つの表の間の閉路 (payments と customers が互いを参照する) と、階層を 2 つ跨いだままになる辺 (payments -> customers は payments -> orders -> customers があるので 2 階層先になる)。論理名はすべて日本語なので、全角の文字幅の見積りもここを通る。",
+    "dbms": "PostgreSQL"
+  },
+  "tables": [
+    {
+      "name": "payments",
+      "logicalName": "入金",
+      "description": "受注と顧客の両方を参照するので、顧客までが 2 階層になる。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "入金ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "order_id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "logicalName": "入金額",
+          "type": "NUMERIC",
+          "precision": 12,
+          "scale": 2,
+          "nullable": false
+        },
+        {
+          "name": "paid_at",
+          "logicalName": "入金日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_payments",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_payments_order",
+          "columns": ["order_id"],
+          "references": {
+            "table": "orders",
+            "columns": ["id"]
+          }
+        },
+        {
+          "name": "fk_payments_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "logicalName": "受注",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "ordered_at",
+          "logicalName": "受注日時",
+          "type": "TIMESTAMP WITH TIME ZONE",
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_orders",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_orders_customer",
+          "columns": ["customer_id"],
+          "references": {
+            "table": "customers",
+            "columns": ["id"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "最新入金を指す外部キーが payments へ戻るので、payments と customers の 2 表で閉路になる。深さ優先の後退辺として反転されるのはこの辺であり、子側 (customers) は親側 (payments) より右に置かれる。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "logicalName": "顧客名",
+          "type": "VARCHAR",
+          "length": 120,
+          "nullable": false
+        },
+        {
+          "name": "latest_payment_id",
+          "logicalName": "最新入金ID",
+          "type": "BIGINT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_customers_latest_payment",
+          "columns": ["latest_payment_id"],
+          "references": {
+            "table": "payments",
+            "columns": ["id"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "refund_slips",
+      "logicalName": "返金伝票",
+      "description": "payments の子であり、payments に左からの接続を持たせるためにいる。",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "返金伝票ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "payment_id",
+          "logicalName": "入金ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "reason",
+          "logicalName": "返金理由",
+          "type": "VARCHAR",
+          "length": 200,
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_refund_slips",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_refund_slips_payment",
+          "columns": ["payment_id"],
+          "references": {
+            "table": "payments",
+            "columns": ["id"]
+          }
+        }
+      ]
+    }
+  ]
+}

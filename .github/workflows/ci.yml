@@ -289,6 +289,60 @@ jobs:
             echo "ok  export dot without -o writes <input>.dot"
           fi
 
+          # The svg format. Everything below checks the generated SVG
+          # STRUCTURALLY and never runs a renderer, for the same reason the dot
+          # block above never runs graphviz: requiring one would put a runtime
+          # dependency into the CI of a tool that refuses to have one. The
+          # argument is stronger here than it is for dot, because
+          # internal/export/svg's own tests already read the output back with
+          # encoding/xml and assert ten statements about the geometry. What
+          # this block adds is the one thing those tests cannot reach: the
+          # end-to-end path through a built binary, a real file on disk, and a
+          # second run compared byte for byte.
+          expect 0 "export the example as svg" \
+            "$JJF" export svg examples/db-design.example.json -o dist/er.svg
+          if [ ! -s dist/er.svg ]; then
+            echo "::error::dist/er.svg is missing or empty"
+            failures=$((failures + 1))
+          elif [ "$(head -1 dist/er.svg)" != '<?xml version="1.0" encoding="UTF-8"?>' ]; then
+            echo "::error::dist/er.svg does not open with the XML declaration"
+            failures=$((failures + 1))
+          elif ! grep -q '<svg ' dist/er.svg; then
+            echo "::error::dist/er.svg has no svg element"
+            failures=$((failures + 1))
+          else
+            echo "ok  svg output is an svg document ($(wc -c < dist/er.svg) bytes)"
+          fi
+
+          "$JJF" export svg examples/db-design.example.json -o dist/er-again.svg >/dev/null
+          if ! cmp -s dist/er.svg dist/er-again.svg; then
+            echo "::error::two svg exports of the same document differ"
+            failures=$((failures + 1))
+          else
+            echo "ok  two svg exports are byte identical"
+          fi
+          rm -f dist/er-again.svg
+
+          # "-o -" writes the same bytes as "-o <file>". Standard output is a
+          # pipe or a file here too, so svg being the second format that may go
+          # to a terminal is covered by TestRunExportSVGAllowsATerminal rather
+          # than by this job.
+          "$JJF" export svg examples/db-design.example.json -o - > dist/er-stdout.svg
+          if ! cmp -s dist/er.svg dist/er-stdout.svg; then
+            echo "::error::svg to standard output differs from svg to a file"
+            failures=$((failures + 1))
+          else
+            echo "ok  svg to standard output matches svg to a file"
+          fi
+
+          "$JJF" export svg "${RUNNER_TEMP}/default-path.json" >/dev/null
+          if [ ! -s "${RUNNER_TEMP}/default-path.svg" ]; then
+            echo "::error::export svg without -o did not write default-path.svg"
+            failures=$((failures + 1))
+          else
+            echo "ok  export svg without -o writes <input>.svg"
+          fi
+
           # The importer, on the committed pg_dump fixtures: a dump becomes a
           # document, the document validates, and the document exports.
           expect 0 "import the postgres fixture" \
@@ -297,9 +351,12 @@ jobs:
             "$JJF" validate dist/imported.json
           expect 0 "export the imported document" \
             "$JJF" export xlsx dist/imported.json -o dist/imported.xlsx
-          # The whole pipeline, dump to JSON to diagram.
+          # The whole pipeline, dump to JSON to diagram, in both diagram
+          # formats.
           expect 0 "export the imported document as dot" \
             "$JJF" export dot dist/imported.json -o dist/imported.dot
+          expect 0 "export the imported document as svg" \
+            "$JJF" export svg dist/imported.json -o dist/imported.svg
 
           # A broken dump, a strict run with warnings, and an unknown dialect are
           # all exit 2.

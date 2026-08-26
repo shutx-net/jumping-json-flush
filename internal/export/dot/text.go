@@ -15,16 +15,12 @@
 //
 // The crow's foot cardinality on each relationship is INFERRED from the keys
 // and the nullability the CHILD table declares; the JSON never states it, and
-// the referenced table is never read. See cardinality.go for the rules and
-// their limits.
+// the referenced table is never read. See internal/export/erd for the rules
+// and their limits; cardinality.go here holds only the mapping from a derived
+// end to a graphviz arrow type.
 package dot
 
-import (
-	"strconv"
-	"strings"
-
-	"github.com/shutx-net/jumping-json-flush/internal/model"
-)
+import "strings"
 
 // quoteID writes s as a DOT double-quoted string, always emitting the
 // surrounding quotes.
@@ -99,31 +95,4 @@ func escapeHTML(s string) string {
 		}
 	}
 	return b.String()
-}
-
-// renderType folds a column's declared size back into its type name, which is
-// the opposite of what the workbook does: the xlsx exporter puts the type in
-// one column and the size in another, while a DOT table cell wants one string.
-//
-// The precedence mirrors sizeOf in internal/export/xlsx/tabledef.go exactly -
-// length first, then precision with scale, then precision alone - so that the
-// two exporters can never disagree about the same document. All three are
-// pointers, so an absent size prints nothing rather than a zero.
-//
-// Nothing is escaped here. Escaping happens once, where the string is written
-// into a label, so that a caller cannot double-escape by accident.
-// $defs/columnType is ^[A-Za-z][A-Za-z0-9_ ]*$, so a type name may contain
-// spaces; unlike Mermaid, a DOT HTML-like label tolerates them, so TIMESTAMP
-// WITH TIME ZONE needs no mangling.
-func renderType(c *model.Column) string {
-	switch {
-	case c.Length != nil:
-		return c.Type + "(" + strconv.Itoa(*c.Length) + ")"
-	case c.Precision != nil && c.Scale != nil:
-		return c.Type + "(" + strconv.Itoa(*c.Precision) + "," + strconv.Itoa(*c.Scale) + ")"
-	case c.Precision != nil:
-		return c.Type + "(" + strconv.Itoa(*c.Precision) + ")"
-	default:
-		return c.Type
-	}
 }
