@@ -1,0 +1,3 @@
+line 30: dump was produced by MySQL server 5.7.44-log; jjf supports 8 and may misread this file
+line 45: members.id: parameters of type bigint are not represented
+line 47: members.points: parameters of type int are not represented

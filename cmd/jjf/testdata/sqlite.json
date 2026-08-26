@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "notes",
+    "logicalName": "メモ帳",
+    "dbms": "SQLite"
+  },
+  "tables": [
+    {
+      "name": "customers",
+      "logicalName": "顧客",
+      "description": "A document naming a dbms jjf writes no DDL for. SQLite is used rather than MySQL so that the unsupported-dialect test keeps testing a refusal as dialects are added.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "顧客ID",
+          "type": "BIGINT",
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

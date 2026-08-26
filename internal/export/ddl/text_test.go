@@ -2,7 +2,7 @@ package ddl
 
 import "testing"
 
-func TestQuoteIdent(t *testing.T) {
+func TestPGQuoteIdent(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -19,14 +19,14 @@ func TestQuoteIdent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := quoteIdent(tt.in); got != tt.want {
-				t.Errorf("quoteIdent(%q) = %s, want %s", tt.in, got, tt.want)
+			if got := pgQuoteIdent(tt.in); got != tt.want {
+				t.Errorf("pgQuoteIdent(%q) = %s, want %s", tt.in, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestQuoteLiteral(t *testing.T) {
+func TestPGQuoteLiteral(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
@@ -46,9 +46,30 @@ func TestQuoteLiteral(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := quoteLiteral(tt.in); got != tt.want {
-				t.Errorf("quoteLiteral(%q) = %s, want %s", tt.in, got, tt.want)
+			if got := pgQuoteLiteral(tt.in); got != tt.want {
+				t.Errorf("pgQuoteLiteral(%q) = %s, want %s", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestQuotedListUsesTheDialectQuoting exercises the parameter rather than the
+// loop. The stub case is what proves the quoting really comes from the
+// argument: with the function ignored and a delimiter hard-coded, the
+// PostgreSQL case alone would still pass.
+func TestQuotedListUsesTheDialectQuoting(t *testing.T) {
+	if got, want := quotedList(pgQuoteIdent, []string{"a", "b"}), `"a", "b"`; got != want {
+		t.Errorf("quotedList(pgQuoteIdent, ...) = %s, want %s", got, want)
+	}
+
+	stub := func(s string) string { return "<" + s + ">" }
+	if got, want := quotedList(stub, []string{"a", "b"}), "<a>, <b>"; got != want {
+		t.Errorf("quotedList(stub, ...) = %s, want %s", got, want)
+	}
+	if got, want := quotedList(stub, nil), ""; got != want {
+		t.Errorf("quotedList(stub, nil) = %q, want %q", got, want)
+	}
+	if got, want := quotedList(stub, []string{"only"}), "<only>"; got != want {
+		t.Errorf("quotedList(stub, one column) = %s, want %s", got, want)
 	}
 }

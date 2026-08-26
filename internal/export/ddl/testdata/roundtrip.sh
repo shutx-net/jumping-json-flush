@@ -14,6 +14,9 @@
 # .github/workflows/pg-fixtures.yml is what runs this with nobody watching, one
 # PostgreSQL major per matrix leg.
 #
+# roundtrip-mysql.sh beside it does the same thing for MySQL, against a server
+# it does not start, and this one keeps its PostgreSQL-only name and contents.
+#
 # It exists because golden files cannot say what matters most. testdata/golden/
 # proves that the generator emits what it emitted; nothing in it says the SQL
 # executes, and nothing says the importer reads back what the generator wrote.
@@ -49,6 +52,8 @@
 #   sh roundtrip.sh              round trip full.json, edge.json and minimal.json
 #   sh roundtrip.sh edge.json    round trip the named documents only
 #
+# The three are the PostgreSQL fixtures, which live beside this script;
+# testdata/mysql/ holds the MySQL ones and roundtrip-mysql.sh defaults to those.
 # A bare name is resolved beside this script; a name containing a "/" is used as
 # given, so a document from anywhere can be round tripped.
 #

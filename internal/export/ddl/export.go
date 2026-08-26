@@ -1,9 +1,9 @@
-// Package ddl renders a database design document as a PostgreSQL DDL script.
+// Package ddl renders a database design document as a DDL script.
 //
 // jjf writes SQL TEXT and nothing else. It never connects to a database, never
 // links a client library and never runs a statement, so the binary keeps the
 // project's no-CGO, no-runtime-dependency property; applying the script is the
-// reader's own step, with their own psql:
+// reader's own step, with their own client:
 //
 //	jjf export ddl db-design.json -o schema.sql
 //	psql -d mydb -f schema.sql
@@ -16,12 +16,25 @@
 // regenerate it, never edit it, never treat it as the design - and the file
 // says so in its own first two lines.
 //
-// PostgreSQL only, and database.dbms must say so. Round-trip verification is
-// possible only where an importer exists and only PostgreSQL has one; a
-// dialect that cannot be checked end to end would ship on golden files alone,
-// which prove nothing but that the generator emits what it emitted. The
-// default field is the second reason: it holds verbatim SQL expression text,
-// and '{}'::jsonb is PostgreSQL syntax.
+// Which dialect is written is database.dbms, and the field must be there. The
+// dialects jjf writes are the ones that can be answered by something other
+// than their own output: an importer to read a real database back, and a
+// live-server round trip in CI to run the two against each other. A dialect
+// that cannot be checked end to end would ship on golden files alone, which
+// prove nothing but that the generator emits what it emitted, so the table in
+// dialect.go is short on purpose and grows one entry at a time.
+// design/ddl-export.md states that gate and records what each dialect decided.
+// The dialects supported today are PostgreSQL and MySQL.
+//
+// The two writers differ in more than a delimiter, and the differences are
+// enumerated as M1 to M8 in that document rather than discovered by reading the
+// code: MySQL writes three phases instead of four, because it has no COMMENT ON
+// statement and the comments have to ride on the definitions themselves; it
+// quotes with backticks; autoIncrement is AUTO_INCREMENT and carries four rules
+// PostgreSQL's identity columns do not; its foreign key names are schema-wide
+// while its index names are per table, which is the exact inverse of
+// PostgreSQL; and a backslash inside a string literal is an escape character
+// there and an ordinary byte here.
 //
 // The output is deterministic: the same document always produces the same
 // bytes, because nothing here reads the clock, no tool version and no input
@@ -31,10 +44,14 @@
 // The schema has no place for these, so the script never contains them: CHECK
 // constraints, CREATE TYPE, schemas other than the default, collations, partial
 // and expression indexes, index methods, DEFERRABLE, storage parameters,
-// partitioning, and row-level security. Nor are database.logicalName and
-// database.description emitted: with no CREATE SCHEMA and no CREATE DATABASE
-// there is no object for a COMMENT ON to attach to, and the importer never
-// fills either field, so the round trip loses nothing.
+// partitioning, and row-level security. The MySQL script is the same idea
+// against a different grammar: no CHECK constraints, no triggers, no views, no
+// table options - engine, character set, collation, row format, partitioning -
+// and no ON UPDATE CURRENT_TIMESTAMP, because a script that guessed at an
+// engine or a collation would be writing a design decision nobody made. Nor are
+// database.logicalName and database.description emitted: with no CREATE SCHEMA
+// and no CREATE DATABASE there is no object for a COMMENT ON to attach to, and
+// the importer never fills either field, so the round trip loses nothing.
 //
 // One of those omissions has a sharp edge worth stating plainly. Column types
 // are opaque strings, so a document naming a user-defined type - an enum or a
@@ -42,13 +59,21 @@
 // statement in it creates. The script parses and fails on execution. That is a
 // limitation of the document format, not a bug here, and closing it would mean
 // teaching the schema about type definitions.
+//
+// ENUM and SET are the same edge in MySQL, one step sharper: their parenthesis
+// holds a value list rather than a number, the format has nowhere to keep one,
+// and MySQL answers a bare ENUM at parse time rather than on execution. They
+// are emitted as the document writes them all the same, because every ENUM
+// column is in that state - including one the importer has just produced from a
+// real database - so refusing them would refuse documents jjf itself wrote. A
+// VARCHAR with no length is not the same case and IS refused: mysqldump always
+// writes the length, so the refusal is unreachable from an imported document
+// and cannot break the round trip.
 package ddl
 
 import (
 	"bufio"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -57,9 +82,17 @@ import (
 // indent is the leading whitespace of one item inside CREATE TABLE. Four
 // spaces, which is what pg_dump writes, so a generated script and a dump of the
 // database it created read alike.
+//
+// mysqldump writes two, and the MySQL writer indents with four anyway. One
+// constant for the package rather than a width per dialect, because the round
+// trip compares DOCUMENTS and never SQL text - design/ddl-export.md says so for
+// both dialects - so the width buys a reader's eye and nothing else, and two
+// scripts from one tool that indent differently would cost more than they
+// bought.
 const indent = "    "
 
-// Export renders doc and writes it to dst as a PostgreSQL DDL script.
+// Export renders doc and writes it to dst as a DDL script in the dialect the
+// document names.
 //
 // A document Accept refuses produces no output at all - not one byte, and no
 // error from anywhere further down. The specification calls this all or
@@ -80,219 +113,22 @@ func Export(dst io.Writer, doc *model.Document) error {
 	if err := Accept(doc); err != nil {
 		return err
 	}
+	// The lookup cannot fail here: Accept's first act is the same lookup, and
+	// it returns an error when it misses. It is repeated rather than threaded
+	// out of Accept because Accept's answer is "may this be written", not
+	// "how", and widening it to return a dialect would export the seam into a
+	// signature every caller in cmd/jjf would have to carry.
+	d, ok := lookupDialect(doc.Database.DBMS)
+	if !ok {
+		return exitcode.Wrap(exitcode.InvalidInput, "", errNoDialect(doc.Database.DBMS))
+	}
 
 	bw := bufio.NewWriter(dst)
-	writeScript(bw, doc)
+	d.write(bw, doc)
 	if err := bw.Flush(); err != nil {
 		return exitcode.Wrap(exitcode.OutputFailed, "write ddl", err)
 	}
 	return nil
-}
-
-// writeScript emits the whole script in the four fixed phases: every
-// CREATE TABLE, then every CREATE INDEX, then every foreign key as an
-// ALTER TABLE, then every COMMENT ON.
-//
-// The order is the specification's first choice and the reason there is no
-// topological sort anywhere in this package. Nothing in phase 1 refers to
-// another table, so mutual references and self references need no ordering
-// between tables and no cycle handling. Phase 2 must precede phase 3 because
-// PostgreSQL accepts a plain UNIQUE INDEX as a foreign key target, not only a
-// UNIQUE constraint, so indexes[].unique is a legitimate source of the
-// uniqueness a foreign key requires and has to exist first.
-//
-// The header carries no timestamp, no tool version and no input path. A version
-// would make two builds of jjf disagree about the same document, which matters
-// most for this artifact of the three, because this is the one that gets
-// diffed.
-func writeScript(w *bufio.Writer, doc *model.Document) {
-	io.WriteString(w, "-- Generated by jjf from a database design document.\n")
-	io.WriteString(w, "-- The JSON is the source of truth: edit it and export again, never this file.\n")
-
-	// The schema requires at least one table with at least one column, so this
-	// section is never empty and needs no guard. The three below do.
-	io.WriteString(w, "\n-- Tables\n\n")
-	for i := range doc.Tables {
-		if i > 0 {
-			io.WriteString(w, "\n")
-		}
-		writeCreateTable(w, &doc.Tables[i])
-	}
-
-	if hasIndexes(doc) {
-		io.WriteString(w, "\n-- Indexes\n\n")
-		writeIndexes(w, doc)
-	}
-	if hasForeignKeys(doc) {
-		io.WriteString(w, "\n-- Foreign keys\n\n")
-		writeForeignKeys(w, doc)
-	}
-	if hasComments(doc) {
-		io.WriteString(w, "\n-- Comments\n\n")
-		writeComments(w, doc)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Phase 1: tables
-// ---------------------------------------------------------------------------
-
-// writeCreateTable emits one table: every column in document order, then the
-// primary key, then the unique keys.
-//
-// Foreign keys are never inline, not even a self-reference. That is what makes
-// phase 1 free of any dependency between tables.
-func writeCreateTable(w *bufio.Writer, t *model.Table) {
-	fmt.Fprintf(w, "CREATE TABLE %s (\n", quoteIdent(t.Name))
-
-	items := make([]string, 0, len(t.Columns)+1+len(t.UniqueKeys))
-	for i := range t.Columns {
-		items = append(items, columnItem(&t.Columns[i]))
-	}
-	if pk := t.PrimaryKey; pk != nil {
-		items = append(items, constraintPrefix(pk.Name)+"PRIMARY KEY ("+quotedList(pk.Columns)+")")
-	}
-	for _, uk := range t.UniqueKeys {
-		items = append(items, constraintPrefix(uk.Name)+"UNIQUE ("+quotedList(uk.Columns)+")")
-	}
-
-	for i, item := range items {
-		io.WriteString(w, indent)
-		io.WriteString(w, item)
-		if i < len(items)-1 {
-			io.WriteString(w, ",")
-		}
-		io.WriteString(w, "\n")
-	}
-	io.WriteString(w, ");\n")
-}
-
-// columnItem renders one column definition.
-//
-// PostgreSQL accepts the column constraints in any order, so the order here is
-// a style choice whose only requirement is that it never changes. IDENTITY and
-// DEFAULT are mutually exclusive - Accept refuses a column carrying both,
-// because PostgreSQL refuses one - so their relative order is never observable.
-// NOT NULL last is what pg_dump writes.
-//
-// NOT NULL is emitted only when the document says the column is not nullable;
-// NULL is SQL's own default and stating it adds nothing. A primary key column
-// therefore carries both NOT NULL and PRIMARY KEY, which is redundant and is
-// again what pg_dump writes.
-//
-// The default is copied out verbatim, with no quoting and no normalisation: the
-// field is defined as SQL expression text, and internal/check has already
-// refused an empty one or one that does not read as an expression.
-func columnItem(c *model.Column) string {
-	var b strings.Builder
-	b.WriteString(quoteIdent(c.Name))
-	b.WriteString(" ")
-	b.WriteString(renderType(c))
-	if c.AutoIncrement {
-		// Standard SQL, and the form PostgreSQL recommends over SERIAL.
-		// Available since PostgreSQL 10, so it needs no version gate anywhere
-		// in the supported range.
-		b.WriteString(" GENERATED BY DEFAULT AS IDENTITY")
-	}
-	if c.Default != nil {
-		b.WriteString(" DEFAULT ")
-		b.WriteString(*c.Default)
-	}
-	if !c.Nullable {
-		b.WriteString(" NOT NULL")
-	}
-	return b.String()
-}
-
-// constraintPrefix names a constraint, or returns nothing when the document
-// leaves it unnamed and PostgreSQL is left to invent one. The schema permits
-// both for a primary key and for a unique key.
-func constraintPrefix(name string) string {
-	if name == "" {
-		return ""
-	}
-	return "CONSTRAINT " + quoteIdent(name) + " "
-}
-
-// quotedList renders a column list for the inside of a parenthesis.
-func quotedList(cols []string) string {
-	quoted := make([]string, len(cols))
-	for i, c := range cols {
-		quoted[i] = quoteIdent(c)
-	}
-	return strings.Join(quoted, ", ")
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2: indexes
-// ---------------------------------------------------------------------------
-
-// writeIndexes emits one statement per index, tables in document order and each
-// table's indexes in document order.
-func writeIndexes(w *bufio.Writer, doc *model.Document) {
-	for i := range doc.Tables {
-		t := &doc.Tables[i]
-		for _, ix := range t.Indexes {
-			unique := ""
-			if ix.Unique {
-				unique = "UNIQUE "
-			}
-			fmt.Fprintf(w, "CREATE %sINDEX %s ON %s (%s);\n",
-				unique, quoteIdent(ix.Name), quoteIdent(t.Name), quotedList(ix.Columns))
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Phase 3: foreign keys
-// ---------------------------------------------------------------------------
-
-// writeForeignKeys emits one ALTER TABLE per foreign key.
-//
-// The referential actions are written as the document spells them, which is
-// legal PostgreSQL text for all five. ON UPDATE precedes ON DELETE, matching
-// the field order in model.ForeignKey and the property order in the schema. NO
-// ACTION is PostgreSQL's own default and pg_dump omits it, so a document that
-// states it explicitly does not get it back from a round trip; that is expected
-// rather than a bug, and the documentation says so.
-func writeForeignKeys(w *bufio.Writer, doc *model.Document) {
-	for i := range doc.Tables {
-		t := &doc.Tables[i]
-		for _, fk := range t.ForeignKeys {
-			fmt.Fprintf(w, "ALTER TABLE %s ADD %sFOREIGN KEY (%s) REFERENCES %s (%s)",
-				quoteIdent(t.Name), constraintPrefix(fk.Name), quotedList(fk.Columns),
-				quoteIdent(fk.References.Table), quotedList(fk.References.Columns))
-			if fk.OnUpdate != "" {
-				fmt.Fprintf(w, " ON UPDATE %s", fk.OnUpdate)
-			}
-			if fk.OnDelete != "" {
-				fmt.Fprintf(w, " ON DELETE %s", fk.OnDelete)
-			}
-			io.WriteString(w, ";\n")
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Phase 4: comments
-// ---------------------------------------------------------------------------
-
-// writeComments emits COMMENT ON statements: tables in document order, and
-// within each table its own comment first, then its columns in document order.
-func writeComments(w *bufio.Writer, doc *model.Document) {
-	for i := range doc.Tables {
-		t := &doc.Tables[i]
-		if text, ok := commentText(t.Name, t.LogicalName, t.Description); ok {
-			fmt.Fprintf(w, "COMMENT ON TABLE %s IS %s;\n", quoteIdent(t.Name), quoteLiteral(text))
-		}
-		for j := range t.Columns {
-			c := &t.Columns[j]
-			if text, ok := commentText(c.Name, c.LogicalName, c.Description); ok {
-				fmt.Fprintf(w, "COMMENT ON COLUMN %s.%s IS %s;\n",
-					quoteIdent(t.Name), quoteIdent(c.Name), quoteLiteral(text))
-			}
-		}
-	}
 }
 
 // commentText composes the comment of one object and reports whether it is
@@ -302,6 +138,8 @@ func writeComments(w *bufio.Writer, doc *model.Document) {
 // cuts a comment at its first newline and makes the first line the logical name
 // and the rest the description. Joining them the same way is what closes the
 // round trip, and it is why the newline is a real one rather than an escape.
+// Every dialect joins them identically, whatever statement it then puts them
+// in, so this is shared rather than per-dialect.
 //
 // Nothing is written for an object whose logical name is just its physical name
 // and which has no description: that is precisely the state the importer
@@ -322,9 +160,15 @@ func commentText(physical, logical, description string) (string, bool) {
 // Section guards
 // ---------------------------------------------------------------------------
 
-// hasIndexes, hasForeignKeys and hasComments decide whether their section
-// exists at all. A document without one must still produce a syntactically
-// complete script with no dangling section comment and no dangling blank line.
+// hasIndexes and hasForeignKeys decide whether their section exists at all. A
+// document without one must still produce a syntactically complete script with
+// no dangling section comment and no dangling blank line.
+//
+// They are shared because they ask about the document rather than about a
+// dialect: every dialect that writes indexes at all writes none when there are
+// none. A guard that depends on what a dialect does with a field - phase 4's,
+// which exists only for a dialect with a COMMENT ON statement - belongs beside
+// that dialect's writer instead, as pgHasComments does.
 
 func hasIndexes(doc *model.Document) bool {
 	for i := range doc.Tables {
@@ -339,22 +183,6 @@ func hasForeignKeys(doc *model.Document) bool {
 	for i := range doc.Tables {
 		if len(doc.Tables[i].ForeignKeys) > 0 {
 			return true
-		}
-	}
-	return false
-}
-
-func hasComments(doc *model.Document) bool {
-	for i := range doc.Tables {
-		t := &doc.Tables[i]
-		if _, ok := commentText(t.Name, t.LogicalName, t.Description); ok {
-			return true
-		}
-		for j := range t.Columns {
-			c := &t.Columns[j]
-			if _, ok := commentText(c.Name, c.LogicalName, c.Description); ok {
-				return true
-			}
 		}
 	}
 	return false

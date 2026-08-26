@@ -1,0 +1,11 @@
+column created_at on table orders: declares the default "now", in which "now" is a bare word; a string literal is written 'now'
+primary key pk_orders on table orders: names column "id", which the table declares nullable
+foreign key fk_parent on table orders: references table "customers", which this document does not define
+table order_items: declares foreign key "fk_parent", a name already used by foreign key fk_parent on table orders; InnoDB keeps foreign key names in one namespace per schema
+column spare on table counters: is autoIncrement, and so is column "id" on the same table; MySQL allows one AUTO_INCREMENT column per table
+column seq on table sequences: is autoIncrement and leads no key; MySQL needs it to be the first column of this table's primaryKey or of one of its uniqueKeys, and an entry in indexes cannot serve because the script creates it after the table
+column id on table tallies: is autoIncrement and also declares a default; MySQL refuses a default on an AUTO_INCREMENT column
+column id on table drafts: is autoIncrement and declared nullable; MySQL makes an AUTO_INCREMENT column NOT NULL, so the database would not match the document
+table documents: declares index "ix_documents_body" over column "body", whose type is TEXT; MySQL refuses such a column in a key without a prefix length, which the document has nowhere to put
+column name on table labels: declares type "VARCHAR" and no length; MySQL has no default length for it, so the column would be a syntax error rather than a column
+table orders: is the second table this document calls "orders"; MySQL cannot create two tables of one name in a schema

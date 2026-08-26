@@ -56,7 +56,8 @@
 | enum | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`。`onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 `dbms` は `jjf export ddl` を除くすべてのコマンドにとって説明的な値であり、
-`jjf export ddl` だけがこれを必須とし、`PostgreSQL` であることを要求する。
+`jjf export ddl` だけがこれを必須とし、名乗られた方言で書く。書けるのは
+`PostgreSQL` と `MySQL` の 2 つで、残る 4 つは終了コード 2 で拒否される。
 他に分岐するものは無い。
 
 ### import 時の PostgreSQL 型の扱い
@@ -93,6 +94,50 @@
 無いパラメータは警告を出して捨てる。
 
 取り込まない対象を含む import の詳細は [jjf の使い方](usage.ja.md#import) にある。
+
+### import 時の MySQL 型の扱い
+
+`jjf import mysql` も同じように分解し、同じ一文が同じだけの時間を節約する。
+**`varchar(255)` は長さ、`datetime(3)` は小数秒の精度**である。MySQL 固有の規則が
+2 つある。**`UNSIGNED` と `ZEROFILL` は `type` 名の一部として残す。** スキーマの型
+パターンは空白を許し、どちらの属性も列が保持しうる値の範囲を変えるためである。
+そして **`tinyint(1)` は `TINYINT` の `length: 1` のままとし、`BOOLEAN` にはしない。**
+MySQL は真偽値をそう格納し、`mysqldump` もそう書き戻すので、`BOOLEAN` と名付ければ
+ダンプが言っていない型を文書に書くことになり、書き出した先のデータベースはまた
+`tinyint(1)` をダンプするからである。
+
+| MySQL | `type` | パラメータ |
+| --- | --- | --- |
+| `varchar` | `VARCHAR` | `length` |
+| `char`, `character` | `CHAR` | `length` |
+| `binary` | `BINARY` | `length` |
+| `varbinary` | `VARBINARY` | `length` |
+| `bit` | `BIT` | `length` |
+| `tinyint` | `TINYINT` | `length` |
+| `decimal`, `numeric`, `dec`, `fixed` | `DECIMAL` | `precision`, `scale` |
+| `datetime` | `DATETIME` | `precision` |
+| `timestamp` | `TIMESTAMP` | `precision` |
+| `time` | `TIME` | `precision` |
+| `int`, `integer` | `INTEGER` | — |
+| `smallint`, `mediumint`, `bigint` | `SMALLINT`, `MEDIUMINT`, `BIGINT` | — |
+| `float` | `FLOAT` | — |
+| `double`, `double precision`, `real` | `DOUBLE` | — |
+| `bool`, `boolean` | `BOOLEAN` | — |
+| `date`, `year`, `json` | 同じ名前の大文字 | — |
+| `tinytext`, `text`, `mediumtext`, `longtext` | 同じ名前の大文字 | — |
+| `tinyblob`, `blob`, `mediumblob`, `longblob` | 同じ名前の大文字 | — |
+| `enum('a','b')`, `set('a','b')` | `ENUM`, `SET` | 値リストは捨てる |
+| `bigint unsigned`, `decimal(10,2) unsigned`, `int unsigned zerofill` | `BIGINT UNSIGNED`, `DECIMAL UNSIGNED`, `INTEGER UNSIGNED ZEROFILL` | 基底の型のものを引き継ぐ |
+| 表に無い型（geometry 系、将来の MySQL が足すもの） | 同じ名前の大文字 | — |
+
+`ENUM` と `SET` の値リストは**それを名指しする警告とともに捨てる**。フォーマットに
+置き場所が無いためである。残る `type` は、PostgreSQL の enum とまったく同じ意味で
+不完全であることに正直である。`jjf export ddl` は型名をそのまま書き戻し、MySQL は
+値リストの無い `ENUM` をスクリプトの構文解析の時点で拒否する。
+
+整数の表示幅は**警告とともに捨てる**。MySQL 8.0.17 以降は非推奨で `mysqldump` も
+書かなくなったため、`INT(11)` と書き戻せばサーバが取り除こうとしている構文を出す
+ことになる。`TINYINT` だけが例外で、理由は上の `tinyint(1)` である。
 
 `$schema` をルートに書いておくと、VS Code などのエディタで補完と警告が効く。
 `jjf` はこの値を読まない。

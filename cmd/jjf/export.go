@@ -102,8 +102,16 @@ func exportFormats() []exportFormat {
 		// comment that it reports nothing, ever. DDL a database rejects is
 		// worth nothing at all, so this format alone refuses what the other
 		// two render.
+		//
+		// It is also the only entry whose output depends on the document's
+		// content beyond its structure: which dialect is written is the
+		// document's own database.dbms, and jjf never guesses one. The summary
+		// names both dialects rather than deriving them from
+		// internal/export/ddl, because deriving them would mean exporting the
+		// dialect table out of the package that owns it for one line of help
+		// text.
 		{
-			name: "ddl", ext: ".sql", summary: "PostgreSQL DDL script (.sql)",
+			name: "ddl", ext: ".sql", summary: "PostgreSQL or MySQL DDL script (.sql)",
 			accept: ddl.Accept, render: ddl.Export,
 		},
 	}
@@ -236,8 +244,12 @@ func reportRefusal(stderr io.Writer, input string, err error) error {
 		return err
 	}
 	writeFindings(stderr, input, "error", re.Findings)
-	return exitcode.Wrap(exitcode.InvalidInput, "",
-		fmt.Errorf("%d problem(s) prevent PostgreSQL DDL generation", len(re.Findings)))
+	// The summary line is the refusal's own Error(), which names the dialect
+	// that refused, so err is returned unchanged and the top level prints it.
+	// It used to be re-composed here, in a package that cannot see the dialect
+	// table: one sentence written in two places is one sentence that drifts,
+	// and this one now has to name a dialect only ddl knows.
+	return err
 }
 
 // loadDocument reads, validates and decodes a database design document.

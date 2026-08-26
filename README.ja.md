@@ -7,16 +7,17 @@
 
 `jjf` は DB 設計を 1 つの JSON ファイルで持ち、そこから残りを生成する CLI。
 Excel の DB 設計書、`jjf` 自身が描く ER 図（SVG）、
-PostgreSQL の DDL スクリプトを出力する。
+PostgreSQL と MySQL の DDL スクリプトを出力する。
 JSON が唯一の正であり、生成されるファイルはすべてビルド成果物である。編集せず
 作り直す。
 
 ```sh
 jjf import postgres schema.sql -o db-design.json   # pg_dump のファイルから作る
+jjf import mysql    schema.sql -o db-design.json   # mysqldump のファイルからも
 jjf validate db-design.json                        # 検証する
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel の DB 設計書
 jjf export svg  db-design.json -o er.svg           # ER 図
-jjf export ddl  db-design.json -o schema.sql       # PostgreSQL の DDL スクリプト
+jjf export ddl  db-design.json -o schema.sql       # 文書が名乗る方言の DDL
 ```
 
 - **依存なし。** `go.mod` に `require` は 1 行もない。JSON Schema の検証器も
@@ -47,16 +48,20 @@ OS と CPU に対応するアーカイブを取得し、リリースの `checksu
 
 ## 各コマンドの役割
 
-- **`import`** が読むのは `pg_dump --schema-only` の**ファイル**であり、`jjf` が
-  データベースへ接続することはない。組み立てた文書は書き出す前に検証する。
-  `CHECK` 制約のように設計フォーマットに書き場所が無いものは行番号付きで報告する
+- **`import`** が読むのは `pg_dump --schema-only` または `mysqldump --no-data` の
+  **ファイル**であり、`jjf` がデータベースへ接続することはない。組み立てた文書は
+  書き出す前に検証する。`CHECK` 制約のように設計フォーマットに書き場所が無いものは
+  行番号付きで報告する
 - **`validate`** はバイナリに埋め込まれた schema に対し、違反を**全件まとめて**
   報告する。位置はそれぞれ JSON Pointer で示される。続けて文書が自分自身と
   矛盾していないか（参照先の無い外部キー、`nullable` な主キー列、SQL 式として
   読めない既定値など）を警告として報告する。`-strict` を付けると失敗になる
 - **`export`** は必ず先に検証するので、検証を通らない文書からは 1 バイトも
   出力されない。`ddl` だけはさらに、自分自身と矛盾する文書を拒否する。
-  データベースが受け付けない SQL は何の役にも立たないからである
+  データベースが受け付けない SQL は何の役にも立たないからである。書き分けるのは
+  `database.dbms` が名乗る方言で、**PostgreSQL** と **MySQL** の 2 つである。
+  方言を増やすのは、取り込みと CI の実機往復で端から端まで検査できるようになって
+  からであり、残る 4 つの `dbms` 値は近いもので代用せず拒否する
 
 終了コード 2 は入力不正、3 は JSON Schema 違反だけを意味する。各コマンドと
 オプションは [`docs/usage.ja.md`](docs/usage.ja.md)（[English](docs/usage.md)）

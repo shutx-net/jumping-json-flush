@@ -1,0 +1,260 @@
+{
+  "$schema": "https://raw.githubusercontent.com/shutx-net/jumping-json-flush/main/schema/db-design.schema.json",
+  "formatVersion": "1.0",
+  "database": {
+    "name": "edge",
+    "logicalName": "境界",
+    "dbms": "MySQL"
+  },
+  "tables": [
+    {
+      "name": "order",
+      "logicalName": "受注",
+      "description": "A table named after a reserved word. Its description carries an apostrophe - it's here on purpose -\nand a newline, so the table's COMMENT= literal has to survive both.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "受注ID",
+          "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "user",
+          "logicalName": "利用者ID",
+          "description": "A column named after a reserved word, in a table named after another one. Its type carries the attribute because the column it references does, and MySQL refuses a foreign key between a signed and an unsigned integer.",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "logicalName": "受注状態",
+          "type": "VARCHAR",
+          "length": 16,
+          "nullable": false,
+          "default": "'pending'"
+        },
+        {
+          "name": "total",
+          "logicalName": "合計金額",
+          "description": "An attribute after the type name, so the parameters have to go before it and not after.",
+          "type": "DECIMAL UNSIGNED",
+          "precision": 10,
+          "scale": 2,
+          "nullable": false,
+          "default": "0.00"
+        },
+        {
+          "name": "rate",
+          "logicalName": "レート",
+          "type": "DECIMAL",
+          "precision": 8,
+          "nullable": true
+        },
+        {
+          "name": "placed_at",
+          "logicalName": "受注日時",
+          "type": "DATETIME",
+          "precision": 3,
+          "nullable": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        },
+        {
+          "name": "shipped_at",
+          "logicalName": "出荷日時",
+          "type": "DATETIME",
+          "nullable": true
+        },
+        {
+          "name": "flags",
+          "logicalName": "フラグ",
+          "description": "A display width MySQL has deprecated, which is dropped without a word.",
+          "type": "INT",
+          "length": 11,
+          "nullable": true
+        },
+        {
+          "name": "active",
+          "logicalName": "有効",
+          "description": "A boolean, which MySQL stores as TINYINT(1) and mysqldump writes back with its length.",
+          "type": "TINYINT",
+          "length": 1,
+          "nullable": false,
+          "default": "1"
+        },
+        {
+          "name": "label",
+          "logicalName": "ラベル's",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false,
+          "default": "'it''s'"
+        },
+        {
+          "name": "path",
+          "logicalName": "C:\\tmp",
+          "description": "A logical name holding a Windows path. The backslash has to be doubled, or MySQL reads it as an escape and stores a tab.",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": true
+        },
+        {
+          "name": "note",
+          "logicalName": "note",
+          "type": "VARCHAR",
+          "length": 32,
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "columns": ["user", "placed_at"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "columns": ["user"],
+          "references": {
+            "table": "user",
+            "columns": ["id"]
+          },
+          "onUpdate": "CASCADE",
+          "onDelete": "RESTRICT"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_order_status",
+          "columns": ["status"]
+        }
+      ]
+    },
+    {
+      "name": "user",
+      "logicalName": "利用者",
+      "description": "The other half of a cycle: order references user and user references order, which the three fixed phases need no topological sort to survive.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "利用者ID",
+          "description": "An unsigned integer that is also the AUTO_INCREMENT column, so the attribute and the keyword meet in one definition.",
+          "type": "BIGINT UNSIGNED",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "logicalName": "メールアドレス",
+          "type": "VARCHAR",
+          "length": 255,
+          "nullable": false
+        },
+        {
+          "name": "score",
+          "logicalName": "スコア",
+          "description": "A type this exporter's table does not list, whose parameter is reproduced in the order the rest of jjf displays one.",
+          "type": "FLOAT",
+          "length": 24,
+          "nullable": true
+        },
+        {
+          "name": "home_order_id",
+          "logicalName": "既定受注ID",
+          "type": "BIGINT",
+          "nullable": true
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_user",
+        "columns": ["id"]
+      },
+      "uniqueKeys": [
+        {
+          "name": "uq_user_email",
+          "columns": ["email"]
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_user_home_order",
+          "columns": ["home_order_id"],
+          "references": {
+            "table": "order",
+            "columns": ["id"]
+          },
+          "onDelete": "SET NULL"
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "logicalName": "分類",
+      "description": "A self-referencing foreign key, the fourth referential action, and a unique index in the phase after the tables.",
+      "columns": [
+        {
+          "name": "id",
+          "logicalName": "分類ID",
+          "type": "BIGINT",
+          "nullable": false
+        },
+        {
+          "name": "parent_id",
+          "logicalName": "親分類ID",
+          "type": "BIGINT",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "logicalName": "名称",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        }
+      ],
+      "primaryKey": {
+        "name": "pk_categories",
+        "columns": ["id"]
+      },
+      "foreignKeys": [
+        {
+          "name": "fk_categories_parent",
+          "columns": ["parent_id"],
+          "references": {
+            "table": "categories",
+            "columns": ["id"]
+          },
+          "onUpdate": "NO ACTION"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_categories_name",
+          "columns": ["name"],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "audit",
+      "logicalName": "監査",
+      "columns": [
+        {
+          "name": "at",
+          "logicalName": "at",
+          "type": "DATETIME",
+          "nullable": false
+        },
+        {
+          "name": "who",
+          "logicalName": "who",
+          "type": "VARCHAR",
+          "length": 64,
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

@@ -58,7 +58,8 @@ The essentials:
 | Enums | `dbms`: `PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`, `Oracle`, `SQLServer`. `onUpdate` / `onDelete`: `CASCADE`, `RESTRICT`, `SET NULL`, `SET DEFAULT`, `NO ACTION` |
 
 `dbms` is descriptive for every command except `jjf export ddl`, which requires
-it and requires it to be `PostgreSQL`. Nothing else in `jjf` branches on it.
+it and writes the dialect it names: `PostgreSQL` and `MySQL` are written, and the
+other four are refused with exit code 2. Nothing else in `jjf` branches on it.
 
 ### PostgreSQL types on import
 
@@ -98,6 +99,52 @@ dropped with a warning.
 
 The rest of the command, including what it does not import, is in
 [Using jjf](usage.md#import).
+
+### MySQL types on import
+
+`jjf import mysql` splits a MySQL type the same way, and the same sentence saves
+the same hour: **`varchar(255)` is a length while `datetime(3)` is a
+fractional-second precision**. Two rules are MySQL's own. **`UNSIGNED` and
+`ZEROFILL` stay in the `type` name**, because the schema's type pattern permits a
+space and both change the range of values the column holds. And **`tinyint(1)`
+stays `TINYINT` with `length: 1` rather than becoming `BOOLEAN`**, because that is
+how MySQL stores a boolean and how `mysqldump` writes one back — naming it
+`BOOLEAN` would put a type in the document that the dump never said, and the
+export would then produce a database that dumps `tinyint(1)` again.
+
+| MySQL | `type` | Parameters |
+| --- | --- | --- |
+| `varchar` | `VARCHAR` | `length` |
+| `char`, `character` | `CHAR` | `length` |
+| `binary` | `BINARY` | `length` |
+| `varbinary` | `VARBINARY` | `length` |
+| `bit` | `BIT` | `length` |
+| `tinyint` | `TINYINT` | `length` |
+| `decimal`, `numeric`, `dec`, `fixed` | `DECIMAL` | `precision`, `scale` |
+| `datetime` | `DATETIME` | `precision` |
+| `timestamp` | `TIMESTAMP` | `precision` |
+| `time` | `TIME` | `precision` |
+| `int`, `integer` | `INTEGER` | — |
+| `smallint`, `mediumint`, `bigint` | `SMALLINT`, `MEDIUMINT`, `BIGINT` | — |
+| `float` | `FLOAT` | — |
+| `double`, `double precision`, `real` | `DOUBLE` | — |
+| `bool`, `boolean` | `BOOLEAN` | — |
+| `date`, `year`, `json` | the same name in upper case | — |
+| `tinytext`, `text`, `mediumtext`, `longtext` | the same name in upper case | — |
+| `tinyblob`, `blob`, `mediumblob`, `longblob` | the same name in upper case | — |
+| `enum('a','b')`, `set('a','b')` | `ENUM`, `SET` | the value list is dropped |
+| `bigint unsigned`, `decimal(10,2) unsigned`, `int unsigned zerofill` | `BIGINT UNSIGNED`, `DECIMAL UNSIGNED`, `INTEGER UNSIGNED ZEROFILL` | those of the base type |
+| any type not listed — the geometry types, whatever a later MySQL adds | the same name in upper case | — |
+
+An `ENUM` or `SET` value list is **dropped with a warning that names it**, because
+the format has nowhere to keep one. The resulting `type` is honest about being
+incomplete in exactly the way a PostgreSQL enum is: `jjf export ddl` writes the
+type name back, and MySQL rejects a bare `ENUM` when it parses the script.
+
+An integer **display width is dropped**, with a warning. It has been deprecated
+since MySQL 8.0.17 and `mysqldump` no longer writes one, so writing `INT(11)` back
+would emit a construct the server is removing. `TINYINT` is the exception, for the
+`tinyint(1)` reason above.
 
 Writing `$schema` at the root gives you completion and warnings in editors such as
 VS Code. `jjf` itself never reads the value.

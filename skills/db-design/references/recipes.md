@@ -46,6 +46,36 @@ Useful flags:
 An import that fails writes no file at all — it validates the document it built
 before touching the disk — so there is never a half-written document to clean up.
 
+## Bootstrap from a MySQL dump
+
+The same move for the other dialect, with a different flag doing the work:
+
+```sh
+mysqldump --no-data --skip-dump-date --default-character-set=utf8mb4 mydb > schema.sql
+jjf import mysql schema.sql -o db-design.json
+```
+
+**`--no-data` is what makes it a schema dump.** Plain `mysqldump` writes every
+row as well, and a data dump is not what to hand `jjf import`. The other two
+flags are worth typing every time: `--skip-dump-date` removes the timestamp
+line, which is the one line that differs on every run of the same command, and
+`--default-character-set=utf8mb4` stops the client negotiating latin1 and
+encoding every Japanese `COMMENT` twice. A dump that lost its Japanese that way
+still imports cleanly — the only symptom is mojibake in the document.
+
+`mysqldump --no-data` output from a MySQL 8 server works. The two paragraphs
+above about logical names and warnings apply here unchanged; what MySQL adds to
+the list of things the format cannot hold is `ENUM` and `SET` value lists,
+`ON UPDATE CURRENT_TIMESTAMP`, generated columns, prefix lengths in an index,
+index direction, `FULLTEXT` and `SPATIAL` indexes, partitioning and table
+options — engine, character set, collation, row format. Triggers, views and
+routines are skipped in silence, because they are not part of a design document
+at all.
+
+`-database` and `-strict` mean what they mean above. **`-schema` is an error
+here**, not a flag that does nothing: a MySQL schema *is* a database, so there is
+no second level to choose.
+
 ## Add a table
 
 Append to `tables`. Do not reorder existing entries — array order becomes sheet

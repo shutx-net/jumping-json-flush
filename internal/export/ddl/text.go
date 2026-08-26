@@ -2,39 +2,55 @@ package ddl
 
 import "strings"
 
-// quoteIdent writes s as a SQL delimited identifier, always emitting the
-// surrounding double quotes.
-//
-// There is no exception for a name that would be legal bare. The schema's
-// $defs/identifier is ^[A-Za-z_][A-Za-z0-9_]*$, which permits order, user,
-// table and every other reserved word, so quoting unconditionally removes the
-// whole class of collisions without a keyword list to maintain. It also
-// preserves case: an unquoted Orders would reach PostgreSQL as orders and the
-// database would stop matching the document.
-//
-// Doubling an embedded quote is defensive rather than reachable: that pattern
-// forbids one. It is here so that a future caller passing freer text cannot
-// open a hole, and the unit tests are the only place it is exercised.
-func quoteIdent(s string) string { return `"` + doubled(s, '"') + `"` }
+// ---------------------------------------------------------------------------
+// Text handling shared by every dialect
+// ---------------------------------------------------------------------------
 
-// quoteLiteral writes s as a SQL string literal.
+// What is here is what does not depend on the target: the one-pass doubling
+// every delimiter escape is built from, and the column list that appears
+// inside a parenthesis in every dialect there is.
 //
-// Unlike quoteIdent's, this escaping IS reachable: it carries logicalName and
-// description, which are free text in any language and may hold an apostrophe.
+// Each dialect's own quoting lives in its own file, prefixed with that
+// dialect's name, and not here. An unprefixed quoteIdent in this package would
+// read as a claim that there is one way to quote an identifier; there is not,
+// and the whole point of the dialect seam is that the difference has a name.
+// The rule the file split follows is stated in postgres.go's header.
+
+// quotedList renders a column list for the inside of a parenthesis.
 //
-// A backslash is left alone on purpose. That is correct while
-// standard_conforming_strings is on, which is PostgreSQL's default from 9.1
-// onwards and therefore throughout the range jjf supports; the generated script
-// does not SET it, because one setting invites search_path and client_encoding
-// after it and the specification's list of what is not emitted did not
-// contemplate any of them.
+// It takes the quoting function rather than choosing one, which is the shape
+// doubled already has: a shared one-pass helper parameterised by the single
+// thing that differs between callers. The alternative - one quotedList per
+// dialect - would be the same loop written twice for the sake of one call
+// inside it.
+func quotedList(quote func(string) string, cols []string) string {
+	quoted := make([]string, len(cols))
+	for i, c := range cols {
+		quoted[i] = quote(c)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// constraintPrefix names a constraint, or returns nothing when the document
+// leaves it unnamed and the database is left to invent one. The schema permits
+// both for a primary key and for a unique key.
 //
-// A newline is left alone too, and has to be: a table comment is the logical
-// name and the description joined by one, and the importer cuts it back apart
-// at exactly that byte. An E'...\n...' escape string would look tidier and
-// would break the round trip, because the importer's lexer keeps such a token
-// raw.
-func quoteLiteral(s string) string { return `'` + doubled(s, '\'') + `'` }
+// It is shared and parameterised by the quoting function, the shape doubled and
+// quotedList already have, because both dialects spell a named constraint
+// CONSTRAINT <quoted> and one call inside a two-line function is not worth
+// writing that function twice.
+//
+// MySQL accepts CONSTRAINT <name> PRIMARY KEY (...) and then calls the
+// resulting key PRIMARY, because that is what it calls every primary key.
+// Emitting the name anyway is deliberate - the document said it - and the fact
+// that it does not survive a round trip is documented drift rather than a
+// reason to drop it here.
+func constraintPrefix(quote func(string) string, name string) string {
+	if name == "" {
+		return ""
+	}
+	return "CONSTRAINT " + quote(name) + " "
+}
 
 // doubled returns s with every occurrence of c doubled.
 //

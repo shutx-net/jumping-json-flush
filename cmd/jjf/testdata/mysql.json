@@ -10,14 +10,27 @@
     {
       "name": "customers",
       "logicalName": "顧客",
+      "description": "A document naming the second dialect jjf writes DDL for. It carries a primary key led by its AUTO_INCREMENT column so that it is worth exporting rather than only worth refusing.",
       "columns": [
         {
           "name": "id",
           "logicalName": "顧客ID",
           "type": "BIGINT",
+          "nullable": false,
+          "autoIncrement": true
+        },
+        {
+          "name": "name",
+          "logicalName": "氏名",
+          "type": "VARCHAR",
+          "length": 128,
           "nullable": false
         }
-      ]
+      ],
+      "primaryKey": {
+        "name": "pk_customers",
+        "columns": ["id"]
+      }
     }
   ]
 }

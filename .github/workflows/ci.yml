@@ -306,17 +306,42 @@ jobs:
           expect 0 "export the imported document as svg" \
             "$JJF" export svg dist/imported.json -o dist/imported.svg
 
-          # A broken dump, a strict run with warnings, and an unknown dialect are
-          # all exit 2.
+          # The same journey for the second dialect, on the committed mysqldump
+          # fixtures. The last step is the one that matters: the DDL exporter
+          # has to accept what the importer just wrote, because a document jjf
+          # produced and jjf then refused would be the worst outcome the pair
+          # could have.
+          expect 0 "import the mysql fixture" \
+            "$JJF" import mysql internal/importer/mysql/testdata/dump/mysql8.0/ecshop.sql -o dist/imported-mysql.json
+          expect 0 "validate the imported mysql document" \
+            "$JJF" validate dist/imported-mysql.json -strict
+          expect 0 "export the imported mysql document as ddl" \
+            "$JJF" export ddl dist/imported-mysql.json -o dist/imported-mysql.sql
+
+          # The Japanese in the committed capture has to survive as Japanese. A
+          # mysqldump taken over a latin1 connection encodes it twice and still
+          # imports, still validates and still round-trips, so this grep is the
+          # only thing in the whole pipeline that would notice.
+          if ! grep -q '"logicalName": "顧客"' dist/imported-mysql.json; then
+            echo "::error::the imported mysql document lost its Japanese; the capture may be mojibake"
+            failures=$((failures + 1))
+          else
+            echo "ok  the mysql capture keeps its Japanese"
+          fi
+
+          # A broken dump, a strict run with warnings, an unknown dialect and
+          # -schema on a dialect that has no schemas are all exit 2.
           expect 2 "a broken dump is exit 2" \
             "$JJF" import postgres internal/importer/postgres/testdata/dump/synthetic/broken.sql -o dist/broken.json
           expect 2 "-strict on a dump with warnings is exit 2" \
             "$JJF" import postgres internal/importer/postgres/testdata/dump/pg16/edge.sql -strict -o dist/edge.json
           expect 2 "an unknown dialect is exit 2" \
-            "$JJF" import mysql internal/importer/postgres/testdata/dump/pg16/ecshop.sql -o dist/nope.json
+            "$JJF" import oracle internal/importer/postgres/testdata/dump/pg16/ecshop.sql -o dist/nope.json
+          expect 2 "-schema on the mysql dialect is exit 2" \
+            "$JJF" import mysql internal/importer/mysql/testdata/dump/mysql8.0/ecshop.sql -schema public -o dist/noschema.json
 
-          # None of the three failures may leave an output file behind.
-          for leftover in dist/broken.json dist/edge.json dist/nope.json; do
+          # None of the four failures may leave an output file behind.
+          for leftover in dist/broken.json dist/edge.json dist/nope.json dist/noschema.json; do
             if [ -e "$leftover" ]; then
               echo "::error::a rejected import still created ${leftover}"
               failures=$((failures + 1))

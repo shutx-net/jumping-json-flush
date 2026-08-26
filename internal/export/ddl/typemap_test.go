@@ -6,7 +6,7 @@ import (
 	"github.com/shutx-net/jumping-json-flush/internal/model"
 )
 
-func TestRenderType(t *testing.T) {
+func TestPGRenderType(t *testing.T) {
 	tests := []struct {
 		name      string
 		typ       string
@@ -30,7 +30,7 @@ func TestRenderType(t *testing.T) {
 		{name: "NUMERIC with a precision alone", typ: "NUMERIC", precision: intp(8), want: "NUMERIC(8)"},
 		{name: "NUMERIC with neither", typ: "NUMERIC", want: "NUMERIC"},
 		{name: "DECIMAL is the same type", typ: "DECIMAL", precision: intp(4), scale: intp(1), want: "DECIMAL(4,1)"},
-		// The schema forbids a scale without a precision, but renderType is
+		// The schema forbids a scale without a precision, but pgRenderType is
 		// total over documents that never passed it.
 		{name: "a scale without a precision", typ: "NUMERIC", scale: intp(2), want: "NUMERIC"},
 		{name: "NUMERIC carrying a length instead", typ: "NUMERIC", length: intp(10), want: "NUMERIC"},
@@ -88,8 +88,47 @@ func TestRenderType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &model.Column{Type: tt.typ, Length: tt.length, Precision: tt.precision, Scale: tt.scale}
-			if got := renderType(c); got != tt.want {
-				t.Errorf("renderType(%+v) = %q, want %q", c, got, tt.want)
+			if got := pgRenderType(c); got != tt.want {
+				t.Errorf("pgRenderType(%+v) = %q, want %q", c, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTypeParamsIsDialectNeutral exercises the shared half directly, without
+// going through any dialect's type table. What a parenthesis LOOKS like given
+// what it holds is a fact about the document; which type holds which is a fact
+// about a target system, and only the second is per dialect. Asserting the
+// first here is what makes it safe for a second dialect's table to feed the
+// same function.
+func TestTypeParamsIsDialectNeutral(t *testing.T) {
+	tests := []struct {
+		name string
+		kind paramKind
+		col  model.Column
+		want string
+	}{
+		{"no parameter at all", paramNone, model.Column{Length: intp(11)}, ""},
+		{"a length", paramLength, model.Column{Length: intp(255)}, "(255)"},
+		{"a length the column does not state", paramLength, model.Column{}, ""},
+		{"a precision and a scale", paramPrecisionScale, model.Column{Precision: intp(10), Scale: intp(2)}, "(10,2)"},
+		{"a precision alone", paramPrecisionScale, model.Column{Precision: intp(10)}, "(10)"},
+		{"a scale alone, which the schema forbids", paramPrecisionScale, model.Column{Scale: intp(2)}, ""},
+		{"fractional-second digits", paramTimePrecision, model.Column{Precision: intp(3)}, "(3)"},
+		{"zero digits, which is not absent", paramTimePrecision, model.Column{Precision: intp(0)}, "(0)"},
+		// The precedence internal/export/erd's RenderType and
+		// internal/export/xlsx/tabledef.go's sizeOf share, so that the three
+		// exporters cannot disagree about one document.
+		{"an unknown type, length first", paramUnknown, model.Column{Length: intp(4), Precision: intp(9)}, "(4)"},
+		{"an unknown type, then precision and scale", paramUnknown, model.Column{Precision: intp(9), Scale: intp(3)}, "(9,3)"},
+		{"an unknown type, then precision alone", paramUnknown, model.Column{Precision: intp(9)}, "(9)"},
+		{"an unknown type stating nothing", paramUnknown, model.Column{}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := typeParams(tt.kind, &tt.col); got != tt.want {
+				t.Errorf("typeParams(%d, %+v) = %q, want %q", tt.kind, tt.col, got, tt.want)
 			}
 		})
 	}
