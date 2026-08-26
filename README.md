@@ -6,16 +6,15 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 `jjf` keeps a database design in one JSON file and generates the rest: an Excel
-design document, an ER diagram (an SVG it draws itself, or Graphviz DOT source),
-and a PostgreSQL DDL script. The JSON is the source of truth — every generated
-file is a build artifact, regenerated rather than edited.
+design document, an ER diagram it draws itself as SVG, and a PostgreSQL DDL
+script. The JSON is the source of truth — every generated file is a build
+artifact, regenerated rather than edited.
 
 ```sh
 jjf import postgres schema.sql -o db-design.json   # build it from a pg_dump file
 jjf validate db-design.json                        # check it
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel design document
-jjf export dot  db-design.json -o er.dot           # Graphviz ER diagram
-jjf export svg  db-design.json -o er.svg           # ER diagram, drawn by jjf
+jjf export svg  db-design.json -o er.svg           # ER diagram
 jjf export ddl  db-design.json -o schema.sql       # PostgreSQL DDL script
 ```
 
@@ -144,8 +143,8 @@ incompatibly. An unsupported major exits 2 and says to upgrade `jjf`.
 
 Connecting to a running database, migrations and schema diffs, judging a design
 (normalization, index strategy, type choice), Mermaid and Markdown output,
-rendering the `.dot` to an image, converting Excel back to JSON, editing the
-Excel directly, a GUI, and customising the Excel template.
+converting Excel back to JSON, editing the Excel directly, a GUI, and
+customising the Excel template.
 
 The generated DDL creates a schema from nothing. Applying a design to a database
 that already has one needs to know the state that database is in, which is a

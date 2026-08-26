@@ -45,8 +45,8 @@
 ## 概要
 
 `jjf` は DB 設計を JSON 文書（以下 `db-design.json`）として保持し、Excel ブック、
-ER 図（`jjf` 自身が描く SVG と Graphviz DOT のソース）、PostgreSQL の DDL スクリプト
-として出力する。**JSON が単一の正**である。生成されるファイルはいずれも派生成果物であり、
+`jjf` 自身が描く ER 図（SVG）、PostgreSQL の DDL スクリプトとして出力する。
+**JSON が単一の正**である。生成されるファイルはいずれも派生成果物であり、
 エクスポートごとにゼロから作り直され、同じ入力からは常にバイト同一のファイルが出る。
 
 したがって設計変更はすべて JSON への変更である。「DB 設計書（Excel）を更新して」という依頼は、
@@ -105,7 +105,6 @@ ER 図（`jjf` 自身が描く SVG と Graphviz DOT のソース）、PostgreSQL
    [検証エラーと直し方](#検証エラーと直し方)を見よ。
 7. ブックを作り直すなら `jjf export xlsx <input.json> -o <output.xlsx>` を実行する。
    ER 図が欲しいなら `jjf export svg <input.json> -o <output.svg>` を実行する。
-   graphviz で自分で描きたいなら `jjf export dot <input.json> -o <output.dot>` を実行する。
    PostgreSQL の DDL が欲しいなら `jjf export ddl <input.json> -o <output.sql>` を実行する。
    エクスポートは先に検証するので、検証を通らない文書からは 1 バイトも出力されない。
 8. JSON の変更点を報告する。ブックを作り直していないなら、`.xlsx` の再生成が必要である
@@ -574,8 +573,7 @@ jjf import postgres schema.sql -o db-design.json
 | `jjf export xlsx db-design.json -o db-design.xlsx` | 検証してからブックを書き、`db-design.xlsx: written` を出力する |
 | `jjf export xlsx db-design.json` | 同じ。入力の隣に、拡張子を置き換えた名前で出力する |
 | `jjf export xlsx db-design.json -o -` | 標準出力へ書く。`xlsx` はバイナリなので端末に直接出そうとした場合は拒否される |
-| `jjf export dot db-design.json -o er.dot` | 検証してから Graphviz DOT のソースを書く。画像化は各自の `dot` で行う |
-| `jjf export svg db-design.json -o er.svg` | 検証してから同じ ER 図を `jjf` 自身が描き、SVG として書く。graphviz は要らない |
+| `jjf export svg db-design.json -o er.svg` | 検証してから ER 図を `jjf` 自身が描き、SVG として書く |
 | `jjf export ddl db-design.json -o schema.sql` | 検証し、自分自身と矛盾する文書は拒否したうえで、PostgreSQL の DDL スクリプトを書く。PostgreSQL 専用 |
 | `jjf version` | ツールのバージョンを出力する |
 
@@ -689,7 +687,7 @@ db-design.json: warning: column created_at on table orders: declares the default
 | `jjf: db-design.json: line 5, column 4: invalid character '}' looking for beginning of object key string` | JSON 構文エラー（末尾カンマなど） | 指摘された行・桁を直す |
 | `jjf: open db-design.json: no such file or directory` | パスの誤り | パスを確認する |
 | `jjf: unsupported formatVersion "2.0"; this jjf supports 1.x - please upgrade jjf` | この `jjf` より新しいフォーマットの文書 | `jjf` を更新する。**JSON を書き換えて回避しない** |
-| `jjf: unsupported format "csv"; supported formats: xlsx, dot, svg, ddl` | 存在しない出力形式 | 形式は `xlsx`・`dot`・`svg`・`ddl` |
+| `jjf: unsupported format "csv"; supported formats: xlsx, svg, ddl` | 存在しない出力形式 | 形式は `xlsx`・`svg`・`ddl` |
 | `jjf: ddl export needs the document to name its target; add "dbms": "PostgreSQL" to "database"` | `database.dbms` が無い。これを必須とするのは `jjf export ddl` だけである | 対象が本当に PostgreSQL なら `"dbms": "PostgreSQL"` を書く |
 | `jjf: ddl export supports PostgreSQL only; this document names "MySQL"` | 文書が別の DBMS を対象にしている | `jjf` はその DBMS の DDL を生成しない |
 | `db-design.json: error: <指摘>` に続く `jjf: 2 problem(s) prevent PostgreSQL DDL generation` | 文書が自分自身と矛盾している。`ddl` だけがこれを拒否する | `jjf validate` を実行して指摘を直す。表名・索引名・`PRIMARY KEY` と `UNIQUE` の名前の schema 全体での衝突と、identity 列の 2 つの前提は、`ddl` だけが検査する |
@@ -798,7 +796,7 @@ CI での比較を可能にするためである。
 - マイグレーション管理、スキーマ差分、破壊的変更の検出。`jjf export ddl` が生成する
   DDL はスキーマを一から作るものであり、既存のスキーマを別の状態へ動かすことはしない
 - Mermaid / Markdown の出力と、PNG / PDF の出力。ER 図として出るのはベクタ
-  （`.svg` と `.dot`）だけで、ラスタ化は行わない。ラスタ化はレイアウトの問題ではなく
+  （`.svg`）だけで、ラスタ化は行わない。ラスタ化はレイアウトの問題ではなく
   フォントの問題だからである
 - Excel から JSON への逆変換、Excel の直接編集
 - ブックのレイアウト・配色・テンプレートのカスタマイズ

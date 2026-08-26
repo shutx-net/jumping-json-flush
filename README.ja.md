@@ -6,7 +6,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 `jjf` は DB 設計を 1 つの JSON ファイルで持ち、そこから残りを生成する CLI。
-Excel の DB 設計書、ER 図（`jjf` 自身が描く SVG、または Graphviz の DOT ソース）、
+Excel の DB 設計書、`jjf` 自身が描く ER 図（SVG）、
 PostgreSQL の DDL スクリプトを出力する。
 JSON が唯一の正であり、生成されるファイルはすべてビルド成果物である。編集せず
 作り直す。
@@ -15,8 +15,7 @@ JSON が唯一の正であり、生成されるファイルはすべてビルド
 jjf import postgres schema.sql -o db-design.json   # pg_dump のファイルから作る
 jjf validate db-design.json                        # 検証する
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel の DB 設計書
-jjf export dot  db-design.json -o er.dot           # Graphviz の ER 図
-jjf export svg  db-design.json -o er.svg           # jjf 自身が描く ER 図
+jjf export svg  db-design.json -o er.svg           # ER 図
 jjf export ddl  db-design.json -o schema.sql       # PostgreSQL の DDL スクリプト
 ```
 
@@ -142,9 +141,8 @@ DEVELOPERS.md 以外はすべて英語版が隣にある。DEVELOPERS.md をパ�
 ## 対象外
 
 稼働中の DB への接続、マイグレーション管理とスキーマ差分、設計の良し悪しの判断
-（正規化・インデックス設計・型選択）、Mermaid と Markdown の出力、`.dot` の画像化、
-Excel から JSON への逆変換、Excel の直接編集、GUI、Excel テンプレートの
-カスタマイズ。
+（正規化・インデックス設計・型選択）、Mermaid と Markdown の出力、Excel から
+JSON への逆変換、Excel の直接編集、GUI、Excel テンプレートのカスタマイズ。
 
 生成する DDL はスキーマを一から作るものである。既にスキーマを持つデータベースへ
 設計を適用するには、そのデータベースの状態を知る必要があり、それは別のツールの
