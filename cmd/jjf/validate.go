@@ -42,8 +42,8 @@ func runValidate(args []string, stdout, stderr io.Writer) error {
 	// Schema validation and decoding are exactly what export does before it
 	// writes anything, so both go through one loader. The referential checks
 	// below stay out of it on purpose: export renders whatever the document
-	// claims - internal/export/dot draws a foreign key with no target as a
-	// dashed stub node - and moving the call into loadDocument would make every
+	// claims - internal/export/svg draws a foreign key with no target as a
+	// dashed stub - and moving the call into loadDocument would make every
 	// command pay for a report only this one prints.
 	doc, err := loadDocument(input)
 	if err != nil {

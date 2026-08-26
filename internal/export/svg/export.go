@@ -21,8 +21,7 @@ import (
 // bufio.Writer, which latches its first write error and turns every later write
 // into a no-op, so Flush is the single place a failure can surface. Threading an
 // error through every writer, or wrapping dst in a sticky-error type, would add
-// code and a type for no extra information - the same shape internal/export/dot
-// takes, and for the same reason.
+// code and a type for no extra information.
 //
 // Nothing is checked and nothing is reported, ever. A document whose foreign key
 // names no table it defines is legal, and it gets drawn as a dashed stub: the

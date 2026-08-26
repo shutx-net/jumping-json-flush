@@ -44,10 +44,11 @@ type chain struct {
 // is therefore exhaustive, and the odd half-ranks doubling opened up are
 // exactly the space span 1 would have needed.
 //
-// It is dot's own answer to where an edge label goes, and the reason it goes
-// in with the virtual nodes rather than after them: the label becomes a node
-// like any other, placed by the ordering and the coordinate assignment that
-// already exist, with no placement pass of its own and no constraint to write.
+// It is the answer Gansner et al. give for where an edge label goes, and the
+// reason it goes in with the virtual nodes rather than after them: the label
+// becomes a node like any other, placed by the ordering and the coordinate
+// assignment that already exist, with no placement pass of its own and no
+// constraint to write.
 //
 // Entries for nodes in other components are 0 and stay 0: the ranks of one
 // component are one slice, and doubling zero is zero.
@@ -94,11 +95,11 @@ func classify(g *graph, ranks []int, i int) routeKind {
 //
 // # Why labels are nodes at all, and why they are not optional
 //
-// Every relationship in the DOT output carries a label, and
 // internal/export/svg/testdata/edge.json has two foreign keys between the same
 // pair of tables that nothing but their labels tells apart. Dropping labels
-// would not be a refinement left for later; it would be an information
-// regression against `jjf export dot` on a document that already exists.
+// would not be a refinement left for later: it would draw two identical arrows
+// where the JSON says two different relationships, on a document that already
+// exists in this repository.
 //
 // Making the label a node, rather than placing it after routing, is what keeps
 // that affordable: it is ordered and positioned by the passes that already

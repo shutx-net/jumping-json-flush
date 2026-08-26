@@ -29,9 +29,8 @@ import "slices"
 // than a stable sort's incidental one: at 50 single-node components a tie is
 // the normal case, not the corner, and document order is the only order the
 // document itself supplies - the same principle every other tie in this package
-// and in internal/export/dot is broken by. The comparator below is total on the
-// second key alone, so SortStableFunc's stability is belt and braces and not
-// the mechanism.
+// is broken by. The comparator below is total on the second key alone, so
+// SortStableFunc's stability is belt and braces and not the mechanism.
 //
 // Rejected: pure document order, which interleaves the singletons with the
 // structure and so makes every shelf as tall as the tallest component that

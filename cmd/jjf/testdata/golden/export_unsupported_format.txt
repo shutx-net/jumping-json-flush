@@ -1,4 +1,4 @@
-jjf: unsupported format "markdown"; supported formats: xlsx, dot, svg, ddl
+jjf: unsupported format "markdown"; supported formats: xlsx, svg, ddl
 
 Generate a design document from a database design document. The input is
 validated against the jjf database design schema first, so a document that
@@ -9,7 +9,6 @@ Usage:
 
 Formats:
   xlsx  Excel workbook
-  dot   Graphviz DOT entity relationship diagram
   svg   SVG entity relationship diagram
   ddl   PostgreSQL DDL script (.sql)
 
@@ -19,8 +18,8 @@ be a terminal for a binary format such as xlsx.
 
 Only ddl refuses a document that contradicts itself. A document a database
 would reject makes no useful SQL, while it still makes a useful workbook and a
-useful diagram - so xlsx, dot and svg render it and "jjf validate" is where
-those contradictions are reported.
+useful diagram - so xlsx and svg render it and "jjf validate" is where those
+contradictions are reported.
 
 Flags:
   -o string

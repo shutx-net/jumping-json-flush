@@ -39,7 +39,7 @@ func (l laidOut) chainOf(i int) []int {
 }
 
 // spanDocuments is the document set the properties below are asserted over:
-// the two dot fixtures' foreign-key shapes, a cycle between two distinct
+// full.json's and edge.json's foreign-key shapes, a cycle between two distinct
 // tables, a relationship crossing more than one rank, and a self-reference
 // beside an ordinary relationship.
 func spanDocuments() []struct {
@@ -123,8 +123,8 @@ func TestClassifyIsExhaustive(t *testing.T) {
 	// length of one rank, so no two tables an edge joins can share a rank -
 	// so its ranks are written by hand here. That is the honest way to cover
 	// the branch: it exists for a state the ranking cannot currently produce,
-	// and it is kept for the same reason internal/export/dot's arrow keeps its
-	// unreachable fourth case, as a total mapping over the type.
+	// and it is kept because a classification total over its own type cannot
+	// quietly stop being one the day the ranking changes.
 	tests := []struct {
 		name  string
 		doc   *model.Document
@@ -265,11 +265,11 @@ func TestLabelNodeBand(t *testing.T) {
 	}
 }
 
-// TestChainRanksAreConsecutive uses the one shape neither dot fixture has: a
-// relationship that still spans more than one rank after the simplex has
-// tightened the ranking. a references both b and c, and b references c, so a
-// is at rank 0, b at 1 and c at 2, and the a -> c relationship crosses four
-// half-ranks once the ranks are doubled.
+// TestChainRanksAreConsecutive uses the one shape neither full.json nor
+// edge.json has: a relationship that still spans more than one rank after the
+// simplex has tightened the ranking. a references both b and c, and b
+// references c, so a is at rank 0, b at 1 and c at 2, and the a -> c
+// relationship crosses four half-ranks once the ranks are doubled.
 func TestChainRanksAreConsecutive(t *testing.T) {
 	l := layOut(document(
 		linked("a", "b", "c"),

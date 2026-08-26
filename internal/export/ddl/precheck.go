@@ -14,7 +14,7 @@ import (
 // This is the one exporter in jjf that refuses its input, and the asymmetry is
 // deliberate rather than an inconsistency waiting to be tidied away. A document
 // that contradicts itself still makes a useful workbook and a useful diagram -
-// internal/export/dot even draws a foreign key with no target as a dashed stub
+// internal/export/svg even draws a foreign key with no target as a dashed stub
 // on purpose, and says in its own package comment that it reports nothing,
 // ever. DDL a database rejects is worth nothing at all, so here the same
 // contradictions are a refusal. "jjf validate" is where they are reported for

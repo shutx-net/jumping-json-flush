@@ -21,7 +21,7 @@ import (
 // many is always one, because a foreign key names one specific row, and may
 // there be none comes from the nullability of the foreign key's own columns.
 // Combining them into a notation belongs to the exporter, not here:
-// internal/export/dot's arrow is one such mapping.
+// internal/export/svg's appendEnd is one such mapping.
 type End struct {
 	Many     bool
 	Optional bool

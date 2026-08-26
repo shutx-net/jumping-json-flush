@@ -1,5 +1,5 @@
 // Package erd holds the document-level derivations an entity relationship
-// diagram exporter needs: the questions about the design itself, as against the
+// diagram needs: the questions about the design itself, as against the
 // questions about the file the design is being written into.
 //
 // That boundary is what a piece of code is a statement ABOUT. A question about
@@ -7,15 +7,20 @@
 // it is optional, how a type with a declared size reads as one string, which
 // keys a column takes part in, what an unnamed foreign key is called, and which
 // tables a foreign key names that the document never defines. A question about
-// the OUTPUT FORMAT is answered by the exporter and never here: naming a
-// graphviz arrow type, quoting a DOT identifier or placing a glyph are
+// the OUTPUT FORMAT is answered by the exporter and never here: choosing a
+// glyph, placing it, or escaping a name for the file it is going into are
 // statements about a file, not about the design.
 //
-// They are here so that they are written once. A second diagram exporter
-// carrying its own copy of one of them could come to disagree with the first
-// about whether one particular relationship is optional, and no golden file
-// would flag it, because each file would be individually correct for the code
-// that wrote it. One derivation with one set of tests cannot reach that state.
+// They are here rather than inside the exporter that draws, because an answer
+// about the document is not the drawing's private business.
+// internal/check/check.go reasons about the same uniqueness rule when it
+// decides whether a foreign key has a legal target, and its sameColumnSet says
+// in its own comment why check's version of that helper has to be the longer
+// one. internal/export/ddl/typemap.go names RenderType's size precedence as one
+// of the places that rule lives. A derivation three packages have an opinion
+// about does not belong inside the one that happens to draw it, and a copy of
+// it inside the drawing could come to disagree with them with no test able to
+// see it: each file would be individually correct for the code that wrote it.
 //
 // Nothing here checks anything or reports anything. A foreign key naming a
 // table the document does not define, or a column its own table does not have,
@@ -24,12 +29,11 @@
 //
 // One exception, stated plainly rather than left for a reader to find:
 // RenderType's size precedence mirrors sizeOf in
-// internal/export/xlsx/tabledef.go exactly, and moving it here did not remove
+// internal/export/xlsx/tabledef.go exactly, and putting it here did not remove
 // that duplication. The rule still lives in two places, erd and xlsx, because
 // the workbook answers a different question - the type and the size in two
 // cells rather than one string - and the comment tying the two together is what
-// keeps them in step. What the move bought is that the rule
-// does not become three copies the moment a second diagram exporter needs it.
+// keeps them in step.
 package erd
 
 import (
@@ -53,8 +57,9 @@ import (
 // Nothing is escaped here. Escaping happens once, where the string is written
 // into a label, so that a caller cannot double-escape by accident.
 // $defs/columnType is ^[A-Za-z][A-Za-z0-9_ ]*$, so a type name may contain
-// spaces; unlike Mermaid, a DOT HTML-like label tolerates them, so TIMESTAMP
-// WITH TIME ZONE needs no mangling.
+// spaces, and nothing downstream has to mangle them: the string goes into a
+// text cell in the picture and a spreadsheet cell in the workbook, and a space
+// is a space in both. TIMESTAMP WITH TIME ZONE needs no substitute spelling.
 func RenderType(c *model.Column) string {
 	switch {
 	case c.Length != nil:
@@ -103,8 +108,8 @@ func Marker(t *model.Table, column string) string {
 // The constraint name when the document gives one. A name is optional in the
 // schema, and two parallel edges still have to be told apart, so the fallback
 // is the child column list - the next most specific thing the document
-// actually says about the relationship. The label is therefore never empty and
-// a DOT edge statement always carries three attributes.
+// actually says about the relationship. The label is therefore never empty, so
+// no relationship is drawn without a name a reader can match against the JSON.
 func EdgeLabel(fk *model.ForeignKey) string {
 	if fk.Name != "" {
 		return fk.Name

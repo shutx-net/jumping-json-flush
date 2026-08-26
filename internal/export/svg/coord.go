@@ -1,11 +1,10 @@
-// Package svg draws the entity relationship diagram internal/export/dot
-// describes, and writes it as an SVG image.
+// Package svg draws a database design document as an entity relationship
+// diagram and writes it as an SVG image.
 //
 // jjf lays the diagram out itself. It never runs graphviz, never links it and
 // never embeds it, so the binary keeps the project's no-CGO,
 // no-runtime-dependency property and a reader gets a picture without
-// installing anything. A reader who has graphviz, and wants its splines or its
-// knobs, still has "jjf export dot".
+// installing anything.
 //
 // The exporter checks nothing and reports nothing, ever. A foreign key that
 // names a table the document does not define is drawn as a dashed stub, so the
@@ -44,7 +43,7 @@
 // built-in metrics table covers ASCII only and iterates BYTES, charging every
 // byte of a multi-byte rune the width of a space, and there is no font library
 // inside the sandbox for it to fall back to. Rendering
-// internal/export/dot/testdata/full.json that way overflowed 7 of 24 Japanese
+// internal/export/svg/testdata/full.json that way overflowed 7 of 24 Japanese
 // cells; an estimate like this one overflowed 0 of 19 on the same document. It
 // also brought 9 module dependencies against this project's zero. All three
 // numbers were measured by the author of issue #32 on a prototype that is not

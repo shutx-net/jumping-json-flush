@@ -19,13 +19,13 @@ var update = flag.Bool("update", false, "update golden files")
 
 // fixtures are the documents whose drawing is frozen.
 //
-// The first three are internal/export/dot's, so that two exporters can be
-// compared on one document: full.json is the ordinary document, nofk.json the
-// one with no relationship at all, edge.json the awkward shapes. Separate
-// testdata per exporter is the existing precedent - internal/export/ddl's
-// edge.json is already a different file from dot's - and here it is forced:
-// svg's edge.json carries a rune dot's cannot (see D17 and the fixture's own
-// description).
+// full.json is the ordinary document, nofk.json the one with no relationship
+// at all, edge.json the awkward shapes. Every exporter keeps its own testdata
+// rather than sharing one set - internal/export/ddl's edge.json and
+// internal/export/xlsx's are three different files under the same name -
+// because a fixture is written for the thing being tested: this one carries a
+// rune the writer has to substitute and that a JSON document can only spell as
+// an escape (see D17 and the fixture's own description).
 //
 // cycle.json is new, because no fixture in the repository held a cycle between
 // two DISTINCT tables or a relationship still spanning more than one rank after
@@ -131,14 +131,14 @@ func TestFixturesAreDeterministic(t *testing.T) {
 // TestFixturesAreWellFormedXML parses the WHOLE output of every fixture with
 // encoding/xml, token by token.
 //
-// Unlike internal/export/dot's version of this test, which can only reach the
-// HTML-like label payloads inside a DOT file, an SVG file IS an XML document, so
-// this is the real check and not an approximation of one. It is what catches the
-// case D16 exists for: edge.json carries U+0001 in a logical name, which the
-// schema permits and jjf validate accepts, and a writer that passed the rune
-// through would produce a file no renderer will parse. This test is why the
-// escaping cannot regress silently even if the unit-level pin on
-// xml.EscapeText's substitution were deleted.
+// An SVG file IS an XML document, so parsing the whole of it token by token is
+// a real check on the whole output rather than a check on the pieces of it
+// somebody remembered to look at. It is what catches the case D16 exists for:
+// edge.json carries U+0001 in a logical name, which the schema permits and jjf
+// validate accepts, and a writer that passed the rune through would produce a
+// file no renderer will parse. This test is why the escaping cannot regress
+// silently even if the unit-level pin on xml.EscapeText's substitution were
+// deleted.
 func TestFixturesAreWellFormedXML(t *testing.T) {
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestEdgeFixtureCoversItsCases(t *testing.T) {
 		{"a precision and scale rendered into the type", ">NUMERIC(5,2)</text>"},
 		{"a length winning over a precision", ">NUMERIC(10)</text>"},
 		{"the stub's name", ">nodes</text>"},
-		{"the stub's second line, the same sentence the DOT stub carries", ">" + stubNote + "</text>"},
+		{"the stub's second line, which says the document does not define that table", ">" + stubNote + "</text>"},
 		{"the self-reference's label, which rank doubling gives no node to hang on", ">fk_categories_parent</text>"},
 		{"the first of two parallel relationships, labelled by its column list because it has no name", ">from_node</text>"},
 		{"the second of the two, told apart from the first by nothing but this", ">fk_edge_to_node</text>"},
@@ -202,9 +202,10 @@ func TestEdgeFixtureCoversItsCases(t *testing.T) {
 	}
 
 	// Three foreign keys name the same undefined table, and they share ONE
-	// stub, as they do in the DOT output. The dashed stroke is what makes a
-	// stub visible as one, so counting it counts stubs: the stub box's outline
-	// and its header band are the only dashed rects in the drawing, one each.
+	// stub - erd.UndefinedTargets returns first-reference order with duplicates
+	// already removed. The dashed stroke is what makes a stub visible as one, so
+	// counting it counts stubs: the stub box's outline and its header band are
+	// the only dashed rects in the drawing, one each.
 	if got := strings.Count(out, "stroke-dasharray"); got != 2 {
 		t.Errorf("the output holds %d dashed rect(s), want 2 - one stub's outline and its header band", got)
 	}

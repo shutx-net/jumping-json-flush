@@ -255,9 +255,8 @@ func (rt *router) allocateLanes(routes []route) (lanes, plates []Coord) {
 // these two categories. So their labels have nowhere to live but here. Leaving
 // them out is not a deferrable refinement either: the edge fixture under
 // internal/export/svg/testdata has categories -> categories carrying
-// fk_categories_parent, and `jjf export dot` draws that name today, so an
-// unlabelled staple would be a regression against the exporter this one is
-// meant to agree with.
+// fk_categories_parent, and a staple drawn without it would be the one
+// relationship in the picture a reader cannot name.
 func routeStaple(from, to Point, lane, plate Coord, label string) (points []Point, labelRect Rect) {
 	points = []Point{
 		from,

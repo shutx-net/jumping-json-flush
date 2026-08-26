@@ -27,10 +27,16 @@ import "slices"
 // drawn leftmost, so a child box sits to the LEFT of the table it references.
 //
 // That is the single line that decides which side of the diagram parents are
-// on, and it is chosen to agree with `jjf export dot`, which sets rankdir=LR
-// and emits child -> parent edges and therefore already draws it that way. Two
-// diagrams of one document that read in opposite directions would be a worse
-// failure than either being drawn the other way round.
+// on. Child on the left is the direction a left-to-right crow's-foot diagram
+// is conventionally read in: an arrow followed forward leads to the table
+// being referenced, and the tables nothing references come to rest against the
+// right-hand edge, where a reader looking for the roots of the design will
+// look for them.
+//
+// Which direction it is matters less than its being fixed. Every golden file,
+// every crossing ceiling in invariant_test.go and every reader's memory of a
+// diagram depends on it not moving, which is why it is stated here rather than
+// left implicit in the shape of the edge list.
 //
 // Every relationship gets the same weight because the document says nothing
 // that would make one relationship more worth shortening than another. Weight

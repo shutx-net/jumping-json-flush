@@ -29,9 +29,9 @@ to the generator — a better type mapping, a corrected quoting rule — shows u
 their repository as a diff that is not a schema change.
 
 The resolution is not to freeze the format. It is to be explicit that the `.sql`
-is a build artifact, exactly like the `.xlsx` and the `.dot`: regenerate it,
+is a build artifact, exactly like the `.xlsx` and the `.svg`: regenerate it,
 never edit it, and do not treat it as the design. The generated file says so in
-its own header, the way the DOT exporter already does. What that buys is the
+its own header, the way the SVG exporter already does. What that buys is the
 right to improve the generator — announced, and batched into a release — instead
 of a format frozen by the first person who committed its output.
 
@@ -84,7 +84,7 @@ rather than guessing.
 | 5 | Column types | Reconstruct from `type` plus `length` / `precision` / `scale`. | The reverse of the importer's normalisation. The type name is passed through as written: jjf does not maintain a per-system type catalogue, and inventing one would be database-design judgement. |
 | 6 | `default` | Emitted verbatim after `DEFAULT `. | The field is defined as SQL expression text. An ambiguous or malformed value does not corrupt silently — PostgreSQL forbids column references in `DEFAULT`, so a bare identifier is always rejected. `jjf validate` (C7/C8) catches the same mistakes before the database sees them. |
 | 7 | `logicalName` / `description` | `COMMENT ON TABLE` and `COMMENT ON COLUMN`. | Closes the round trip: the importer already reads these back into the same two fields. |
-| 8 | Header | A fixed comment naming the JSON as the source of truth, as the DOT exporter already writes. No timestamp, no tool version, no input path. | The static line is what makes the build-artifact policy visible at the point a reader is deciding whether to keep the file. The omissions are determinism: a version or a timestamp in the output makes two builds of jjf disagree about the same document, and DDL is the artifact where that matters most, because it is the one that gets diffed. |
+| 8 | Header | A fixed comment naming the JSON as the source of truth, as the SVG exporter already writes. No timestamp, no tool version, no input path. | The static line is what makes the build-artifact policy visible at the point a reader is deciding whether to keep the file. The omissions are determinism: a version or a timestamp in the output makes two builds of jjf disagree about the same document, and DDL is the artifact where that matters most, because it is the one that gets diffed. |
 | 9 | Failure policy | All or nothing. Validate the whole document, then write. | The opposite of the importer, deliberately. A partially written DDL file that fails on statement 40 after creating twelve tables is worse than no file. |
 | 10 | Target-version flag | None. | Every construct the schema can express predates PostgreSQL 13 — the newest is identity columns, from 10 — so a `-pg-version` flag would have nothing to switch on. A flag that changes no output is a lie and a permanent interface. Revisit only when a construct that genuinely diverges enters the schema; `NULLS NOT DISTINCT` (PostgreSQL 15+) would be the first. |
 

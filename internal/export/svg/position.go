@@ -24,8 +24,8 @@ import "slices"
 //
 // omegaRealReal is unreachable through this pipeline and is kept anyway: rank
 // doubling puts a label node between the two ends of every relationship, so no
-// step ever joins two boxes directly. It is here for the same reason
-// internal/export/dot's arrow keeps the case neither of its callers can reach
+// step ever joins two boxes directly. It is here for the same reason appendEnd
+// draws the many-and-mandatory relationship end no derivation in erd produces
 // - a mapping that is total over its input cannot quietly stop being one - and
 // TestOmegaIsTotalOverTheKinds names all three.
 const (
@@ -388,9 +388,7 @@ func balanceY(g *graph, o order, heights []Coord, anchors []Coord) {
 // The axis mapping, once and plainly: a half-rank is a COLUMN, so ranks run
 // along x, and the ordering within a half-rank runs down y. That follows from
 // ranks increasing from the child to the table it references with rank 0
-// drawn leftmost (D07), which is what `jjf export dot` already draws with
-// rankdir=LR - so a reader who has seen one of the two diagrams is not
-// disoriented by the other.
+// drawn leftmost (D07).
 //
 // A virtual node comes out as a zero-width, zero-height rectangle at the point
 // its route passes through, so the router can read a waypoint off it with no

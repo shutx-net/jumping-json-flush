@@ -5,14 +5,14 @@ package svg
 //
 // # Why this file exists
 //
-// Golden files in the shape internal/export/dot's take are necessary here and
-// they are a weak net for a layout engine. A golden says the bytes changed; and
-// after any change to the layout EVERY byte of all four goldens changes at once,
-// so the diff a reviewer is handed is unreadable and none of it says the drawing
-// is right. The answer is not a better diff. It is to assert the properties a
-// correct drawing has, against the Geometry the layout produced - not against
-// the SVG, which would mean re-parsing what was just written and re-deriving
-// what the value already holds.
+// Golden files are necessary here and they are a weak net for a layout engine.
+// A golden says the bytes changed; and after any change to the layout EVERY
+// byte of all four goldens changes at once, so the diff a reviewer is handed is
+// unreadable and none of it says the drawing is right. The answer is not a
+// better diff. It is to assert the properties a correct drawing has, against
+// the Geometry the layout produced - not against the SVG, which would mean
+// re-parsing what was just written and re-deriving what the value already
+// holds.
 //
 // Ten statements are frozen, and they are the ten in the plan's invariant set:
 // nothing overlaps that should not, every routed segment is axis-aligned, every

@@ -246,9 +246,11 @@ type medianKey struct {
 // sort function it is handed to.
 //
 // The node id can never decide anything while two nodes in one layer have
-// distinct positions, which they always do. It is kept for the same reason
-// internal/export/dot's arrow keeps the case neither of its callers can reach:
-// a comparator that is total over its own type cannot quietly stop being one.
+// distinct positions, which they always do. It is kept anyway, because a
+// comparator that is total over its own type cannot quietly stop being one:
+// the day some other pass gives two nodes the same position, this key is what
+// keeps the order deterministic instead of handing it to whichever sort
+// function is in use.
 func compareMedianKeys(a, b medianKey) int {
 	switch {
 	case a.median != b.median:

@@ -143,7 +143,7 @@ frontmatter は Agent Skills 仕様が定める 6 フィールド（`name` / `de
 
 `allowed-tools` で事前承認しているのは `Read` と `jjf` の 3 サブコマンドだけ
 である。ダンプを読んで設計書を書き出す `import`、読み取りを行う `validate`、
-ブック・SVG や Graphviz DOT の ER 図・DDL スクリプトを書き出す `export` の 3 つ。
+ブック・SVG の ER 図・DDL スクリプトを書き出す `export` の 3 つ。
 書き込む 2 つはいずれもパスを利用者から受け取る。JSON の編集は通常どおり
 権限確認を経る。`Write` / `Edit` の事前承認はスキルを入れる利用者にとって
 権限昇格になるため、意図的に含めていない。

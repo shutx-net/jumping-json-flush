@@ -240,8 +240,9 @@ func appendNode(items []Item, n *GeoNode) []Item {
 		Dash:        stub,
 	})
 
-	// The header is centred and its first line - the logical name - is bold,
-	// which is the same emphasis internal/export/dot gives it.
+	// The header is centred and its first line - the logical name - is bold:
+	// the logical name is what a reader scans a diagram for, and the physical
+	// name under it is the key they look up afterwards.
 	centre := n.Rect.X + n.Rect.W/2
 	for k, text := range c.headerLines {
 		weight := weightNormal
@@ -326,12 +327,17 @@ func appendEdge(items []Item, e *GeoEdge) []Item {
 //
 // The nearest mark is the cardinality - a crow's foot for many, a bar for
 // exactly one - and the optionality mark sits inboard of it - a circle for
-// optional, a bar for mandatory. That is the order crow's-foot notation requires
-// and the same order graphviz composes an arrow type in, which is where
-// internal/export/dot gets "crowodot" and "teetee" from. All four forms are two
-// primitives, so both ends of every relationship carry the same amount of ink
-// however they were derived, and the diagram reads as uniform rather than as one
-// end being decorated and the other bare.
+// optional, a bar for mandatory. That is the order crow's-foot notation
+// requires: the mark against the box answers how many, and the one inboard of
+// it answers whether there may be none. All four forms are two primitives, so
+// both ends of every relationship carry the same amount of ink however they
+// were derived, and the diagram reads as uniform rather than as one end being
+// decorated and the other bare.
+//
+// All four are drawn, the many-and-mandatory end included, although no
+// derivation produces it: erd.ChildEnd is always optional and erd.ParentEnd is
+// never many. A mapping total over its input cannot quietly stop being one, and
+// TestSceneCrowFootFourForms names all four.
 //
 // # Why there is no trigonometry
 //
@@ -349,8 +355,7 @@ func appendEnd(items []Item, at Point, s side, end erd.End) []Item {
 		// route and its two outer prongs land on the boundary either side of
 		// the attachment point. The third prong is the route's own last
 		// segment, which runs along this axis through the vertex and into the
-		// attachment - the same composition graphviz relies on, and the reason
-		// this is two segments rather than three.
+		// attachment - which is why this is two segments rather than three.
 		items = append(items, Polyline{
 			Points: []Point{
 				across(at, dir, crowHalf),
