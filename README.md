@@ -6,15 +6,16 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 `jjf` keeps a database design in one JSON file and generates the rest: an Excel
-design document, a Graphviz ER diagram, and a PostgreSQL DDL script. The JSON is
-the source of truth — every generated file is a build artifact, regenerated
-rather than edited.
+design document, an ER diagram (an SVG it draws itself, or Graphviz DOT source),
+and a PostgreSQL DDL script. The JSON is the source of truth — every generated
+file is a build artifact, regenerated rather than edited.
 
 ```sh
 jjf import postgres schema.sql -o db-design.json   # build it from a pg_dump file
 jjf validate db-design.json                        # check it
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel design document
 jjf export dot  db-design.json -o er.dot           # Graphviz ER diagram
+jjf export svg  db-design.json -o er.svg           # ER diagram, drawn by jjf
 jjf export ddl  db-design.json -o schema.sql       # PostgreSQL DDL script
 ```
 

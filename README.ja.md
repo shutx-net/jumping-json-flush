@@ -6,7 +6,8 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/shutx-net/jumping-json-flush)](go.mod)
 
 `jjf` は DB 設計を 1 つの JSON ファイルで持ち、そこから残りを生成する CLI。
-Excel の DB 設計書、Graphviz の ER 図、PostgreSQL の DDL スクリプトを出力する。
+Excel の DB 設計書、ER 図（`jjf` 自身が描く SVG、または Graphviz の DOT ソース）、
+PostgreSQL の DDL スクリプトを出力する。
 JSON が唯一の正であり、生成されるファイルはすべてビルド成果物である。編集せず
 作り直す。
 
@@ -15,6 +16,7 @@ jjf import postgres schema.sql -o db-design.json   # pg_dump のファイルか�
 jjf validate db-design.json                        # 検証する
 jjf export xlsx db-design.json -o db-design.xlsx   # Excel の DB 設計書
 jjf export dot  db-design.json -o er.dot           # Graphviz の ER 図
+jjf export svg  db-design.json -o er.svg           # jjf 自身が描く ER 図
 jjf export ddl  db-design.json -o schema.sql       # PostgreSQL の DDL スクリプト
 ```
 
