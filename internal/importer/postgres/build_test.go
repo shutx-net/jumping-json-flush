@@ -3,6 +3,7 @@ package postgres
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -536,6 +537,16 @@ func TestImportIdentifierErrors(t *testing.T) {
 			wantMsg: `column name "e-mail" cannot be represented`,
 		},
 		{
+			// A type whose name the format cannot hold stops the import in the
+			// same way a column name does. It is not a hypothetical: a domain
+			// or an enum may be named anything PostgreSQL can quote, and the
+			// three messages this reaches are tested at the type layer without
+			// anything showing that one of them reaches a user through Import.
+			name:    "type name",
+			src:     "CREATE TABLE public.t (\n  a public.\"my-type\"\n);",
+			wantMsg: `t.a: type public.my-type cannot be written to a design document`,
+		},
+		{
 			name: "index name",
 			src: "CREATE TABLE public.t (\n  a integer\n);\n" +
 				"CREATE INDEX \"idx-t\" ON public.t USING btree (a);",
@@ -545,6 +556,17 @@ func TestImportIdentifierErrors(t *testing.T) {
 			name:    "duplicate table",
 			src:     "CREATE TABLE public.t (a integer);\nCREATE TABLE public.t (b integer);",
 			wantMsg: `table "t" is defined twice (first at line 1)`,
+		},
+		{
+			// The schema's length limit, which is the half of validIdentifier
+			// the rows above do not reach. PostgreSQL truncates identifiers at
+			// 63 bytes unless it was compiled otherwise, so this arrives from a
+			// hand-edited file rather than from a server - but the limit is
+			// quoted in the message, and a limit nothing tests is a limit that
+			// can drift away from the schema it claims to implement.
+			name:    "an over-long table name",
+			src:     "CREATE TABLE public.\"" + strings.Repeat("a", maxIdentifierLength+1) + "\" (\n  id integer\n);",
+			wantMsg: "cannot be represented",
 		},
 	}
 
@@ -726,6 +748,11 @@ func TestImportPgDumpVersionWarning(t *testing.T) {
 		{name: "newest supported", banner: "-- Dumped by pg_dump version 18.6 (Ubuntu 18.6-1.pgdg24.04+2)\n"},
 		{name: "too new", banner: "-- Dumped by pg_dump version 19.0\n", wantWarn: true},
 		{name: "no banner", banner: ""},
+		// A banner whose version is not a number is treated as no banner at
+		// all. checkDumpVersion says a file with nothing readable to check is a
+		// legitimate input; warning about it would put a line on the standard
+		// error of every hand-assembled dump.
+		{name: "a banner with no readable version", banner: "-- Dumped by pg_dump version x.y\n"},
 	}
 
 	for _, tt := range tests {
@@ -753,6 +780,426 @@ func TestImportIsDeterministic(t *testing.T) {
 	}
 }
 
+// notNullInItsOwnStatement states one column's nullability inline and the other
+// two in separate ALTER TABLE statements, one in each direction.
+const notNullInItsOwnStatement = `CREATE TABLE public.t (
+  a integer,
+  b integer NOT NULL,
+  c integer
+);
+ALTER TABLE ONLY public.t ALTER COLUMN a SET NOT NULL;
+ALTER TABLE ONLY public.t ALTER COLUMN b DROP NOT NULL;`
+
+// TestNotNullStatedInItsOwnStatement is the highest-stake case in this file and
+// the one whose absence was easiest to miss: the parser has always had a test
+// for this statement and the resolver has never had one, so the function that
+// carries the answer from one to the other had never run.
+//
+// What it protects is a wrong answer that says nothing. A column the dump
+// declares NOT NULL would come out nullable; the document would satisfy the
+// JSON Schema, jjf validate would find nothing to say about it, and the
+// workbook and the diagram would both calmly describe a nullable column. There
+// is no error, no warning and no golden diff, because no captured dump contains
+// the statement - pg_dump writes NOT NULL inline.
+//
+// Both directions are asserted because the resolver's whole body is one
+// assignment from the parsed Drop flag; testing SET alone would pass just as
+// well if the flag were ignored. Column c is the control.
+func TestNotNullStatedInItsOwnStatement(t *testing.T) {
+	doc, warnings := mustImport(t, notNullInItsOwnStatement)
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", warnings)
+	}
+	want := []struct {
+		name     string
+		nullable bool
+	}{
+		{name: "a", nullable: false},
+		{name: "b", nullable: true},
+		{name: "c", nullable: true},
+	}
+	cols := doc.Tables[0].Columns
+	if len(cols) != len(want) {
+		t.Fatalf("columns got = %+v, want %v", cols, len(want))
+	}
+	for i, w := range want {
+		if cols[i].Name != w.name {
+			t.Fatalf("column %d got = %q, want %q", i, cols[i].Name, w.name)
+		}
+		if cols[i].Nullable != w.nullable {
+			t.Errorf("column %s nullable got = %v, want %v", w.name, cols[i].Nullable, w.nullable)
+		}
+	}
+}
+
+// TestAStatementNamingAColumnThatWasNotImported says one rule three times: a
+// statement about a column the dump never created is reported and skipped, and
+// the table it names keeps everything else.
+//
+// This is what a dump truncated between its CREATE TABLE and its ALTER TABLE
+// statements looks like, and what a file assembled by hand from two dumps
+// produces. Three functions implement the rule and the test is one table so
+// that a fourth, added later, has an obvious place to go.
+func TestAStatementNamingAColumnThatWasNotImported(t *testing.T) {
+	tests := []struct {
+		name        string
+		statement   string
+		wantMessage string
+	}{
+		{
+			name:        "NOT NULL",
+			statement:   "ALTER TABLE ONLY public.t ALTER COLUMN nosuch SET NOT NULL;",
+			wantMessage: "t.nosuch: NOT NULL names a column that was not imported",
+		},
+		{
+			name:        "DEFAULT",
+			statement:   "ALTER TABLE ONLY public.t ALTER COLUMN nosuch SET DEFAULT 0;",
+			wantMessage: "t.nosuch: DEFAULT names a column that was not imported",
+		},
+		{
+			name:        "IDENTITY",
+			statement:   "ALTER TABLE ONLY public.t ALTER COLUMN nosuch ADD GENERATED BY DEFAULT AS IDENTITY;",
+			wantMessage: "t.nosuch: IDENTITY names a column that was not imported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, warnings := mustImport(t, "CREATE TABLE public.t (a integer);\n"+tt.statement)
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got = %v, want exactly 1", warnings)
+			}
+			if !strings.Contains(warnings[0].Message, tt.wantMessage) {
+				t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, tt.wantMessage)
+			}
+			if warnings[0].Line != 2 {
+				t.Errorf("warning line got = %v, want 2", warnings[0].Line)
+			}
+			if len(doc.Tables) != 1 || len(doc.Tables[0].Columns) != 1 ||
+				doc.Tables[0].Columns[0].Name != "a" {
+				t.Errorf("tables got = %+v, want table t with only column a", doc.Tables)
+			}
+		})
+	}
+}
+
+// tableWithNoColumns declares an empty table, everything a later statement can
+// say about it, and one real table.
+//
+// Two tables are needed rather than one: build refuses a dump in which no table
+// survives, so a lone empty table would exercise that error instead of the
+// warn-and-skip this is about. The second table also carries the column the
+// skipped table's constraints and index refer to, so the statements are
+// well-formed and are dropped for the reason under test rather than for a
+// second one.
+const tableWithNoColumns = `CREATE TABLE public.empty (
+);
+CREATE TABLE public.t (
+  a integer NOT NULL
+);
+ALTER TABLE ONLY public.t ADD CONSTRAINT t_pk PRIMARY KEY (a);
+ALTER TABLE ONLY public.empty ADD CONSTRAINT empty_pk PRIMARY KEY (a);
+ALTER TABLE ONLY public.empty ADD CONSTRAINT empty_fk FOREIGN KEY (a) REFERENCES public.t(a);
+CREATE INDEX empty_idx ON public.empty USING btree (a);`
+
+// TestATableWithNoColumnsIsReportedAndSkipped covers a legal PostgreSQL table
+// that the design format has no way to write down - the schema requires at
+// least one column - and, more interestingly, what the importer says about the
+// statements that follow it.
+//
+// It says nothing. The table has already been reported once; repeating the
+// complaint for each of its keys and indexes would bury the line that matters
+// under lines that add nothing. The single-warning assertion is what states
+// that decision, and it is the only place it is written down.
+func TestATableWithNoColumnsIsReportedAndSkipped(t *testing.T) {
+	doc, warnings := mustImport(t, tableWithNoColumns)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got = %v, want exactly 1", warnings)
+	}
+	if want := "table empty has no columns; not imported"; !strings.Contains(warnings[0].Message, want) {
+		t.Errorf("warning got = %q, want it to contain %q", warnings[0].Message, want)
+	}
+	if warnings[0].Line != 1 {
+		t.Errorf("warning line got = %v, want 1", warnings[0].Line)
+	}
+	if len(doc.Tables) != 1 || doc.Tables[0].Name != "t" {
+		t.Fatalf("tables got = %+v, want only t", doc.Tables)
+	}
+	if doc.Tables[0].PrimaryKey == nil || doc.Tables[0].PrimaryKey.Name != "t_pk" {
+		t.Errorf("primary key of t got = %v, want t_pk", doc.Tables[0].PrimaryKey)
+	}
+}
+
+// foreignKeyTarget is a usable target for the failing foreign keys below: a
+// table that exists, in the schema being imported, with a primary key. Every
+// case in TestForeignKeysThatCannotBeResolved has to fail for the ONE reason it
+// names, and applyForeignKey's guards shadow each other - an unresolvable local
+// column returns before the target is ever looked at - so a case whose fixture
+// tripped an earlier guard would pass while proving something else.
+const foreignKeyTarget = `CREATE TABLE public.u (
+  id integer NOT NULL,
+  other integer NOT NULL
+);
+ALTER TABLE ONLY public.u ADD CONSTRAINT u_pk PRIMARY KEY (id);
+CREATE TABLE public.t (
+  a integer NOT NULL,
+  b integer NOT NULL
+);
+ALTER TABLE ONLY public.t ADD CONSTRAINT t_uq UNIQUE (b);
+`
+
+func TestForeignKeysThatCannotBeResolved(t *testing.T) {
+	tests := []struct {
+		name        string
+		constraint  string
+		wantMessage string
+	}{
+		{
+			// Both rows below reach the same guard, because resolvable answers
+			// no for two different reasons and the message cannot tell them
+			// apart. Two rows are worth it: a change that stopped catching
+			// repeats would still pass the first one.
+			name:        "a local column the table does not have",
+			constraint:  "FOREIGN KEY (nosuch) REFERENCES public.u(id)",
+			wantMessage: `table t: foreign key t_fk names unknown or repeated column "nosuch"; not imported`,
+		},
+		{
+			name:        "the same local column twice",
+			constraint:  "FOREIGN KEY (a, a) REFERENCES public.u(id, other)",
+			wantMessage: `table t: foreign key t_fk names unknown or repeated column "a"; not imported`,
+		},
+		{
+			name:        "a referenced column the target does not have",
+			constraint:  "FOREIGN KEY (a) REFERENCES public.u(nosuch)",
+			wantMessage: `table t: foreign key t_fk references unknown or repeated column u."nosuch"; not imported`,
+		},
+		{
+			name:        "the same referenced column twice",
+			constraint:  "FOREIGN KEY (a, b) REFERENCES public.u(id, id)",
+			wantMessage: `table t: foreign key t_fk references unknown or repeated column u."id"; not imported`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, warnings := mustImport(t, foreignKeyTarget+
+				"ALTER TABLE ONLY public.t ADD CONSTRAINT t_fk "+tt.constraint+";")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got = %v, want exactly 1", warnings)
+			}
+			if got := warnings[0].Message; got != tt.wantMessage {
+				t.Errorf("warning got = %q, want %q", got, tt.wantMessage)
+			}
+			table := doc.Tables[1]
+			if table.Name != "t" {
+				t.Fatalf("second table got = %q, want %q", table.Name, "t")
+			}
+			if len(table.ForeignKeys) != 0 {
+				t.Errorf("foreign keys got = %+v, want none", table.ForeignKeys)
+			}
+			// The neighbour. applyConstraints walks the whole list and each
+			// failure returns from applyForeignKey alone; a change that
+			// returned one frame higher would take this unique key with it and
+			// say nothing.
+			want := []model.UniqueKey{{Name: "t_uq", Columns: []string{"b"}}}
+			if !reflect.DeepEqual(table.UniqueKeys, want) {
+				t.Errorf("unique keys got = %v, want %v", table.UniqueKeys, want)
+			}
+		})
+	}
+}
+
+// indexesThatCannotBeImported declares three indexes on one table: one with no
+// name, one naming a column the table does not have, one naming a column twice,
+// and - last, deliberately - one that is perfectly good.
+const indexesThatCannotBeImported = `CREATE TABLE public.t (
+  a integer NOT NULL,
+  b integer NOT NULL
+);
+CREATE INDEX ON public.t USING btree (a);
+CREATE INDEX t_x ON public.t USING btree (nosuch);
+CREATE INDEX t_y ON public.t USING btree (a, a);
+CREATE INDEX t_ab ON public.t USING btree (a, b);`
+
+// TestIndexesThatCannotBeImportedAreReportedOneByOne asserts three warnings in
+// source order and then the thing the warnings do not say: the good index
+// declared after all of them arrived.
+//
+// applyIndexes continues past each failure, and the whole value of the test is
+// that a change turning one of those continues into a return - or into an error
+// - would drop every index after the first bad one without a word about it.
+// Declaring the good index LAST is what makes the assertion mean that.
+//
+// An index with no name is a warning here while an unrepresentable index NAME
+// is an error, and the asymmetry is deliberate: the schema requires index.name,
+// so there is nothing to fall back on, but an index PostgreSQL named
+// server-side was never written down in the dump at all.
+func TestIndexesThatCannotBeImportedAreReportedOneByOne(t *testing.T) {
+	doc, warnings := mustImport(t, indexesThatCannotBeImported)
+
+	want := []string{
+		"line 5: table t: an index without a name cannot be imported",
+		`line 6: table t: index t_x names unknown or repeated column "nosuch"; not imported`,
+		`line 7: table t: index t_y names unknown or repeated column "a"; not imported`,
+	}
+	if got := messages(warnings); !slices.Equal(got, want) {
+		t.Fatalf("warnings got = %v, want %v", got, want)
+	}
+	got := doc.Tables[0].Indexes
+	wantIndexes := []model.Index{{Name: "t_ab", Columns: []string{"a", "b"}}}
+	if !reflect.DeepEqual(got, wantIndexes) {
+		t.Errorf("indexes got = %v, want %v", got, wantIndexes)
+	}
+}
+
+// setDefaultForeignKey is the one referential action the captured dumps do not
+// carry. pg_dump writes it for a foreign key declared that way, and a missing
+// arm in the action table would not fail anything - the field would simply be
+// absent from the document, which is the quiet kind of wrong this whole file is
+// about.
+const setDefaultForeignKey = `CREATE TABLE public.u (
+  id integer NOT NULL
+);
+ALTER TABLE ONLY public.u ADD CONSTRAINT u_pk PRIMARY KEY (id);
+CREATE TABLE public.t (
+  a integer
+);
+ALTER TABLE ONLY public.t ADD CONSTRAINT t_fk FOREIGN KEY (a) REFERENCES public.u(id) ON DELETE SET DEFAULT;`
+
+func TestSetDefaultSurvivesAsAReferentialAction(t *testing.T) {
+	doc, warnings := mustImport(t, setDefaultForeignKey)
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", warnings)
+	}
+	want := []model.ForeignKey{{
+		Name:       "t_fk",
+		Columns:    []string{"a"},
+		References: model.Reference{Table: "u", Columns: []string{"id"}},
+		OnDelete:   model.ActionSetDefault,
+	}}
+	if got := doc.Tables[1].ForeignKeys; !reflect.DeepEqual(got, want) {
+		t.Errorf("foreign keys got = %v, want %v", got, want)
+	}
+}
+
+// TestTheFirstDefinitionOfARepeatedColumnWins pins a tie-break that is stated in
+// a comment and decided nowhere else. PostgreSQL rejects a table that names a
+// column twice, so this arrives only from a dump assembled or edited by hand -
+// but when it does, the importer has to choose, and choosing the LAST definition
+// would give the column a type the first half of the file contradicts.
+func TestTheFirstDefinitionOfARepeatedColumnWins(t *testing.T) {
+	doc, _ := mustImport(t, "CREATE TABLE public.t (\n  a integer NOT NULL,\n  a text\n);\n"+
+		"ALTER TABLE ONLY public.t ALTER COLUMN a SET DEFAULT 7;")
+	cols := doc.Tables[0].Columns
+	if len(cols) != 2 {
+		t.Fatalf("columns got = %+v, want both definitions kept as written", cols)
+	}
+	// The resolver's index holds the FIRST definition, so a later statement
+	// about the column reaches that one.
+	if cols[0].Type != "INTEGER" || cols[0].Nullable {
+		t.Errorf("first column got = %+v, want a NOT NULL INTEGER", cols[0])
+	}
+	if cols[0].Default == nil || *cols[0].Default != "7" {
+		t.Errorf("first column default got = %v, want 7", cols[0].Default)
+	}
+	if cols[1].Default != nil {
+		t.Errorf("second column default got = %v, want none", cols[1].Default)
+	}
+}
+
+// TestNextvalThatIsNotASequenceReference covers the guard that decides whether a
+// column auto-increments or merely calls a function, which is a decision the
+// document states as a fact about the database. Getting it wrong in either
+// direction is material: a column wrongly marked autoIncrement loses its default
+// expression entirely, since the two are never written together.
+func TestNextvalThatIsNotASequenceReference(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{
+			// The nextval is only part of a larger expression, which is the
+			// case sequenceFromNextval's own comment names.
+			name: "nextval inside an arithmetic expression",
+			expr: "nextval('public.s'::regclass) + 1",
+		},
+		{
+			name: "nextval with a second argument",
+			expr: "nextval('public.s'::regclass, 1)",
+		},
+		{
+			name: "a function that is not nextval",
+			expr: "other('public.s'::regclass)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, warnings := mustImport(t, "CREATE SEQUENCE public.s;\n"+
+				"CREATE TABLE public.t (a integer DEFAULT "+tt.expr+");")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", warnings)
+			}
+			col := doc.Tables[0].Columns[0]
+			if col.AutoIncrement {
+				t.Errorf("column got = %+v, want it not marked auto increment", col)
+			}
+			if col.Default == nil || *col.Default != tt.expr {
+				t.Errorf("default got = %v, want %q", col.Default, tt.expr)
+			}
+		})
+	}
+}
+
+// sameNameInTwoSchemas gives two schemas a table with the same bare name and
+// then says everything about the one that is NOT being imported.
+const sameNameInTwoSchemas = `CREATE TABLE public.t (
+  a integer
+);
+CREATE TABLE audit.t (
+  a integer
+);
+ALTER TABLE ONLY audit.t ALTER COLUMN a SET NOT NULL;
+ALTER TABLE ONLY audit.t ALTER COLUMN a SET DEFAULT 1;
+COMMENT ON TABLE audit.t IS '監査';
+COMMENT ON COLUMN audit.t.a IS '監査列';`
+
+// TestStatementsAboutAnotherSchemaDoNotReachThisOne guards a failure that would
+// be invisible in every other test in this file, because every other test has
+// one schema.
+//
+// The resolver looks a column up by the table's BARE name - the index is keyed
+// that way - so the schema filter is the only thing standing between audit.t's
+// statements and public.t's columns. Drop it from any one of the three
+// functions here and this dump would produce a public.t whose column is NOT
+// NULL, carries a default of 1 and is named after an audit table, with no
+// warning anywhere. Two tables with the same name in different schemas is
+// ordinary in a database that separates its audit trail, so the input is not
+// contrived.
+func TestStatementsAboutAnotherSchemaDoNotReachThisOne(t *testing.T) {
+	doc, warnings := mustImport(t, sameNameInTwoSchemas)
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", warnings)
+	}
+	if len(doc.Tables) != 1 || doc.Tables[0].Name != "t" {
+		t.Fatalf("tables got = %+v, want only public.t", doc.Tables)
+	}
+	table := doc.Tables[0]
+	if table.LogicalName != "t" {
+		t.Errorf("logical name got = %q, want %q: the comment belongs to the other schema", table.LogicalName, "t")
+	}
+	col := table.Columns[0]
+	if !col.Nullable {
+		t.Error("column a nullable got = false, want true: the NOT NULL belongs to the other schema")
+	}
+	if col.Default != nil {
+		t.Errorf("column a default got = %q, want none", *col.Default)
+	}
+	if col.LogicalName != "a" {
+		t.Errorf("column a logical name got = %q, want %q", col.LogicalName, "a")
+	}
+}
+
 // importedSources lists every dump this package's tests import successfully.
 // TestImportProducesAValidDocument runs all of them through the JSON Schema,
 // which is the one invariant the whole importer exists to preserve.
@@ -776,6 +1223,13 @@ func importedSources() []struct{ name, src string } {
 			"  a text COLLATE pg_catalog.\"C\" NOT NULL,\n" +
 			"  b integer FUTURE_OPTION 7 DEFAULT 0,\n" +
 			"  c integer NULL\n);"},
+		{"not null in its own statement", notNullInItsOwnStatement},
+		{"a table with no columns", tableWithNoColumns},
+		{"an unresolvable foreign key", foreignKeyTarget +
+			"ALTER TABLE ONLY public.t ADD CONSTRAINT t_fk FOREIGN KEY (nosuch) REFERENCES public.u(id);"},
+		{"indexes that cannot be imported", indexesThatCannotBeImported},
+		{"on delete set default", setDefaultForeignKey},
+		{"the same table name in two schemas", sameNameInTwoSchemas},
 	}
 }
 
