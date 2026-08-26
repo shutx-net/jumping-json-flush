@@ -36,7 +36,7 @@ direnv.
 | run | `go run ./cmd/jjf validate examples/db-design.example.json` |
 | test | `go test ./...` |
 | test (race) | `CGO_ENABLED=1 go test -race ./...` |
-| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/svg/ ./internal/export/ddl/ ./internal/importer/postgres/ -update` |
+| regenerate goldens | `go test ./cmd/jjf/ ./internal/schema/ ./internal/sml/ ./internal/export/xlsx/ ./internal/export/svg/ ./internal/export/ddl/ ./internal/importer/postgres/ ./internal/importer/mysql/ -update` |
 | coverage | `go test -covermode=atomic -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out \| tail -1` |
 | vet | `go vet ./...` |
 | format check | `test -z "$(gofmt -l .)" \|\| gofmt -d .` |
@@ -70,7 +70,7 @@ direnv.
   that was removed
 - `go run ./cmd/jjf ...` hides `jjf`'s own exit code. Use a built binary
   whenever an exit code is what you are checking
-- Only the seven packages that own goldens define the `-update` flag, so
+- Only the eight packages that own goldens define the `-update` flag, so
   `go test ./... -update` fails with `flag provided but not defined` in the rest.
   List the packages as the table above does
 - `jjf export ddl` is the only exporter that refuses its input. A document that

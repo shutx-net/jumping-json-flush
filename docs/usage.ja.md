@@ -375,10 +375,18 @@ sha256sum a.xlsx b.xlsx   # 2 つのハッシュは一致する
 ```sh
 pg_dump --schema-only mydb > schema.sql
 jjf import postgres schema.sql -o db-design.json
+
+mysqldump --no-data --default-character-set=utf8mb4 mydb > schema.sql
+jjf import mysql schema.sql -o db-design.json
 ```
 
-PostgreSQL のスキーマダンプから設計文書を組み立てる。入力は**ファイル**であり、
-`jjf` がデータベースへ接続することはない。dialect は `postgres` のみ。
+スキーマダンプから設計文書を組み立てる。入力は**ファイル**であり、`jjf` が
+データベースへ接続することはない。
+
+| dialect | 入力 |
+| --- | --- |
+| `postgres` | `pg_dump --schema-only` |
+| `mysql` | `mysqldump --no-data` |
 
 - 生成した文書は**書き出す前にスキーマで検証する**。`jjf validate` が拒否するような
   文書が import から出てくることはない
@@ -388,14 +396,24 @@ PostgreSQL のスキーマダンプから設計文書を組み立てる。入力
   テキストだからである
 - `-schema` は取り込む PostgreSQL スキーマを選ぶ（既定は `public`）。設計文書には
   スキーマ修飾の置き場所が無いため、一度に取り込めるのは 1 スキーマだけで、
-  それ以外は捨てられる
-- `-database` は生成する文書のデータベース名を決める。省略した場合、ダンプに
-  `\connect` 行があればそこから、無ければ入力ファイル名から採る（この場合、
-  ファイル名自体が識別子として妥当である必要がある）
+  それ以外は捨てられる。これは **PostgreSQL 専用**であり、`mysql` に渡すと
+  **黙って無視するのではなくエラーにする**。MySQL のスキーマはデータベース
+  そのものなので、選ぶべき第 2 の階層が存在しないためである
+- `-database` は生成する文書のデータベース名を決める。省略した場合、`postgres`
+  ではダンプの `\connect` 行から、`mysql` では `USE` 文かヘッダの banner から
+  採り、どちらも無ければ入力ファイル名から採る（この場合、ファイル名自体が
+  識別子として妥当である必要がある）
 - `-strict` はすべての警告をエラーに変える。このとき出力は書かれない
-- 想定しているのは **pg_dump 13 〜 18** の出力であり、この範囲の全メジャーの実ダンプで
-  検証済みである（6 つとも同一の文書にバイト単位で一致して取り込まれる）。
-  ヘッダのバージョン表記を読み、範囲外のダンプは失敗ではなく警告にする
+- 想定しているのは **pg_dump 13 〜 18** と **MySQL 8.0** の出力であり、リポジトリに
+  取り込んだ実ダンプで検証済みである（PostgreSQL はこの範囲の全メジャーが、MySQL は
+  捕獲したすべての系列が、同一の文書にバイト単位で一致して取り込まれる）。ヘッダの
+  バージョン表記を読み、範囲外のダンプは失敗ではなく警告にする。名乗る範囲は捕獲した
+  ダンプが覆う範囲ちょうどであり、8.4 や 9.x を捕獲することが範囲を広げる手順である
+
+**`mysqldump` には `--default-character-set=utf8mb4` を渡すこと。** 付けないと
+クライアントが `latin1` で接続することがあり、ダンプ中の日本語の `COMMENT` が
+二重にエンコードされる。そのダンプも構文解析でき、取り込めて、往復もするので、
+気付く手がかりは自分の `logicalName` に現れる文字化けだけである。
 
 ### ダンプについて jjf が言うこと
 
@@ -404,8 +422,8 @@ PostgreSQL のスキーマダンプから設計文書を組み立てる。入力
 
 | 段階 | 例 | 挙動 |
 | --- | --- | --- |
-| 黙って読み飛ばす | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO` | 何も出さない。ダンプはこれらで埋まっており、いちいち警告すると本当に必要な警告が埋もれるため |
-| 警告する | `CHECK` 制約、部分索引・式索引、`INCLUDE`、btree 以外のアクセスメソッド、`DEFERRABLE`、`INHERITS`、生成列 | 標準エラーへ行番号付きで 1 行出す。**周囲のテーブルや索引はそのまま取り込む** |
+| 黙って読み飛ばす | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO`、MySQL ではさらに `LOCK TABLES`, `DROP TABLE`, `DELIMITER`、トリガとルーチン、そしてすべてのテーブルオプション | 何も出さない。ダンプはこれらで埋まっており、いちいち警告すると本当に必要な警告が埋もれるため |
+| 警告する | `CHECK` 制約、部分索引・式索引、`INCLUDE`、btree 以外のアクセスメソッド、`DEFERRABLE`、`INHERITS`、生成列、MySQL ではさらに `FULLTEXT`・`SPATIAL` 索引、索引の前置長、鍵の `DESC`、`ON UPDATE CURRENT_TIMESTAMP`、`ENUM`・`SET` の値リスト、パーティション、InnoDB 以外のエンジン | 標準エラーへ行番号付きで 1 行出す。**周囲のテーブルや索引はそのまま取り込む** |
 | エラーにする | 構文として壊れた SQL、書けない識別子、同名テーブルの二重定義 | 終了コード 2。何も書かれない |
 
 ```text
@@ -415,6 +433,17 @@ schema.sql:20: warning: index users_email_live_idx on table public.users: partia
 schema.sql:22: warning: index users_doc_idx on table public.users: access method gin is not imported; recorded as a plain index
 db-design.json: written
 ```
+
+```text
+$ jjf import mysql schema.sql -o db-design.json
+schema.sql:31: warning: index ft_users_bio on table users: full-text index is not imported
+schema.sql:32: warning: constraint ck_users_email on table users: check constraint is not imported
+schema.sql:29: warning: users.updated_at: ON UPDATE CURRENT_TIMESTAMP is not represented
+db-design.json: written
+```
+
+警告の並びは行番号順ではなく、見つけた順である。構文解析が気付いたものが先に、
+解決の段が気付いたものが後に来る。
 
 `file:line: warning:` という形は、エディタや CI のアノテータがそのまま解釈できる。
 警告は標準エラー、成功メッセージは標準出力に出る。
@@ -429,27 +458,47 @@ db-design.json: written
 スキーマはすべてのテーブルとカラムに `logicalName` を要求するが、ダンプにはそれが無い。
 そこで次のようにする。
 
-- `COMMENT ON` の**1 行目**を `logicalName` にする
+- コメントの**1 行目**を `logicalName` にする
 - **2 行目以降**を `description` にする
 - コメントが**無い**テーブル・カラムには物理名をそのまま `logicalName` として置く
+
+ここでいうコメントは、PostgreSQL では `COMMENT ON` 文、MySQL では列に書かれた
+`COMMENT` かテーブルの `COMMENT=` オプションである。分け方は `jjf export ddl` が
+両方の dialect で組み立てるものと同一で、これが実在のデータベースを一往復しても
+文書が変わらない理由である。
 
 最後の規則は答えではなく、編集の出発点である。生成された文書は開いて本当の名前を
 与えるためにある。
 
 ### 取り込まないもの
 
-ビュー、マテリアライズドビュー、関数、トリガ、列の型として使われた enum の名前を
-超える型定義、拡張、パーティション、継承、行レベルセキュリティ、権限、そして
-autoIncrement の判定を超えるシーケンス。
+ビュー、マテリアライズドビュー、関数、トリガ、ルーチン、イベント、列の型として
+使われた enum の名前を超える型定義、拡張、パーティション、継承、行レベル
+セキュリティ、権限、そして autoIncrement の判定を超えるシーケンス。
 
 `CHECK` 制約と排他制約、索引の述語と式、`INCLUDE` 列、演算子クラス、`DESC` / `NULLS`
 の並び、`DEFERRABLE` は設計フォーマットに書き場所が無いため、警告して捨てる。
 `-schema` で選ばなかったスキーマのものも捨てるが、そちらへ張られた外部キーだけは
 実在する関係が失われるので報告する。
 
-PostgreSQL の型が `type` と `length` / `precision` / `scale` にどう分解されるかは
-[DB 設計 JSON フォーマット](db-design-format.ja.md#import-時の-postgresql-型の扱い)
-にある。
+MySQL では次が加わる。
+
+| 取り込まないもの | 理由 |
+| --- | --- |
+| テーブルオプション（エンジン、文字セット、照合順序、行フォーマット、`AUTO_INCREMENT` の現在値） | フォーマットに置き場所が無い。InnoDB 以外のエンジンだけは警告する。文書が宣言する外部キーを実際に効かせるのは InnoDB だけだからである |
+| パーティション | 分割された表は文書が説明する表ではない。ただし列は真なので表は取り込み、分割だけを報告する |
+| `FULLTEXT`・`SPATIAL` 索引 | どちらも文書が名指しする列に対する索引ではない。一方は `MATCH … AGAINST` に、もう一方は R-tree の問い合わせに答えるものである |
+| 索引の前置長 `KEY ix (body(255))` | 索引は文書が名指しする列を覆ったままなので取り込み、狭められたことだけを報告する |
+| 鍵の `DESC` | MySQL 8 には本物の降順索引があるが、フォーマットが記録するのは列だけである |
+| `ON UPDATE CURRENT_TIMESTAMP` | 既定値ではなく自動更新の規則である。`default` に畳み込めば MySQL が拒否するスクリプトになる |
+| `ENUM`・`SET` の値リスト | フォーマットに置き場所が無い。型名は残り、値は警告が名指しする |
+| 外部キーを支えるために InnoDB が作る索引 | 外部キーと同じ名前で現れるが、jjf の文書は制約名と索引名を表ごとにひとつの名前空間で持つ。索引を作り直すのは文書の外部キーなので、失われるものは無い |
+| 可為 null 列の `DEFAULT NULL` | MySQL は既定値を与えられなかった可為 null 列すべてにこれを書き、内容は `nullable` が既に言っていることと同じである。列ごとに警告すれば他が埋もれるので黙って落とす |
+
+型が `type` と `length` / `precision` / `scale` にどう分解されるかは DB 設計 JSON
+フォーマットの
+[PostgreSQL](db-design-format.ja.md#import-時の-postgresql-型の扱い) と
+[MySQL](db-design-format.ja.md#import-時の-mysql-型の扱い) にある。
 
 ## version
 

@@ -410,10 +410,18 @@ document changed although the JSON did not" as the anomaly it is.
 ```sh
 pg_dump --schema-only mydb > schema.sql
 jjf import postgres schema.sql -o db-design.json
+
+mysqldump --no-data --default-character-set=utf8mb4 mydb > schema.sql
+jjf import mysql schema.sql -o db-design.json
 ```
 
-Builds a design document from a PostgreSQL schema dump. The input is a **file**:
-`jjf` never connects to a database, and `postgres` is the only dialect.
+Builds a design document from a schema dump. The input is a **file**: `jjf` never
+connects to a database.
+
+| Dialect | Input |
+| --- | --- |
+| `postgres` | `pg_dump --schema-only` |
+| `mysql` | `mysqldump --no-data` |
 
 - The generated document is **validated against the schema before it is written**,
   so `import` can never produce a document that `jjf validate` would reject
@@ -423,15 +431,26 @@ Builds a design document from a PostgreSQL schema dump. The input is a **file**:
   as well, because JSON is text worth reading
 - `-schema` chooses the PostgreSQL schema to import, `public` by default. A design
   document has nowhere to put a schema qualification, so exactly one schema is
-  imported at a time and everything else is dropped
+  imported at a time and everything else is dropped. It is **PostgreSQL-only**,
+  and passing it to `mysql` is an **error rather than a silently ignored flag** —
+  a MySQL schema *is* a database, so there is no second level to choose
 - `-database` names the database in the generated document. Without it the name
-  comes from a `\connect` line when the dump has one, and otherwise from the input
-  file name — which then has to be a legal identifier itself
+  comes from a `\connect` line for `postgres` and from a `USE` statement or the
+  header banner for `mysql`, and otherwise from the input file name — which then
+  has to be a legal identifier itself
 - `-strict` turns every warning into an error. Nothing is written in that case
-- Dumps from **pg_dump 13 to 18** are what this was written against, verified
-  against real dumps from every major in that range: all six import to the same
-  document, byte for byte. The version banner in the dump header is read, and a
-  dump from outside that range produces a warning rather than a failure
+- Dumps from **pg_dump 13 to 18** and from **MySQL 8.0** are what this was written
+  against, verified against real dumps committed in the repository: every PostgreSQL
+  major in that range imports to the same document, byte for byte, and so does
+  every captured MySQL series. The version banner in the dump header is read, and a
+  dump from outside those ranges produces a warning rather than a failure. The
+  supported range is exactly what the captures cover: adding a MySQL 8.4 or 9.x
+  capture is what would widen it
+
+**Pass `--default-character-set=utf8mb4` to `mysqldump`.** Without it the client
+may negotiate `latin1`, and every Japanese `COMMENT` in the dump is encoded twice.
+Such a dump still parses, still imports and still round-trips, so nothing will tell
+you but the mojibake in your own `logicalName` fields.
 
 ### What jjf says about a dump
 
@@ -440,8 +459,8 @@ can hold — not by how unusual the SQL is.
 
 | Tier | Example | What happens |
 | --- | --- | --- |
-| Skipped in silence | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO` | Nothing. A dump is full of these, and warning about each would bury the warnings that matter |
-| Warned about | a `CHECK` constraint, a partial or expression index, `INCLUDE`, a non-btree access method, `DEFERRABLE`, `INHERITS`, a generated column | One line on standard error naming the dump line, and **the surrounding table or index is still imported** |
+| Skipped in silence | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO`, and for MySQL also `LOCK TABLES`, `DROP TABLE`, `DELIMITER`, a trigger or a routine, and every table option | Nothing. A dump is full of these, and warning about each would bury the warnings that matter |
+| Warned about | a `CHECK` constraint, a partial or expression index, `INCLUDE`, a non-btree access method, `DEFERRABLE`, `INHERITS`, a generated column, and for MySQL also a `FULLTEXT` or `SPATIAL` index, an index prefix length, `DESC` in a key, `ON UPDATE CURRENT_TIMESTAMP`, an `ENUM` or `SET` value list, partitioning, and a non-InnoDB engine | One line on standard error naming the dump line, and **the surrounding table or index is still imported** |
 | An error | SQL that does not parse, a name the format cannot hold, the same table defined twice | Exit 2. Nothing is written |
 
 ```text
@@ -451,6 +470,17 @@ schema.sql:20: warning: index users_email_live_idx on table public.users: partia
 schema.sql:22: warning: index users_doc_idx on table public.users: access method gin is not imported; recorded as a plain index
 db-design.json: written
 ```
+
+```text
+$ jjf import mysql schema.sql -o db-design.json
+schema.sql:31: warning: index ft_users_bio on table users: full-text index is not imported
+schema.sql:32: warning: constraint ck_users_email on table users: check constraint is not imported
+schema.sql:29: warning: users.updated_at: ON UPDATE CURRENT_TIMESTAMP is not represented
+db-design.json: written
+```
+
+The warnings are in the order they were found, not in line order: everything the
+parser noticed comes first, and everything the resolution pass noticed comes after.
 
 The `file:line: warning:` shape is what editors and CI annotators already parse.
 Warnings go to standard error, the success line to standard output.
@@ -467,19 +497,25 @@ imported without a name.
 The schema requires a `logicalName` on every table and column, and a dump has
 none. So:
 
-- the **first line** of a `COMMENT ON` becomes the `logicalName`
+- the **first line** of the comment becomes the `logicalName`
 - the **rest** becomes the `description`
 - a table or column **without a comment** gets its physical name as its
   `logicalName`
+
+The comment is a `COMMENT ON` statement for PostgreSQL and an inline `COMMENT` on
+the column or a `COMMENT=` table option for MySQL. The split is the same one
+`jjf export ddl` composes, in both dialects, which is what lets a document survive
+a trip through a real database unchanged.
 
 That last rule is a starting point to edit, not an answer. The generated document
 is meant to be opened and given real names.
 
 ### What is not imported
 
-Views, materialized views, functions, triggers, types beyond the name of an enum
-used as a column type, extensions, partitioning, inheritance, row level security,
-privileges, and sequences beyond deciding which column auto-increments.
+Views, materialized views, functions, triggers, routines, events, types beyond the
+name of an enum used as a column type, extensions, partitioning, inheritance, row
+level security, privileges, and sequences beyond deciding which column
+auto-increments.
 
 `CHECK` and exclusion constraints, index predicates and expressions, `INCLUDE`
 columns, operator classes, `DESC` / `NULLS` ordering and `DEFERRABLE` flags have
@@ -487,8 +523,23 @@ nowhere to live in the design format, so they warn and are dropped. Anything
 outside the schema `-schema` selected is dropped too — silently, except for a
 foreign key that pointed into it, which is a real relationship and is reported.
 
-How a PostgreSQL type becomes a `type` plus `length` / `precision` / `scale` is in
-[the format reference](db-design-format.md#postgresql-types-on-import).
+For MySQL the list adds:
+
+| Not imported | Why |
+| --- | --- |
+| Table options — engine, character set, collation, row format, `AUTO_INCREMENT` counter | The format has nowhere for them. A non-InnoDB engine is warned about anyway, because only InnoDB enforces the foreign keys the document declares |
+| Partitioning | The partitioned table is not the table the document would describe. Its columns still are, so the table is imported and the partitioning alone is reported |
+| `FULLTEXT` and `SPATIAL` indexes | Neither is an index over the columns the document would name: one answers a `MATCH … AGAINST` and the other an R-tree query |
+| An index prefix length, `KEY ix (body(255))` | The index still covers the column the document names, so it is imported and the narrowing is reported |
+| `DESC` in a key | MySQL 8 has real descending indexes; the format records the columns only |
+| `ON UPDATE CURRENT_TIMESTAMP` | An automatic update rule, not a default value. Folding it into `default` would produce a script MySQL refuses |
+| An `ENUM` or `SET` value list | The format has nowhere to keep one. The type name survives and the values are named in the warning |
+| The index InnoDB creates to back a foreign key | It arrives under the foreign key's own name, and a jjf document keeps constraint and index names in one namespace per table. The foreign key is what recreates it, so nothing is lost |
+| `DEFAULT NULL` on a nullable column | MySQL writes it for every nullable column it was not given a default for, and it says exactly what `nullable` already says. Dropped in silence, because a warning per column would bury the rest |
+
+How a type becomes a `type` plus `length` / `precision` / `scale` is in the format
+reference, for [PostgreSQL](db-design-format.md#postgresql-types-on-import) and for
+[MySQL](db-design-format.md#mysql-types-on-import).
 
 ## version
 

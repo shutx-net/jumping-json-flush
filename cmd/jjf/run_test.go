@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
+	"github.com/shutx-net/jumping-json-flush/internal/importer/postgres"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
 	"github.com/shutx-net/jumping-json-flush/internal/schema"
 )
@@ -1108,12 +1109,78 @@ func TestExportUsageListsEveryFormat(t *testing.T) {
 	}
 }
 
+// TestImportUsageListsEveryDialect keeps the help text and the dialect table
+// from drifting apart, exactly as its export counterpart above does. Adding an
+// entry to importDialects() and regenerating the goldens is meant to be the
+// whole of advertising a third dialect.
+func TestImportUsageListsEveryDialect(t *testing.T) {
+	usage := importUsage()
+	for _, d := range importDialects() {
+		if !strings.Contains(usage, d.name) {
+			t.Errorf("the import usage does not name the dialect %q:\n%s", d.name, usage)
+		}
+		if !strings.Contains(usage, d.summary) {
+			t.Errorf("the import usage does not carry the summary %q:\n%s", d.summary, usage)
+		}
+	}
+}
+
+// TestEveryImportDialectIsFullyPopulated and TestImportDialectNamesAreDistinct
+// pin the shape of the table itself, the way TestOnlyDDLRefusesFindings pins
+// the export table's: an entry missing its summary would print a blank line in
+// the help, and one missing its imports function would panic at the moment a
+// user typed its name.
+func TestEveryImportDialectIsFullyPopulated(t *testing.T) {
+	for _, d := range importDialects() {
+		if d.name == "" {
+			t.Error("an import dialect has no name")
+		}
+		if d.summary == "" {
+			t.Errorf("import dialect %q has no summary", d.name)
+		}
+		if d.imports == nil {
+			t.Errorf("import dialect %q has no imports function", d.name)
+		}
+	}
+}
+
+func TestImportDialectNamesAreDistinct(t *testing.T) {
+	seen := map[string]bool{}
+	for _, d := range importDialects() {
+		if seen[d.name] {
+			t.Errorf("import dialect %q appears twice; lookupImportDialect would never reach the second", d.name)
+		}
+		seen[d.name] = true
+	}
+}
+
+// TestOnlyPostgresUsesTheSchemaFlag holds the -schema exception to one dialect.
+// The flag has to be registered for all of them, because flags.go permutes
+// flags and operands and so the dialect is not known until parsing is done; the
+// table is what decides which of them may act on it.
+func TestOnlyPostgresUsesTheSchemaFlag(t *testing.T) {
+	for _, d := range importDialects() {
+		if d.schemaFlag != (d.name == "postgres") {
+			t.Errorf("dialect %q has schemaFlag = %v; only postgres has a schema to choose", d.name, d.schemaFlag)
+		}
+	}
+}
+
 // TestRootUsageListsEveryExportFormat guards the one hand-written list of
 // formats, which the root usage keeps as a literal.
 func TestRootUsageListsEveryExportFormat(t *testing.T) {
 	for _, f := range exportFormats() {
 		if !strings.Contains(rootUsage, f.name) {
 			t.Errorf("the root usage does not name the export format %q:\n%s", f.name, rootUsage)
+		}
+	}
+}
+
+// TestRootUsageListsEveryImportDialect guards the other hand-written list.
+func TestRootUsageListsEveryImportDialect(t *testing.T) {
+	for _, d := range importDialects() {
+		if !strings.Contains(rootUsage, d.name) {
+			t.Errorf("the root usage does not name the import dialect %q:\n%s", d.name, rootUsage)
 		}
 	}
 }
@@ -1146,7 +1213,7 @@ func TestGoldenOutput(t *testing.T) {
 		},
 		{
 			golden: "import_unsupported_dialect.txt",
-			args:   []string{"import", "mysql", "testdata/postgres/schema.sql"},
+			args:   []string{"import", "oracle", "testdata/postgres/schema.sql"},
 			stream: func(_, stderr *bytes.Buffer) string { return stderr.String() },
 		},
 		{
@@ -1227,8 +1294,13 @@ func TestExitCodeOfRealProcess(t *testing.T) {
 	}
 }
 
-// pgFixture names one of the hand-written dumps under testdata/postgres.
+// pgFixture names one of the dumps under testdata/postgres.
 func pgFixture(name string) string { return filepath.Join("testdata", "postgres", name) }
+
+// myFixture names one of the dumps under testdata/mysql. Every one of them but
+// broken.sql is real "mysqldump --no-data" output, and broken.sql says in its
+// own header that it is not.
+func myFixture(name string) string { return filepath.Join("testdata", "mysql", name) }
 
 // importedDocument reads a generated document back and asserts that it is one
 // jjf itself accepts. Nothing the importer writes may fail "jjf validate".
@@ -1313,9 +1385,9 @@ func TestRunImport(t *testing.T) {
 		},
 		{
 			name:       "unsupported dialect",
-			args:       []string{"import", "mysql", pgFixture("schema.sql")},
+			args:       []string{"import", "oracle", pgFixture("schema.sql")},
 			wantCode:   2,
-			wantStderr: `unsupported dialect "mysql"`,
+			wantStderr: `unsupported dialect "oracle"`,
 		},
 		{
 			name:       "no operands",
@@ -1500,6 +1572,228 @@ func TestRunImportStrict(t *testing.T) {
 				t.Errorf("a strict run wrote an output file anyway: %v", err)
 			}
 		})
+	}
+}
+
+// TestRunImportMySQL is TestRunImport's second dialect. The cases that differ
+// between the two are the ones here; the ones that do not - a missing file, a
+// bad flag, the wrong number of operands - are dialect-independent and are
+// covered once, above.
+func TestRunImportMySQL(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantCode   int
+		wantStdout string // substring
+		wantStderr string // substring
+	}{
+		{
+			name:       "a dump with nothing to warn about",
+			args:       []string{"import", "mysql", myFixture("schema.sql"), "-o", filepath.Join(dir, "ok.json")},
+			wantCode:   0,
+			wantStdout: "ok.json: written",
+		},
+		{
+			name:       "structurally broken sql",
+			args:       []string{"import", "mysql", myFixture("broken.sql"), "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: "line 18",
+		},
+		{
+			name:       "a dump holding a view and a routine and no table",
+			args:       []string{"import", "mysql", myFixture("no_tables.sql"), "-o", filepath.Join(dir, "x.json")},
+			wantCode:   2,
+			wantStderr: "no tables found in the dump",
+		},
+		{
+			name:       "the database name can be given",
+			args:       []string{"import", "mysql", myFixture("schema.sql"), "-database", "storefront", "-o", filepath.Join(dir, "named.json")},
+			wantCode:   0,
+			wantStdout: "named.json: written",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(tt.args, &stdout, &stderr)
+			if code != tt.wantCode {
+				t.Errorf("run = %d, want %d\nstdout: %s\nstderr: %s", code, tt.wantCode, &stdout, &stderr)
+			}
+			if tt.wantStdout != "" && !strings.Contains(stdout.String(), tt.wantStdout) {
+				t.Errorf("stdout = %q, want it to contain %q", &stdout, tt.wantStdout)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Errorf("stderr = %q, want it to contain %q", &stderr, tt.wantStderr)
+			}
+		})
+	}
+
+	// The document a successful run wrote has to be one jjf itself accepts.
+	importedDocument(t, filepath.Join(dir, "ok.json"))
+
+	// Nothing above that failed may have left a file behind.
+	if _, err := os.Stat(filepath.Join(dir, "x.json")); !os.IsNotExist(err) {
+		t.Errorf("a failed import left an output file behind: %v", err)
+	}
+}
+
+// TestRunImportMySQLKeepsItsJapaneseText is a trap this repository has already
+// fallen into once and must not fall into again: a mysqldump taken over a
+// connection that defaulted to latin1 encodes every Japanese comment twice, and
+// the result still round-trips, so no round-trip test catches it. The committed
+// dumps are taken with --default-character-set=utf8mb4 for that reason, and
+// this is what says so out loud.
+func TestRunImportMySQLKeepsItsJapaneseText(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"import", "mysql", myFixture("schema.sql"), "-o", "-"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	for _, want := range []string{"ユーザー", "メールアドレス", "注文"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("the generated document does not contain %q; the dump may have been captured as mojibake", want)
+		}
+	}
+}
+
+func TestRunImportMySQLToStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"import", "mysql", myFixture("schema.sql"), "-o", "-"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want it empty", &stderr)
+	}
+	assertValidDocument(t, "standard output", stdout.Bytes())
+}
+
+// TestRunImportMySQLAndTheSchemaFlag asserts BOTH directions, because the
+// mechanism is FlagSet.Visit and only a test of both would notice a later
+// change that gave -schema a different default. Refused when it was set,
+// accepted when it was left alone.
+func TestRunImportMySQLAndTheSchemaFlag(t *testing.T) {
+	t.Run("explicitly set is an error", func(t *testing.T) {
+		dir := t.TempDir()
+		out := filepath.Join(dir, "out.json")
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"import", "mysql", myFixture("schema.sql"), "-schema", "public", "-o", out}, &stdout, &stderr); code != 2 {
+			t.Fatalf("run = %d, want 2\nstderr: %s", code, &stderr)
+		}
+		if want := "a mysql dump holds one database"; !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr = %q, want it to contain %q", &stderr, want)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Errorf("a refused import wrote an output file anyway: %v", err)
+		}
+	})
+
+	// Even the flag's own default value, passed explicitly, is refused: what is
+	// wrong is asking for a schema at all, not asking for the wrong one.
+	t.Run("the same value the default holds is still an error", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"import", "mysql", myFixture("schema.sql"), "-schema", postgres.DefaultSchema, "-o", "-"}, &stdout, &stderr); code != 2 {
+			t.Errorf("run = %d, want 2\nstderr: %s", code, &stderr)
+		}
+	})
+
+	t.Run("left alone it is ignored", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"import", "mysql", myFixture("schema.sql"), "-o", "-"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+		assertValidDocument(t, "standard output", stdout.Bytes())
+	})
+
+	// postgres keeps the flag, which is the other half of the claim.
+	t.Run("postgres still takes it", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		if code := run([]string{"import", "postgres", pgFixture("schema.sql"), "-schema", "public", "-o", "-"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
+		}
+	})
+}
+
+// TestRunImportMySQLStrict mirrors TestRunImportStrict for the second dialect:
+// the warnings are printed either way, and -strict changes what happens next
+// rather than what the user is told.
+func TestRunImportMySQLStrict(t *testing.T) {
+	const wantWarnings = 3
+
+	tests := []struct {
+		name      string
+		strict    bool
+		wantCode  int
+		wantWrite bool
+	}{
+		{name: "warnings are not fatal by default", wantCode: 0, wantWrite: true},
+		{name: "strict turns warnings into a failure", strict: true, wantCode: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out.json")
+			args := []string{"import", "mysql", myFixture("warnings.sql"), "-o", out}
+			if tt.strict {
+				args = append(args, "-strict")
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != tt.wantCode {
+				t.Fatalf("run = %d, want %d\nstderr: %s", code, tt.wantCode, &stderr)
+			}
+			if got := strings.Count(stderr.String(), ": warning: "); got != wantWarnings {
+				t.Errorf("warnings on stderr = %d, want %d\nstderr: %s", got, wantWarnings, &stderr)
+			}
+			if !strings.Contains(stderr.String(), "warnings.sql:29: warning: ") {
+				t.Errorf("stderr = %q, want a warning naming line 29", &stderr)
+			}
+
+			_, err := os.Stat(out)
+			if tt.wantWrite {
+				if err != nil {
+					t.Fatalf("output file: %v", err)
+				}
+				importedDocument(t, out)
+				return
+			}
+			if !os.IsNotExist(err) {
+				t.Errorf("a strict run wrote an output file anyway: %v", err)
+			}
+		})
+	}
+}
+
+// TestRunImportMySQLThenValidateAndExport walks the whole journey for a MySQL
+// document, and the last step is the one that matters: the DDL exporter has to
+// accept what the importer just wrote. A document jjf produced and jjf then
+// refused would be the worst outcome the pair could have.
+func TestRunImportMySQLThenValidateAndExport(t *testing.T) {
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "db-design.json")
+	book := filepath.Join(dir, "db-design.xlsx")
+	script := filepath.Join(dir, "db-design.sql")
+
+	steps := []struct {
+		name string
+		args []string
+	}{
+		{name: "import", args: []string{"import", "mysql", myFixture("schema.sql"), "-o", doc}},
+		{name: "validate", args: []string{"validate", doc, "-strict"}},
+		{name: "export", args: []string{"export", "xlsx", doc, "-o", book}},
+		{name: "export ddl", args: []string{"export", "ddl", doc, "-o", script}},
+	}
+	for _, step := range steps {
+		var stdout, stderr bytes.Buffer
+		if code := run(step.args, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s = %d, want 0\nstderr: %s", step.name, code, &stderr)
+		}
+	}
+	readWorkbook(t, book)
+	scriptBytes := readDDLScript(t, script)
+	if !bytes.Contains(scriptBytes, []byte("CREATE TABLE `orders`")) {
+		t.Errorf("the exported script is not MySQL DDL:\n%s", scriptBytes)
 	}
 }
 

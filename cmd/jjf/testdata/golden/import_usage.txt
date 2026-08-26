@@ -1,16 +1,19 @@
-Convert a PostgreSQL schema dump into a jjf database design document.
-The input is the output of "pg_dump --schema-only". The generated document is
-validated against the jjf database design schema before it is written, so a
-document that would fail "jjf validate" is never produced.
+Convert a database schema dump into a jjf database design document. The
+generated document is validated against the jjf database design schema before
+it is written, so a document that would fail "jjf validate" is never produced.
 
 Usage:
   jjf import <dialect> <input.sql> [-o <output>]
 
 Dialects:
   postgres  PostgreSQL, from pg_dump --schema-only
+  mysql     MySQL, from mysqldump --no-data
 
 Without -o the output goes next to the input, with its extension replaced by
 ".json". "-o -" writes to standard output.
+
+-schema belongs to postgres alone and is an error for any other dialect: a
+MySQL schema IS a database, so there is no second level to choose.
 
 Statements jjf does not map are skipped in silence. A statement it does map but
 that carries a clause the design format cannot hold is reported as a warning on
