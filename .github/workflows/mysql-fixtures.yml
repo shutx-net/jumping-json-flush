@@ -19,17 +19,33 @@ name: MySQL fixtures
 # a PostgreSQL run through a shared concurrency group.
 #
 # What it cannot do is compare the regenerated files with the committed ones byte
-# for byte. Two lines of a mysqldump move with the server, and only with it:
+# for byte. Three lines of a mysqldump describe the circumstances of the dump
+# rather than the schema in it:
 #
 #   -- MySQL dump 10.13  Distrib 8.0.46, for Linux (x86_64)
+#   -- Host: localhost    Database: ecshop
 #   -- Server version    8.0.46-0ubuntu0.24.04.3
 #
-# The first is the dumping client's build and the second the server's, and a
-# patch release changes both. --skip-dump-date, which generate.sh already
-# passes, removes the one line that would otherwise differ on every single run.
-# So those two are ignored here the way pg-fixtures.yml ignores its four, and
-# everything below them is the schema: a change there means mysqldump has
-# started writing something different for the same input.
+# The first is the dumping client's build and the third the server's, and a
+# patch release changes both. The second is how the dump was TAKEN: mysqldump
+# writes "localhost" for a unix socket and the address for a TCP connection, so
+# a capture made against a distribution package - whose root account normally
+# authenticates through the socket - and one made against the container this job
+# starts disagree on that line and on nothing else. The database name it also
+# carries is not lost by ignoring it: the import comparison below holds the
+# whole document, that name included.
+#
+# --skip-dump-date, which generate.sh already passes, removes the one line that
+# would otherwise differ on every single run. So those three are ignored here
+# the way pg-fixtures.yml ignores its four, and everything below them is the
+# schema: a change there means mysqldump has started writing something different
+# for the same input.
+#
+# All three have to be named even though one of them alone would seem to do,
+# because git diff -I drops a HUNK only when every changed line in it matches an
+# ignore pattern. The Host and Server version lines are four apart and land in
+# one hunk, so leaving Host out kept the whole hunk - and made the report blame
+# the version line, which was ignored and innocent.
 #
 # THE COMMITTED CAPTURES AND THIS JOB DO NOT COME FROM THE SAME BUILD. The
 # mysql8.0 fixtures were taken with Ubuntu's mysql-server package and this job
@@ -363,14 +379,17 @@ jobs:
 
       - name: the dump text, ignoring what cannot be stable
         if: ${{ !cancelled() && steps.regenerate.outcome == 'success' }}
-        # Two lines of a mysqldump move with the server and only with it: the
-        # "MySQL dump ... Distrib" banner, which is the dumping client's build,
-        # and "-- Server version", which is the server's. Everything else is the
-        # schema, and a change there means mysqldump has started writing
-        # something different for the same input. That is news even when the
-        # imported document survived it, which is why this is a gate of its own
-        # and not part of the step above: the documents can agree while the
-        # fixture has gone stale.
+        # Three lines of a mysqldump describe the dump rather than the schema:
+        # the "MySQL dump ... Distrib" banner, which is the dumping client's
+        # build; "-- Server version", which is the server's; and "-- Host: ",
+        # which is how the dump was taken - "localhost" through a unix socket,
+        # the address over TCP. The header of this file argues all three, and
+        # why all three must be named rather than only the ones that look
+        # unstable. Everything else is the schema, and a change there means
+        # mysqldump has started writing something different for the same input.
+        # That is news even when the imported document survived it, which is why
+        # this is a gate of its own and not part of the step above: the
+        # documents can agree while the fixture has gone stale.
         #
         # git diff -I takes a POSIX extended regular expression and wants git
         # 2.30 or newer.
@@ -378,6 +397,7 @@ jobs:
           if git diff --exit-code \
                -I '^-- MySQL dump [0-9.]+  Distrib ' \
                -I '^-- Server version' \
+               -I '^-- Host: ' \
                -- "internal/importer/mysql/testdata/dump/mysql${{ matrix.series }}"; then
             echo "ok  mysqldump ${{ matrix.series }} still writes the committed fixture"
             exit 0
@@ -432,6 +452,7 @@ jobs:
           if ! git diff --exit-code \
                  -I '^-- MySQL dump [0-9.]+  Distrib ' \
                  -I '^-- Server version' \
+                 -I '^-- Host: ' \
                  -- "$dumpdir" > "$work/dump.diff"; then
             emit "what mysqldump writes has changed" "$work/dump.diff"
           fi
