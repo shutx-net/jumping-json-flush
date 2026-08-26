@@ -580,7 +580,7 @@ func TestRunExportErrors(t *testing.T) {
 			name:       "unsupported format names every format",
 			args:       []string{"export", "markdown", "testdata/valid.json"},
 			wantCode:   2,
-			wantStderr: "supported formats: xlsx, dot, svg, ddl",
+			wantStderr: "supported formats: xlsx, svg, ddl",
 		},
 		{
 			// A format name that differs only in case is unknown, exactly as
@@ -589,15 +589,6 @@ func TestRunExportErrors(t *testing.T) {
 			args:       []string{"export", "XLSX", "testdata/valid.json"},
 			wantCode:   2,
 			wantStderr: `unsupported format "XLSX"`,
-		},
-		{
-			// Validation runs before rendering for every format, so the dot
-			// exporter is never reached and no file is written.
-			name:       "schema violation, dot",
-			args:       []string{"export", "dot", "testdata/schema_violation.json"},
-			useTempOut: true,
-			wantCode:   3,
-			wantStderr: "does not conform to the jjf database design schema",
 		},
 		{
 			name:       "no arguments",
@@ -728,173 +719,19 @@ func checkWorkbook(t *testing.T, b []byte) {
 }
 
 // ---------------------------------------------------------------------------
-// The dot format
-// ---------------------------------------------------------------------------
-
-// TestRunExportWritesDot covers the three positions -o may appear in, as the
-// workbook test does, and checks that the position cannot change the bytes.
-func TestRunExportWritesDot(t *testing.T) {
-	tests := []struct {
-		name string
-		args func(out string) []string
-	}{
-		{"flag after operands", func(out string) []string {
-			return []string{"export", "dot", "testdata/valid.json", "-o", out}
-		}},
-		{"flag before operands", func(out string) []string {
-			return []string{"export", "-o", out, "dot", "testdata/valid.json"}
-		}},
-		{"flag between operands", func(out string) []string {
-			return []string{"export", "dot", "-o", out, "testdata/valid.json"}
-		}},
-	}
-
-	var first []byte
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			out := filepath.Join(t.TempDir(), "out.dot")
-			var stdout, stderr bytes.Buffer
-
-			if code := run(tt.args(out), &stdout, &stderr); code != 0 {
-				t.Fatalf("run = %d, want 0\nstdout: %s\nstderr: %s", code, &stdout, &stderr)
-			}
-			if !strings.Contains(stdout.String(), out) {
-				t.Errorf("stdout = %q, want it to name %s", stdout.String(), out)
-			}
-			if stderr.Len() != 0 {
-				t.Errorf("stderr = %q, want empty", stderr.String())
-			}
-
-			got := readDotSource(t, out)
-			if first == nil {
-				first = got
-			} else if !bytes.Equal(first, got) {
-				t.Error("the same document exported to different bytes depending on flag position")
-			}
-		})
-	}
-}
-
-func TestRunExportDotDefaultsToTheInputPath(t *testing.T) {
-	dir := t.TempDir()
-	input := filepath.Join(dir, "db-design.json")
-	raw, err := os.ReadFile("testdata/valid.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(input, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"export", "dot", input}, &stdout, &stderr); code != 0 {
-		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
-	}
-	readDotSource(t, filepath.Join(dir, "db-design.dot"))
-}
-
-func TestRunExportDotToStdout(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"export", "dot", "testdata/valid.json", "-o", "-"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
-	}
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
-	}
-	checkDotSource(t, stdout.Bytes())
-}
-
-// TestRunExportDotAllowsATerminal is the mirror of
-// TestRunExportRefusesATerminal and is the case the format table's binary
-// field exists for: DOT is text, so writing it to a terminal garbles nothing
-// and is allowed, while a workbook to the same destination is refused.
-func TestRunExportDotAllowsATerminal(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("no /dev/null to stand in for a terminal")
-	}
-	dev, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("cannot open %s: %v", os.DevNull, err)
-	}
-	defer dev.Close()
-	if fi, err := dev.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
-		t.Skipf("%s is not a character device on this system", os.DevNull)
-	}
-
-	var stderr bytes.Buffer
-	if code := run([]string{"export", "dot", "testdata/valid.json", "-o", "-"}, dev, &stderr); code != 0 {
-		t.Errorf("run = %d, want 0\nstderr: %s", code, &stderr)
-	}
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty", stderr.String())
-	}
-}
-
-func TestRunExportDotIsDeterministic(t *testing.T) {
-	dir := t.TempDir()
-	var runs [2][]byte
-	for i := range runs {
-		out := filepath.Join(dir, fmt.Sprintf("run%d.dot", i))
-		var stdout, stderr bytes.Buffer
-		if code := run([]string{"export", "dot", "testdata/valid.json", "-o", out}, &stdout, &stderr); code != 0 {
-			t.Fatalf("run = %d, want 0\nstderr: %s", code, &stderr)
-		}
-		runs[i] = readDotSource(t, out)
-	}
-	if !bytes.Equal(runs[0], runs[1]) {
-		t.Errorf("two exports differ: %d vs %d bytes", len(runs[0]), len(runs[1]))
-	}
-}
-
-// readDotSource reads path and checks that it is DOT source.
-func readDotSource(t *testing.T, path string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	checkDotSource(t, b)
-	return b
-}
-
-// checkDotSource checks that b is the DOT source jjf writes. It is a shape
-// check, not a parse: graphviz is not a dependency of this project and no test
-// may need the dot binary to run.
-func checkDotSource(t *testing.T, b []byte) {
-	t.Helper()
-	if !utf8.Valid(b) {
-		t.Fatal("the output is not valid UTF-8")
-	}
-	src := string(b)
-	if !strings.HasPrefix(src, "// Generated by jjf") {
-		t.Errorf("the output does not open with the generated-by comment:\n%.80s", src)
-	}
-	var opened bool
-	for _, line := range strings.Split(src, "\n") {
-		if strings.HasPrefix(line, "digraph ") {
-			opened = true
-			break
-		}
-	}
-	if !opened {
-		t.Errorf("the output has no digraph statement:\n%s", src)
-	}
-	if !strings.HasSuffix(src, "}\n") {
-		t.Errorf("the output does not end with a closing brace and one newline: %q", src[max(0, len(src)-20):])
-	}
-}
-
-// ---------------------------------------------------------------------------
 // The svg format
 // ---------------------------------------------------------------------------
 
 // TestRunExportSVGAllowsATerminal is the mirror of
-// TestRunExportDotAllowsATerminal, and it is what makes the format table's
-// binary field mean something rather than describe one entry: svg is the
-// second format the field lets through, so a later change that generalised
-// the guard to "anything that is not xlsx" or narrowed it to "anything that
-// is a diagram" would have two tests to argue with instead of one. SVG is
-// text, so writing it to a terminal garbles nothing.
+// TestRunExportRefusesATerminal: SVG is text, so writing it to a terminal
+// garbles nothing, while a workbook to the same destination is refused.
+//
+// With TestRunExportDDLAllowsATerminal it is also what makes the format
+// table's binary field mean something rather than describe one entry. Two
+// formats the field lets through, and they are not alike - one is a picture
+// and one is a script - so a later change that generalised the guard to
+// "anything that is not xlsx" or narrowed it to "anything that is a diagram"
+// would have two tests to argue with instead of one.
 func TestRunExportSVGAllowsATerminal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no /dev/null to stand in for a terminal")
@@ -945,7 +782,7 @@ func readSVGDocument(t *testing.T, path string) []byte {
 }
 
 // checkSVGDocument checks that b is the SVG document jjf writes. It is a shape
-// check, not a parse, in the same spirit as checkDotSource: the exporter's own
+// check, not a parse, in the same spirit as checkDDLScript: the exporter's own
 // tests in internal/export/svg already read the bytes back with encoding/xml
 // and make ten statements about the geometry, so what is worth checking out
 // here is that the real binary wrote a whole file to the place it was asked to.
@@ -971,8 +808,7 @@ func checkSVGDocument(t *testing.T, b []byte) {
 // ---------------------------------------------------------------------------
 
 // TestRunExportWritesDDL covers the three positions -o may appear in, as the
-// workbook and the diagram do, and checks that the position cannot change the
-// bytes.
+// workbook does, and checks that the position cannot change the bytes.
 func TestRunExportWritesDDL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1046,7 +882,7 @@ func TestRunExportDDLToStdout(t *testing.T) {
 	checkDDLScript(t, stdout.Bytes())
 }
 
-// TestRunExportDDLAllowsATerminal mirrors TestRunExportDotAllowsATerminal:
+// TestRunExportDDLAllowsATerminal mirrors TestRunExportSVGAllowsATerminal:
 // SQL is text worth reading, so xlsx stays the only format the terminal guard
 // applies to.
 func TestRunExportDDLAllowsATerminal(t *testing.T) {
@@ -1109,20 +945,20 @@ func TestRunExportDDLRefusesAnInconsistentDocument(t *testing.T) {
 	}
 }
 
-// TestExportDotRendersWhatDDLRefuses is the asymmetry itself, on one fixture.
-// A document that contradicts itself still makes a useful diagram - the DOT
+// TestExportSVGRendersWhatDDLRefuses is the asymmetry itself, on one fixture.
+// A document that contradicts itself still makes a useful diagram - the SVG
 // exporter draws the missing foreign key target as a dashed stub - and makes no
 // useful SQL at all.
-func TestExportDotRendersWhatDDLRefuses(t *testing.T) {
+func TestExportSVGRendersWhatDDLRefuses(t *testing.T) {
 	dir := t.TempDir()
 	const input = "testdata/referential_warnings.json"
 
-	dotOut := filepath.Join(dir, "out.dot")
+	svgOut := filepath.Join(dir, "out.svg")
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"export", "dot", input, "-o", dotOut}, &stdout, &stderr); code != 0 {
-		t.Fatalf("export dot = %d, want 0\nstderr: %s", code, &stderr)
+	if code := run([]string{"export", "svg", input, "-o", svgOut}, &stdout, &stderr); code != 0 {
+		t.Fatalf("export svg = %d, want 0\nstderr: %s", code, &stderr)
 	}
-	readDotSource(t, dotOut)
+	readSVGDocument(t, svgOut)
 
 	ddlOut := filepath.Join(dir, "out.sql")
 	stdout.Reset()

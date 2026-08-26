@@ -11,7 +11,7 @@ Commands:
   validate <input.json>
         check a document against the jjf database design schema
   export <format> <input.json> -o <output>
-        generate a design document (formats: xlsx, dot, svg, ddl)
+        generate a design document (formats: xlsx, svg, ddl)
   version
         print version information
 

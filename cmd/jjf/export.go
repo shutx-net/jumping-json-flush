@@ -10,7 +10,6 @@ import (
 
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
 	"github.com/shutx-net/jumping-json-flush/internal/export/ddl"
-	"github.com/shutx-net/jumping-json-flush/internal/export/dot"
 	"github.com/shutx-net/jumping-json-flush/internal/export/svg"
 	"github.com/shutx-net/jumping-json-flush/internal/export/xlsx"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -38,8 +37,8 @@ be a terminal for a binary format such as xlsx.
 
 Only ddl refuses a document that contradicts itself. A document a database
 would reject makes no useful SQL, while it still makes a useful workbook and a
-useful diagram - so xlsx, dot and svg render it and "jjf validate" is where
-those contradictions are reported.
+useful diagram - so xlsx and svg render it and "jjf validate" is where those
+contradictions are reported.
 `
 
 // exportFormat is one format the export subcommand can produce.
@@ -52,12 +51,12 @@ type exportFormat struct {
 	summary string
 	// binary is true when the format's bytes must not be written to a
 	// terminal. The question is not "is this a zip" but "would this garble the
-	// screen": DOT is text, so it says false and may be written to a terminal,
+	// screen": SVG is text, so it says false and may be written to a terminal,
 	// exactly as the JSON of "jjf import" may.
 	binary bool
 	// accept reports why this format refuses doc, or nil when it accepts it.
-	// Only ddl sets it: see the entry below for why xlsx, dot and svg
-	// deliberately do not.
+	// Only ddl sets it: see the entry below for why xlsx and svg deliberately
+	// do not.
 	accept func(doc *model.Document) error
 	// render writes doc to w in this format.
 	render func(w io.Writer, doc *model.Document) error
@@ -79,19 +78,14 @@ func exportFormats() []exportFormat {
 				return xlsx.Export(w, doc, xlsx.DefaultOptions())
 			},
 		},
-		{
-			name: "dot", ext: ".dot", summary: "Graphviz DOT entity relationship diagram",
-			render: dot.Export,
-		},
-		// The second diagram format, and the second entry the terminal guard
-		// lets through: SVG is text, so the question the binary field asks -
-		// would this garble the screen - answers itself exactly as it does for
-		// DOT.
+		// The diagram format, and the first entry the terminal guard lets
+		// through: SVG is text, so the question the binary field asks - would
+		// this garble the screen - answers itself.
 		//
-		// It has no accept for the same reason dot has none; the ddl entry
-		// below spells that reason out. internal/export/svg draws a foreign key
-		// with no target as a dashed stub on purpose, so a document that
-		// contradicts itself is not something this format has to refuse.
+		// It has no accept, for the reason the ddl entry below spells out:
+		// internal/export/svg draws a foreign key with no target as a dashed
+		// stub on purpose, so a document that contradicts itself is not
+		// something this format has to refuse.
 		{
 			name: "svg", ext: ".svg", summary: "SVG entity relationship diagram",
 			render: svg.Export,
@@ -103,11 +97,11 @@ func exportFormats() []exportFormat {
 		// It is also the only entry with an accept, and that asymmetry is
 		// deliberate rather than an inconsistency to be tidied away. A
 		// document that contradicts itself still makes a useful workbook and
-		// a useful diagram - internal/export/dot and internal/export/svg both
-		// draw a foreign key with no target as a dashed stub on purpose and
-		// say in their own package comments that they report nothing, ever.
-		// DDL a database rejects is worth nothing at all, so this format alone
-		// refuses what the other three render.
+		// a useful diagram - internal/export/svg draws a foreign key with no
+		// target as a dashed stub on purpose and says in its own package
+		// comment that it reports nothing, ever. DDL a database rejects is
+		// worth nothing at all, so this format alone refuses what the other
+		// two render.
 		{
 			name: "ddl", ext: ".sql", summary: "PostgreSQL DDL script (.sql)",
 			accept: ddl.Accept, render: ddl.Export,
@@ -117,7 +111,7 @@ func exportFormats() []exportFormat {
 
 // lookupExportFormat finds the format called name.
 //
-// The comparison is exact: XLSX and Dot are unknown formats, just as MySQL is
+// The comparison is exact: XLSX and Svg are unknown formats, just as MySQL is
 // an unknown import dialect today. A slice walk rather than a map, because the
 // table is a handful of entries and its order is meaningful.
 func lookupExportFormat(name string) (exportFormat, bool) {
