@@ -169,8 +169,8 @@ const binaryName = "jjf"
 
 // allowedSubcommands are the subcommands the skill pre-approves: import, which
 // reads a dump and writes a document, validate, which reads, and export, which
-// writes a workbook, a Graphviz DOT file or a DDL script. The two that write
-// take the path from the user.
+// writes a workbook, an SVG diagram or a DDL script. The two that write take
+// the path from the user.
 var allowedSubcommands = []string{"import", "validate", "export"}
 
 func TestSkillFrontmatter(t *testing.T) {

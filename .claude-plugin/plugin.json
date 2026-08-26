@@ -3,7 +3,7 @@
   "name": "jjf",
   "displayName": "Jumpin' Json Flush",
   "version": "0.5.0",
-  "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL schema dump, draw it as an ER diagram in Graphviz DOT, and write it out as a PostgreSQL DDL script. Requires the jjf CLI on PATH.",
+  "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL schema dump, draw it as an SVG ER diagram, and write it out as a PostgreSQL DDL script. Requires the jjf CLI on PATH.",
   "author": {
     "name": "shutx-net",
     "url": "https://github.com/shutx-net"
@@ -21,7 +21,7 @@
     "postgresql",
     "pg-dump",
     "er-diagram",
-    "graphviz",
+    "svg",
     "ddl"
   ]
 }
