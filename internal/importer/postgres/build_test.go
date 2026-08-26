@@ -771,6 +771,67 @@ func importedSources() []struct{ name, src string } {
 			"  c timestamp(3) with time zone\n" +
 			") INHERITS (public.parent);\n" +
 			"CREATE INDEX t_a_idx ON public.t USING gin (a) WHERE (a IS NOT NULL);"},
+		{"inline column constraints", inlineConstraintSource},
+		{"tolerated column options", "CREATE TABLE public.t (\n" +
+			"  a text COLLATE pg_catalog.\"C\" NOT NULL,\n" +
+			"  b integer FUTURE_OPTION 7 DEFAULT 0,\n" +
+			"  c integer NULL\n);"},
+	}
+}
+
+// inlineConstraintSource writes every key on the column it belongs to, which is
+// what a hand-made file does and pg_dump never does. public.u is declared with
+// its own primary key first because a foreign key to a table with none is
+// dropped with a warning, and this source is here to be imported whole.
+const inlineConstraintSource = `CREATE TABLE public.u (id integer NOT NULL, CONSTRAINT u_pk PRIMARY KEY (id));
+CREATE TABLE public.t (
+  id integer CONSTRAINT t_pk PRIMARY KEY,
+  code text CONSTRAINT t_code_uq UNIQUE,
+  owner integer CONSTRAINT t_owner_fk REFERENCES public.u(id) ON DELETE CASCADE
+);`
+
+// TestInlineConstraintsReachTheDocument is the second half of the argument that
+// stmt_test.go's TestInlineColumnConstraintsBecomeTableConstraints opens. That
+// test proves the constraints were built; this one proves they survived
+// resolution and reached the document, which is where a reader of the xlsx or
+// the DDL would notice them missing - and where nothing would be printed if they
+// were.
+//
+// The nullability assertion is the one that is not a restatement of the input:
+// the column definition never said NOT NULL, and the column comes out not
+// nullable anyway, because a primary key forces its own columns.
+func TestInlineConstraintsReachTheDocument(t *testing.T) {
+	doc, warnings := mustImport(t, inlineConstraintSource)
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", warnings)
+	}
+	if len(doc.Tables) != 2 {
+		t.Fatalf("tables got = %v, want 2", len(doc.Tables))
+	}
+	table := doc.Tables[1]
+	if table.Name != "t" {
+		t.Fatalf("second table got = %q, want %q", table.Name, "t")
+	}
+
+	wantPK := &model.PrimaryKey{Name: "t_pk", Columns: []string{"id"}}
+	if !reflect.DeepEqual(table.PrimaryKey, wantPK) {
+		t.Errorf("primary key got = %v, want %v", table.PrimaryKey, wantPK)
+	}
+	wantUQ := []model.UniqueKey{{Name: "t_code_uq", Columns: []string{"code"}}}
+	if !reflect.DeepEqual(table.UniqueKeys, wantUQ) {
+		t.Errorf("unique keys got = %v, want %v", table.UniqueKeys, wantUQ)
+	}
+	wantFK := []model.ForeignKey{{
+		Name:       "t_owner_fk",
+		Columns:    []string{"owner"},
+		References: model.Reference{Table: "u", Columns: []string{"id"}},
+		OnDelete:   model.ActionCascade,
+	}}
+	if !reflect.DeepEqual(table.ForeignKeys, wantFK) {
+		t.Errorf("foreign keys got = %v, want %v", table.ForeignKeys, wantFK)
+	}
+	if table.Columns[0].Nullable {
+		t.Error("id nullable got = true, want false: a primary key forces its columns not null")
 	}
 }
 
