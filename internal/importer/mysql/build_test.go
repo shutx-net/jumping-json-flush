@@ -2,10 +2,12 @@ package mysql
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/shutx-net/jumping-json-flush/internal/model"
+	"github.com/shutx-net/jumping-json-flush/internal/schema"
 )
 
 // testOptions are the options every test here imports with: the defaults plus a
@@ -335,6 +337,25 @@ func TestIdentifierThatCannotBeRepresentedStopsTheImport(t *testing.T) {
 			name:    "a name that starts with a digit",
 			src:     "CREATE TABLE `2024_sales` (`a` int NOT NULL);\n",
 			wantMsg: `table name "2024_sales" cannot be represented`,
+		},
+		{
+			// The schema's length limit, which the rows above do not reach.
+			// MySQL allows 64 characters, so this arrives from a hand-written
+			// file rather than a server - but the limit is quoted in the
+			// message, and one that nothing tests can drift away from the
+			// schema it claims to implement.
+			name:    "an over-long table name",
+			src:     "CREATE TABLE `" + strings.Repeat("a", maxIdentifierLength+1) + "` (`a` int NOT NULL);\n",
+			wantMsg: "cannot be represented",
+		},
+		{
+			// A type whose name the format cannot hold stops the import in the
+			// same way a column name does. The three messages this reaches are
+			// tested at the type layer with nothing showing that one of them
+			// reaches a user through Import.
+			name:    "a type name",
+			src:     "CREATE TABLE `t` (`a` `my-type` NOT NULL);\n",
+			wantMsg: "cannot be written to a design document",
 		},
 	}
 
@@ -744,5 +765,430 @@ func TestSupportedMajorsReadsAsASentence(t *testing.T) {
 	}
 	if !strings.Contains(got, " to ") {
 		t.Errorf("supportedMajors got = %q, want a range", got)
+	}
+}
+
+// resolvableTarget is a usable target for the failing foreign keys below: a
+// table that exists and carries a primary key. Every case in this group has to
+// fail for the ONE reason it names, and applyForeignKey's guards shadow each
+// other - an unresolvable local column returns before the target is looked at
+// all - so a case whose fixture tripped an earlier guard would pass while
+// proving something else entirely.
+const resolvableTarget = "CREATE TABLE `u` (\n" +
+	"  `c` int NOT NULL,\n" +
+	"  `d` int NOT NULL,\n" +
+	"  PRIMARY KEY (`c`)\n" +
+	");\n"
+
+// mismatchedForeignKey names two columns and references one.
+const mismatchedForeignKey = resolvableTarget +
+	"CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL,\n" +
+	"  `b` int NOT NULL,\n" +
+	"  KEY `ix` (`b`),\n" +
+	"  CONSTRAINT `t_fk` FOREIGN KEY (`a`,`b`) REFERENCES `u` (`c`)\n" +
+	");"
+
+// TestAForeignKeyWhoseColumnCountsDisagree covers the one guard in either
+// importer that has no counterpart on the other side, and it is the only thing
+// standing between a self-contradictory foreign key and a document that looks
+// fine.
+//
+// The JSON Schema constrains a foreign key's `columns` and its
+// `references.columns` separately and never relates the two lengths, so a key
+// naming two columns and referencing one would VALIDATE. It would then draw a
+// line in the ER diagram between column sets of different sizes and generate
+// DDL no database accepts. internal/check relates the two, but only for a
+// document that already exists - it says nothing about what an importer may
+// build. So this guard is the whole defence, and nothing had ever run it.
+func TestAForeignKeyWhoseColumnCountsDisagree(t *testing.T) {
+	doc, warnings := mustImport(t, mismatchedForeignKey)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+	}
+	want := "table t: foreign key t_fk names 2 column(s) but references 1; not imported"
+	if got := warnings[0].Message; got != want {
+		t.Errorf("warning got = %q, want %q", got, want)
+	}
+	tbl := table(t, doc, "t")
+	if len(tbl.ForeignKeys) != 0 {
+		t.Errorf("foreign keys got = %+v, want none", tbl.ForeignKeys)
+	}
+	// The neighbours: the table keeps both columns and the index declared
+	// beside the dropped key.
+	if len(tbl.Columns) != 2 {
+		t.Errorf("columns got = %+v, want 2", tbl.Columns)
+	}
+	if len(tbl.Indexes) != 1 || tbl.Indexes[0].Name != "ix" {
+		t.Errorf("indexes got = %+v, want ix", tbl.Indexes)
+	}
+}
+
+// noPrimaryKeyTarget references a table that has no primary key to resolve
+// against.
+const noPrimaryKeyTarget = "CREATE TABLE `u` (\n" +
+	"  `c` int NOT NULL\n" +
+	");\n" +
+	"CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL,\n" +
+	"  UNIQUE KEY `uq` (`a`),\n" +
+	"  CONSTRAINT `t_fk` FOREIGN KEY (`a`) REFERENCES `u`\n" +
+	");"
+
+// TestAForeignKeyWithNoColumnListAgainstATargetWithNoPrimaryKey is the failing
+// half of TestForeignKeyWithNoColumnListResolvesAgainstThePrimaryKey. REFERENCES
+// with no column list means "the primary key of that table", and when there is
+// none there is nothing to write down - guessing a column would state a
+// relationship the dump never claimed.
+func TestAForeignKeyWithNoColumnListAgainstATargetWithNoPrimaryKey(t *testing.T) {
+	doc, warnings := mustImport(t, noPrimaryKeyTarget)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+	}
+	want := "table t: foreign key t_fk omits the referenced columns and u has no primary key; not imported"
+	if got := warnings[0].Message; got != want {
+		t.Errorf("warning got = %q, want %q", got, want)
+	}
+	tbl := table(t, doc, "t")
+	if len(tbl.ForeignKeys) != 0 {
+		t.Errorf("foreign keys got = %+v, want none", tbl.ForeignKeys)
+	}
+	if len(tbl.UniqueKeys) != 1 {
+		t.Errorf("unique keys got = %+v, want the one declared beside the dropped key", tbl.UniqueKeys)
+	}
+	if table(t, doc, "u") == nil {
+		t.Error("table u is missing")
+	}
+}
+
+// TestForeignKeysThatCannotBeResolved is the same table as the PostgreSQL
+// package's test of the same name. The two resolvers are separate files
+// implementing one rule, and keeping the tests the same shape is what lets a
+// reviewer diff them.
+func TestForeignKeysThatCannotBeResolved(t *testing.T) {
+	tests := []struct {
+		name        string
+		constraint  string
+		wantMessage string
+	}{
+		{
+			// This row and the next reach one guard: resolvable answers no for
+			// two different reasons and the message cannot tell them apart.
+			// Both are kept because a change that stopped catching repeats
+			// would still pass the first.
+			name:        "a local column the table does not have",
+			constraint:  "FOREIGN KEY (`nosuch`) REFERENCES `u` (`c`)",
+			wantMessage: `table t: foreign key t_fk names unknown or repeated column "nosuch"; not imported`,
+		},
+		{
+			name:        "the same local column twice",
+			constraint:  "FOREIGN KEY (`a`,`a`) REFERENCES `u` (`c`,`d`)",
+			wantMessage: `table t: foreign key t_fk names unknown or repeated column "a"; not imported`,
+		},
+		{
+			name:        "a referenced column the target does not have",
+			constraint:  "FOREIGN KEY (`a`) REFERENCES `u` (`nosuch`)",
+			wantMessage: `table t: foreign key t_fk references unknown or repeated column u."nosuch"; not imported`,
+		},
+		{
+			name:        "the same referenced column twice",
+			constraint:  "FOREIGN KEY (`a`,`b`) REFERENCES `u` (`c`,`c`)",
+			wantMessage: `table t: foreign key t_fk references unknown or repeated column u."c"; not imported`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, warnings := mustImport(t, resolvableTarget+
+				"CREATE TABLE `t` (\n"+
+				"  `a` int NOT NULL,\n"+
+				"  `b` int NOT NULL,\n"+
+				"  UNIQUE KEY `uq` (`b`),\n"+
+				"  CONSTRAINT `t_fk` "+tt.constraint+"\n"+
+				");")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+			}
+			if got := warnings[0].Message; got != tt.wantMessage {
+				t.Errorf("warning got = %q, want %q", got, tt.wantMessage)
+			}
+			tbl := table(t, doc, "t")
+			if len(tbl.ForeignKeys) != 0 {
+				t.Errorf("foreign keys got = %+v, want none", tbl.ForeignKeys)
+			}
+			// The neighbour, declared in the same element list: each failure
+			// returns from applyForeignKey alone, and a change that returned one
+			// frame higher would take this unique key with it in silence.
+			if len(tbl.UniqueKeys) != 1 || tbl.UniqueKeys[0].Name != "uq" {
+				t.Errorf("unique keys got = %+v, want uq", tbl.UniqueKeys)
+			}
+		})
+	}
+}
+
+// twoPrimaryKeys states a primary key twice, which MySQL rejects and a file
+// assembled by hand does not.
+const twoPrimaryKeys = "CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL,\n" +
+	"  `b` int NOT NULL,\n" +
+	"  PRIMARY KEY (`a`),\n" +
+	"  PRIMARY KEY (`b`)\n" +
+	");"
+
+// TestASecondPrimaryKeyIsNotImported asserts which key survived, not merely
+// that one did. The message says which key was dropped and not which was kept,
+// so the tie-break - the first one wins - is decided in the code and stated
+// nowhere else, and it decides what the document says about the table.
+func TestASecondPrimaryKeyIsNotImported(t *testing.T) {
+	doc, warnings := mustImport(t, twoPrimaryKeys)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+	}
+	if want := "table t: a second primary key is not imported"; warnings[0].Message != want {
+		t.Errorf("warning got = %q, want %q", warnings[0].Message, want)
+	}
+	if warnings[0].Line != 5 {
+		t.Errorf("warning line got = %v, want 5", warnings[0].Line)
+	}
+	tbl := table(t, doc, "t")
+	if tbl.PrimaryKey == nil || !slices.Equal(tbl.PrimaryKey.Columns, []string{"a"}) {
+		t.Fatalf("primary key got = %+v, want the first one, over a", tbl.PrimaryKey)
+	}
+	// b is not null because its own definition said so, not because of the key
+	// that was dropped - which is what makes the two facts distinguishable here.
+	if column(t, tbl, "b").Nullable {
+		t.Error("column b nullable got = true, want false")
+	}
+}
+
+// TestAKeyNamingAColumnTheTableDoesNotHave covers the guard both key kinds share.
+func TestAKeyNamingAColumnTheTableDoesNotHave(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		wantMessage string
+	}{
+		{
+			name:        "a primary key over an unknown column",
+			key:         "PRIMARY KEY (`nosuch`)",
+			wantMessage: `table t: primary key names unknown or repeated column "nosuch"; not imported`,
+		},
+		{
+			name:        "a unique key over an unknown column",
+			key:         "UNIQUE KEY `uq` (`nosuch`)",
+			wantMessage: `table t: unique key names unknown or repeated column "nosuch"; not imported`,
+		},
+		{
+			name:        "a primary key naming one column twice",
+			key:         "PRIMARY KEY (`a`,`a`)",
+			wantMessage: `table t: primary key names unknown or repeated column "a"; not imported`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, warnings := mustImport(t, "CREATE TABLE `t` (\n"+
+				"  `a` int NOT NULL,\n"+
+				"  `b` int NOT NULL,\n"+
+				"  "+tt.key+",\n"+
+				"  KEY `ix` (`b`)\n"+
+				");")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+			}
+			if got := warnings[0].Message; got != tt.wantMessage {
+				t.Errorf("warning got = %q, want %q", got, tt.wantMessage)
+			}
+			tbl := table(t, doc, "t")
+			if tbl.PrimaryKey != nil || len(tbl.UniqueKeys) != 0 {
+				t.Errorf("keys got = %+v / %+v, want none", tbl.PrimaryKey, tbl.UniqueKeys)
+			}
+			if len(tbl.Indexes) != 1 || tbl.Indexes[0].Name != "ix" {
+				t.Errorf("indexes got = %+v, want ix", tbl.Indexes)
+			}
+		})
+	}
+}
+
+// tableWithNoColumns declares an empty table beside a real one. Two tables are
+// needed rather than one: a dump in which no table survives is an error rather
+// than a warning, so a lone empty table would exercise a different decision.
+//
+// MySQL rejects a table with no columns, so mysqldump cannot emit this; the
+// parser tolerates it on purpose, and this is what the resolver then does with
+// it.
+const tableWithNoColumns = "CREATE TABLE `empty` (\n" +
+	");\n" +
+	"CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL,\n" +
+	"  PRIMARY KEY (`a`)\n" +
+	");\n" +
+	"ALTER TABLE `empty` ADD PRIMARY KEY (`a`);\n" +
+	"ALTER TABLE `empty` ADD CONSTRAINT `empty_fk` FOREIGN KEY (`a`) REFERENCES `t` (`a`);\n" +
+	"ALTER TABLE `empty` ADD KEY `empty_ix` (`a`);"
+
+// TestATableWithNoColumnsIsReportedAndSkipped also states what the importer
+// says about the statements that follow the table it skipped. It says nothing:
+// the table has been reported once, and repeating the complaint for each of its
+// keys and indexes would bury the line that matters under lines that add none.
+// The single-warning assertion is where that decision is written down.
+func TestATableWithNoColumnsIsReportedAndSkipped(t *testing.T) {
+	doc, warnings := mustImport(t, tableWithNoColumns)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings got =%s, want exactly 1", showWarnings(warnings))
+	}
+	if want := "table empty has no columns; not imported"; warnings[0].Message != want {
+		t.Errorf("warning got = %q, want %q", warnings[0].Message, want)
+	}
+	if warnings[0].Line != 1 {
+		t.Errorf("warning line got = %v, want 1", warnings[0].Line)
+	}
+	if len(doc.Tables) != 1 || doc.Tables[0].Name != "t" {
+		t.Fatalf("tables got = %+v, want only t", doc.Tables)
+	}
+}
+
+// indexesThatCannotBeImported declares three indexes that cannot reach the
+// document and, deliberately last, one that can.
+//
+// The unnamed KEY is the one that needs explaining to anyone who knows MySQL:
+// the server names an unnamed key after its first column before the table is
+// ever dumped, so mysqldump cannot write one. It arrives from a hand-written
+// file, and the document has nowhere to put it because the schema requires an
+// index name.
+const indexesThatCannotBeImported = "CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL,\n" +
+	"  `b` int NOT NULL,\n" +
+	"  KEY (`a`),\n" +
+	"  KEY `ix_x` (`nosuch`),\n" +
+	"  KEY `ix_y` (`a`,`a`),\n" +
+	"  KEY `ix_ab` (`a`,`b`)\n" +
+	");"
+
+// TestIndexesThatCannotBeImportedAreReportedOneByOne asserts three warnings in
+// source order and then the thing the warnings do not say: the good index
+// declared after all of them arrived. applyIndexes continues past each failure,
+// and a change turning one of those continues into a return would drop every
+// index after the first bad one without a word.
+func TestIndexesThatCannotBeImportedAreReportedOneByOne(t *testing.T) {
+	doc, warnings := mustImport(t, indexesThatCannotBeImported)
+	want := []string{
+		"line 4: table t: an index without a name cannot be imported",
+		`line 5: table t: index ix_x names unknown or repeated column "nosuch"; not imported`,
+		`line 6: table t: index ix_y names unknown or repeated column "a"; not imported`,
+	}
+	if got := messages(warnings); !slices.Equal(got, want) {
+		t.Fatalf("warnings got = %v, want %v", got, want)
+	}
+	tbl := table(t, doc, "t")
+	if len(tbl.Indexes) != 1 || tbl.Indexes[0].Name != "ix_ab" ||
+		!slices.Equal(tbl.Indexes[0].Columns, []string{"a", "b"}) {
+		t.Errorf("indexes got = %+v, want ix_ab over [a b]", tbl.Indexes)
+	}
+}
+
+// noActionForeignKey states both referential actions as NO ACTION.
+const noActionForeignKey = resolvableTarget +
+	"CREATE TABLE `t` (\n" +
+	"  `a` int NOT NULL\n" +
+	");\n" +
+	"ALTER TABLE `t` ADD CONSTRAINT `t_fk` FOREIGN KEY (`a`) REFERENCES `u` (`c`)" +
+	" ON DELETE NO ACTION ON UPDATE NO ACTION;"
+
+// TestNoActionReachesTheDocument is the resolve half of the parser case in
+// stmt_test.go, and a unit test is the only place it can be held. NO ACTION is
+// both systems' default, so a round trip through a real server loses it - the
+// server stores nothing and mysqldump writes nothing - which means no captured
+// fixture can ever carry one. jjf reads it and never writes it back.
+func TestNoActionReachesTheDocument(t *testing.T) {
+	doc, warnings := mustImport(t, noActionForeignKey)
+	if len(warnings) != 0 {
+		t.Errorf("warnings got =%s, want none", showWarnings(warnings))
+	}
+	fks := table(t, doc, "t").ForeignKeys
+	if len(fks) != 1 {
+		t.Fatalf("foreign keys got = %+v, want 1", fks)
+	}
+	if fks[0].OnDelete != model.ActionNoAction || fks[0].OnUpdate != model.ActionNoAction {
+		t.Errorf("actions got = (%q, %q), want both %q", fks[0].OnDelete, fks[0].OnUpdate, model.ActionNoAction)
+	}
+}
+
+// TestTheFirstDefinitionOfARepeatedColumnWins is the twin of the PostgreSQL
+// test of the same name: a tie-break stated in a comment and decided nowhere
+// else. MySQL rejects a table naming a column twice, so this arrives only from a
+// file assembled or edited by hand - but when it does, choosing the LAST
+// definition would give the column a type the first half of the file
+// contradicts.
+func TestTheFirstDefinitionOfARepeatedColumnWins(t *testing.T) {
+	doc, _ := mustImport(t, "CREATE TABLE `t` (\n"+
+		"  `a` int NOT NULL,\n"+
+		"  `a` varchar(10)\n"+
+		");")
+	cols := table(t, doc, "t").Columns
+	if len(cols) != 2 {
+		t.Fatalf("columns got = %+v, want both definitions kept as written", cols)
+	}
+	if cols[0].Type != "INTEGER" || cols[0].Nullable {
+		t.Errorf("first column got = %+v, want a NOT NULL INTEGER", cols[0])
+	}
+}
+
+// mustEncode renders a document for a failure message.
+func mustEncode(t *testing.T, doc *model.Document) []byte {
+	t.Helper()
+	raw, err := model.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode returned error %v, want no error", err)
+	}
+	return raw
+}
+
+// importedSources lists every dump this package's tests import successfully.
+//
+// The PostgreSQL package has had this pair since it was written; this one had
+// only its committed fixtures held to the schema, so the hand-written sources
+// in these files - every one of which is a document this importer can produce -
+// were never checked against it. cmd/jjf/import.go states the invariant they
+// are being held to: a document jjf itself produced and jjf itself would then
+// reject is the worst thing the command could leave behind.
+func importedSources() []struct{ name, src string } {
+	return []struct{ name, src string }{
+		{"mysqldump order", dumpSource},
+		{"a whole dump", wholeDump},
+		{"a mismatched foreign key", mismatchedForeignKey},
+		{"a target with no primary key", noPrimaryKeyTarget},
+		{"two primary keys", twoPrimaryKeys},
+		{"a table with no columns", tableWithNoColumns},
+		{"indexes that cannot be imported", indexesThatCannotBeImported},
+		{"on delete no action", noActionForeignKey},
+	}
+}
+
+// TestImportProducesAValidDocument runs every source above through the JSON
+// Schema, which is the one invariant the whole importer exists to preserve. It
+// matters most for the sources that deliberately make the importer DROP
+// something: a table left with no indexes is fine, a table left with no columns
+// is not, and the schema is what knows the difference.
+func TestImportProducesAValidDocument(t *testing.T) {
+	validator, err := schema.NewValidator()
+	if err != nil {
+		t.Fatalf("NewValidator returned error %v, want no error", err)
+	}
+
+	for _, tt := range importedSources() {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, _ := mustImport(t, tt.src)
+			raw := mustEncode(t, doc)
+			if err := validator.Validate(tt.name, raw); err != nil {
+				var ide *schema.InvalidDocumentError
+				if errors.As(err, &ide) {
+					var report strings.Builder
+					ide.WriteReport(&report)
+					t.Fatalf("the imported document does not conform to the schema:\n%s\n%s", report.String(), raw)
+				}
+				t.Fatalf("validating the imported document returned error %v, want no error", err)
+			}
+		})
 	}
 }
