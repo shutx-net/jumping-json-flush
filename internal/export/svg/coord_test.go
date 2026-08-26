@@ -250,9 +250,14 @@ func TestCollinearOverlap(t *testing.T) {
 // TestGeometryConstantsHoldTheirInequalities asserts the relations coord.go's
 // block states in prose. The values themselves are adjustable - the first
 // person to look at a rendered diagram may well want a wider rankGap - but
-// these five are not, because a drawing property depends on each of them, and
+// these seven are not, because a drawing property depends on each of them, and
 // nothing else in the package would notice if one were broken: the diagram
 // would still be produced, and it would be wrong in a way only an eye catches.
+//
+// The two about the channels are the clearest case of that. No invariant reads
+// a crow's foot or an optionality circle - the glyphs are placed in scene
+// construction and a Geometry does not hold them - so a channel drawn straight
+// through one is a defect only a reader sees.
 func TestGeometryConstantsHoldTheirInequalities(t *testing.T) {
 	if slotMargin < crowHalf {
 		t.Errorf("slotMargin = %d, want at least crowHalf = %d: a glyph at the first or last slot would reach past its own box and escape the computed bounds",
@@ -265,6 +270,14 @@ func TestGeometryConstantsHoldTheirInequalities(t *testing.T) {
 	if rankGap <= circleOffset+circleR {
 		t.Errorf("rankGap = %d, want more than circleOffset+circleR = %d: the optionality glyph would not fit in the corridor",
 			rankGap, circleOffset+circleR)
+	}
+	if channelPitch <= strokeWidth {
+		t.Errorf("channelPitch = %d, want more than strokeWidth = %d: two channels closer than one stroke width merge into the single thick line the channels exist to undo",
+			channelPitch, strokeWidth)
+	}
+	if channelMargin <= circleOffset+circleR+strokeWidth {
+		t.Errorf("channelMargin = %d, want more than circleOffset+circleR+strokeWidth = %d: the outermost channel would run through another relationship's optionality glyph",
+			channelMargin, circleOffset+circleR+strokeWidth)
 	}
 	// The last two are equations in the block, so they hold by construction.
 	// They are asserted anyway, because the way they get broken is somebody
@@ -310,6 +323,8 @@ func TestEveryGeometryConstantIsPositive(t *testing.T) {
 		{"rankGap", rankGap},
 		{"componentGap", componentGap},
 		{"margin", margin},
+		{"channelPitch", channelPitch},
+		{"channelMargin", channelMargin},
 		{"labelGap", labelGap},
 		{"labelHeight", labelHeight},
 		{"lanePitch", lanePitch},

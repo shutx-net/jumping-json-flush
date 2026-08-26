@@ -218,8 +218,8 @@ func TestEdgeFixtureCoversItsCases(t *testing.T) {
 
 // TestCycleFixtureCoversItsCases asserts the three things cycle.json exists for,
 // on the Geometry rather than on the bytes: which end of a reversed relationship
-// carries the crow's foot, and that a long relationship is drawn as a route with
-// corners in it rather than as a straight line through whatever is in the way.
+// carries the crow's foot, and that a long relationship is drawn along the
+// corridor its chain reserved rather than across whatever is in the way.
 //
 // The reversed one is the case with no other net under it. Reversing an edge's
 // child and parent along with its layering direction would leave every geometry
@@ -270,15 +270,34 @@ func TestCycleFixtureCoversItsCases(t *testing.T) {
 	}
 
 	// The long one: payments -> customers spans two ranks, because
-	// payments -> orders -> customers is longer. A route across two ranks turns
-	// at the label node in between and at the corridor beyond it, so it has
-	// more than the two points a single-rank straight run needs.
+	// payments -> orders -> customers is longer. What says it is drawn as a
+	// route through the corridor its chain reserved, rather than as a line
+	// across whatever is in the way, is that it runs along the bottom edge of
+	// the band its own label node holds - the route line rank doubling opened
+	// for it.
+	//
+	// It used to be enough to count the points: the router emitted one at every
+	// column boundary it passed, so a two-rank route had more than two whether
+	// it bent or not. With the turns inside the corridors a step that does not
+	// bend emits nothing, and this relationship comes out as ONE straight
+	// segment - the coordinate pass having lined its whole chain up, which is
+	// the pass succeeding rather than the route ignoring its chain.
 	long := byLabel["fk_payments_customer"]
 	if long == nil {
 		t.Fatal("the fixture no longer holds the relationship that spans two ranks")
 	}
-	if len(long.Points) <= 2 {
-		t.Errorf("the two-rank relationship is drawn as %d point(s): %+v", len(long.Points), long.Points)
+	strip := geo.Labels[long.Label].Rect
+	on := Point{X: strip.X + strip.W/2, Y: strip.Bottom() + labelGap}
+	found := false
+	for _, s := range segmentsOf(*long) {
+		if segmentContains(s, on) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("the two-rank relationship %+v does not run through %+v, the route line of the band its own label sits in",
+			long.Points, on)
 	}
 	if got := geo.Nodes[long.Parent].Rect.X - geo.Nodes[long.Child].Rect.X; got <= 0 {
 		t.Errorf("payments is not to the left of customers (%d)", got)

@@ -102,7 +102,23 @@ type Coord int64
 //     and the slot pass has stopped buying anything, which is why the demand
 //     goes into the box's size instead.
 //   - rankGap > circleOffset + circleR, so the whole optionality glyph fits in
-//     the corridor between a box and the adjacent half-rank.
+//     the corridor between a box and the adjacent half-rank. It is also the
+//     width of a corridor no route bends in: gapWidth widens a corridor only
+//     for the channels it actually holds.
+//   - channelPitch > strokeWidth, so two channels in one corridor are two
+//     lines. Below one stroke width they merge into the single thick line the
+//     channels exist to undo, which makes this a merge threshold rather than a
+//     comfort margin - and the reason the pitch is never compressed to make a
+//     crowded corridor fit.
+//   - channelMargin > circleOffset + circleR + strokeWidth, so the outermost
+//     channel on either side of a corridor clears the whole optionality glyph
+//     of the boxes facing it, stroke included. Deliberately stricter than
+//     rankGap's inequality above, which is written without the stroke term:
+//     two strokes whose CENTRES are exactly circleOffset + circleR apart still
+//     touch, and a trunk line drawn through somebody else's cardinality mark
+//     trades one legibility defect for another that no invariant would notice,
+//     because the glyphs are placed in scene construction and a Geometry does
+//     not hold them.
 //   - labelHeight = lineHeight + 2*cellPadV, so a label rectangle and a table
 //     row are the same shape.
 //   - lanePitch = labelHeight + 2*labelGap, so a label centred on one lane's
@@ -153,6 +169,22 @@ const (
 	rankGap      Coord = 280
 	componentGap Coord = 320
 	margin       Coord = 160
+
+	// The channels an inter-rank route turns on, inside the corridor between
+	// two columns. channelPitch is the distance between two of them and
+	// channelMargin insets the band of them from both corridor boundaries;
+	// gapWidth in corridor.go turns a channel count into a corridor width, and
+	// interRankPoints has the argument for why a line anywhere in that band is
+	// as safe as the column boundary it replaced.
+	//
+	// The pitch is FIXED and the corridor widens to fit, which is the same
+	// answer slotExtent gives for a crowded side and for a floor an order of
+	// magnitude lower: a slot's floor is the crow's-foot glyph's own height,
+	// and a channel carries no glyph, so its floor is one stroke width. A pitch
+	// that varied per corridor would make two corridors of one drawing look
+	// like different distances.
+	channelPitch  Coord = 40
+	channelMargin Coord = 220
 
 	// Labels and the lanes the two special routing categories share.
 	// loopRise is the distance from a box's top edge to the first lane.

@@ -123,17 +123,26 @@ func separation(g *graph, heights []Coord, a, b int) Coord {
 
 // rankX is the x of each half-rank's left edge.
 //
-// A half-rank is as wide as its widest node and the next one starts rankGap
-// further on, so the corridor between two columns is the same width all the
-// way down. A half-rank holding only virtual nodes is zero wide and costs
-// exactly one rankGap, which is what makes a long route's corridor no wider
-// than it needs to be.
+// A half-rank is as wide as its widest node and the next one starts one
+// corridor further on, so the corridor between two columns is the same width
+// all the way down. A half-rank holding only virtual nodes is zero wide and
+// costs exactly one corridor, which is what makes a long route's corridor no
+// wider than it needs to be.
+//
+// The corridor's width is gapWidth(count[r]) and not a constant, which is the
+// one place the routing reaches coordinate assignment: a corridor is as wide as
+// the channels the routes bending in it need, and a corridor no route bends in
+// is exactly rankGap, the width it has always been. This is a running sum and
+// not a constraint, so nothing about the simplex, the auxiliary graph or the
+// separation constraints is involved.
 //
 // A node narrower than its half-rank is LEFT-aligned in it rather than
 // centred: the first segment of every route leaving a column is then the same
 // length, so the crow's feet all sit at the same distance from their boxes and
-// the corridor reads as one gap rather than as a ragged one.
-func rankX(o order, widths []Coord) []Coord {
+// the corridor reads as one gap rather than as a ragged one. It is also what
+// makes columnRight[r] a real boundary - past every node in the column - which
+// is what the channels are measured from.
+func rankX(o order, widths []Coord, count []int) []Coord {
 	xs := make([]Coord, len(o.layers))
 	var x Coord
 	for r, layer := range o.layers {
@@ -142,7 +151,7 @@ func rankX(o order, widths []Coord) []Coord {
 		for _, v := range layer {
 			widest = max(widest, widths[v])
 		}
-		x += widest + rankGap
+		x += widest + gapWidth(count[r])
 	}
 	return xs
 }
@@ -388,10 +397,26 @@ func balanceY(g *graph, o order, heights []Coord, anchors []Coord) {
 // case analysis. A label node comes out as its whole band; the route runs
 // along the bottom of that rectangle and the text is drawn in the strip at its
 // top.
-func positionComponent(g *graph, o order, demands []demand) []Rect {
+//
+// # Y before X, with the channel plan between them
+//
+// The two axes are independent here and nothing said so out loud until the
+// corridors needed a width: rankX reads only widths, assignY reads only
+// heights. So every y in the drawing can be final while no x exists - and it
+// has to be, because a corridor is as wide as the routes bending in it, and
+// which routes bend, and over what y interval, is a fact about the y's alone.
+// planCorridors is therefore run in the middle: after the pass that answers its
+// question, before the pass that asks it.
+//
+// The channel plan comes back out with the rectangles because routing needs it
+// too. It is one computation read by two passes rather than two computations of
+// one number, for the reason Geometry's own comment gives about two
+// measurements of one width.
+func positionComponent(g *graph, o order, ranks []int, chains []chain, demands []demand) ([]Rect, corridors) {
 	widths, heights := finalSizes(g, demands)
-	xs := rankX(o, widths)
 	tops := assignY(g, o, heights)
+	plan := planCorridors(g, o, ranks, chains, widths, heights, tops)
+	xs := rankX(o, widths, plan.count)
 
 	rects := make([]Rect, len(g.nodes))
 	for r, layer := range o.layers {
@@ -399,5 +424,5 @@ func positionComponent(g *graph, o order, demands []demand) []Rect {
 			rects[v] = Rect{X: xs[r], Y: tops[v], W: widths[v], H: heights[v]}
 		}
 	}
-	return rects
+	return rects, plan
 }

@@ -66,17 +66,22 @@ type router struct {
 	o     order
 	ranks []int
 	rects []Rect
+	plan  corridors
 
-	// columnRight[r] is past every node in half-rank r. Together with the
-	// half-rank's own x - which every node in it shares, because rankX
-	// left-aligns them - it is one of the two vertical lines in a column that
-	// no box's interior touches. interRankPoints has the argument for why
-	// those two are the only lines a vertical segment ever runs along.
+	// columnRight[r] is past every node in half-rank r, so it is the LEFT EDGE
+	// of the corridor between half-rank r and half-rank r+1 - which is what
+	// channelX measures a channel's x from.
+	//
+	// What makes it safe to measure from is rankX: it puts half-rank r+1 at
+	// exactly columnRight[r] + gapWidth(count[r]), so the corridor's width is
+	// that gapWidth exactly, and the outermost channel of the band lands
+	// exactly channelMargin short of the next column. interRankPoints has the
+	// argument for why a line anywhere in that corridor crosses no node.
 	columnRight []Coord
 }
 
-func newRouter(g *graph, o order, ranks []int, rects []Rect) *router {
-	rt := &router{g: g, o: o, ranks: ranks, rects: rects}
+func newRouter(g *graph, o order, ranks []int, rects []Rect, plan corridors) *router {
+	rt := &router{g: g, o: o, ranks: ranks, rects: rects, plan: plan}
 	rt.columnRight = make([]Coord, len(o.layers))
 	for r, layer := range o.layers {
 		for _, v := range layer {
@@ -84,6 +89,16 @@ func newRouter(g *graph, o order, ranks []int, rects []Rect) *router {
 		}
 	}
 	return rt
+}
+
+// channelX is the x of channel k in the corridor after half-rank r.
+//
+// The band of channels is inset channelMargin from both boundaries of the
+// corridor, so channel 0 is channelMargin past the last node of column r and
+// the last one is channelMargin short of column r+1. gapWidth is the other
+// half of that equality and TestCorridorHoldsItsChannels asserts the two agree.
+func (rt *router) channelX(r, k int) Coord {
+	return rt.columnRight[r] + channelMargin + Coord(k)*channelPitch
 }
 
 // staple is one same-rank relationship or self-reference waiting for a lane.
@@ -272,84 +287,101 @@ func routeStaple(from, to Point, lane, plate Coord, label string) (points []Poin
 //
 // # Why the bends land where they do
 //
-// Every leg is horizontal first and then vertical, except the last, which is
-// vertical and then horizontal. That gives both ends a segment perpendicular to
-// the box side it touches - a route that slid along its parent's left edge
+// The corridor between one column and the next contains NO node at all, and
+// that is an identity rather than an observation: rankX puts half-rank r+1 at
+// columnRight[r] + gapWidth(count[r]), and every node in half-rank r is
+// left-aligned at that half-rank's x and no wider than the widest of them, so
+// columnRight[r] is past all of them and the whole strip up to the next column
+// is empty. A vertical line ANYWHERE in that strip, over a y interval of any
+// length, therefore crosses no node's interior.
+//
+// That is what makes "edge x non-incident node interior = 0" hold with no
+// obstacle test, and it is a STRONGER argument than the one it replaces, not a
+// weaker one: a whole node-free region instead of the two node-free lines a
+// column has. The horizontal runs are covered by the other half of the same
+// argument - no two nodes in one half-rank overlap in y, and the separation
+// constraints put a chain node's route line clear of every other node's y
+// extent in its column, so a horizontal run at a route line crosses nothing in
+// the column either, and the corridors it reaches into on both sides are empty
+// by the paragraph above.
+//
+// Every leg is horizontal and then vertical, the last one included. Both ends
+// of every route therefore meet their box with a perpendicular segment, by one
+// rule rather than by two: a route that slid along its parent's left edge
 // before stopping would be collinear with the border and would draw its crow's
 // foot onto a line the reader cannot separate from the box.
 //
-// Where the VERTICAL part of each bend runs is the load-bearing choice, and it
-// is what makes "edge x non-incident node interior = 0" hold with no obstacle
-// test. Two facts about the layout do the work. Every node in a half-rank
-// shares its left edge, because rankX left-aligns them, so a vertical line at
-// a half-rank's x touches every box in that column on its boundary and enters
-// none of their interiors. And no two nodes in one half-rank overlap in y, so a
-// horizontal line at one node's route line - or at an attachment point on its
-// own side - crosses no sibling either.
+// # Why the vertical is in a channel and not on the boundary
 //
-// So a route entering a chain node from the left bends at that node's own x -
-// its half-rank's x - and one entering from the right bends at the column's
-// right boundary, which is past every node in it. Those are the two lines in a
-// column that are always safe, and every vertical segment of every route sits
-// on one of them.
-func (rt *router) interRankPoints(chain []int, childAt, parentAt Point) []Point {
-	rightwards := childAt.X < parentAt.X
+// Because the boundary is one line and there can be many routes. One channel
+// per overlapping y interval is what makes two relationships approaching one
+// column two lines instead of one, which is the sixth frozen invariant -
+// collinear edge-segment overlap = 0. Measured on the drawing this replaced, at
+// commit bd917e1: 56 overlapping vertical pairs on a fifteen-table hub, the
+// longest of them sharing 268 px of line, because the fifteen relationships
+// into that lookup collapsed onto two trunks no reader could trace apart.
+// planCorridors decides which channel each step gets; this function only reads
+// the plan.
+//
+// A step whose two waypoints share a y is skipped: the route runs straight
+// across that corridor, turns nowhere in it, and holds no channel - which is
+// why a drawing whose routes all come out straight costs no width at all.
+func (rt *router) interRankPoints(chain []int, r *route) []Point {
+	ws := waypoints(rt.g, rt.ranks, chain, rt.rects, r)
 
-	points := []Point{childAt}
-	for _, v := range chain {
-		y := anchorY(rt.g.nodes[v].kind, rt.rects[v])
-		lead, trail := rt.rects[v].X, rt.columnRight[rt.ranks[v]]
-		if !rightwards {
-			lead, trail = trail, rt.rects[v].X
+	points := []Point{r.childAt}
+	for i := 0; i+1 < len(ws); i++ {
+		if ws[i].y == ws[i+1].y {
+			continue
 		}
-		points = addCorner(points, Point{X: lead, Y: y}, true)
-		points = addCorner(points, Point{X: trail, Y: y}, true)
+		gap := min(ws[i].rank, ws[i+1].rank)
+		x := rt.channelX(gap, rt.plan.channel[r.edge][i])
+		points = addCorner(points, Point{X: x, Y: ws[i+1].y})
 	}
-	return addCorner(points, parentAt, false)
+	return addCorner(points, r.parentAt)
 }
 
 // addCorner appends p, inserting the corner that keeps both new segments
-// axis-aligned when p differs from the last point on both axes.
+// axis-aligned when p differs from the last point on both axes. The corner is
+// always the HORIZONTAL leg first, which is the whole of the route shape:
+// across to the channel, down or up it, and across again.
 //
-// horizontalFirst says which way round the two segments go. A point equal to
-// the one already there is dropped rather than repeated: a zero-width virtual
-// node's entry and exit are the same point, and a repeated point would be a
-// zero-length segment for every later pass to have an opinion about.
-func addCorner(points []Point, p Point, horizontalFirst bool) []Point {
+// It took a horizontalFirst flag until the channels arrived, because the last
+// leg of a route used to slide down the parent's own column boundary and turn
+// into its face. With the turn inside the corridor there is one rule for every
+// leg, and a boolean parameter with one caller passing one value is dead code.
+//
+// Nor does it drop a point equal to the one already there any more. That guard
+// existed because the old shape emitted a point at each chain node's entry AND
+// its exit, which are the same point for a zero-width virtual node; this one
+// emits one corner per BEND and nothing at all for a step that does not bend,
+// so no call can repeat a point. Two consecutive bends are in two different
+// corridors, whose channels are separated by at least a column plus two
+// channelMargins.
+func addCorner(points []Point, p Point) []Point {
 	last := points[len(points)-1]
 	if last.X != p.X && last.Y != p.Y {
-		corner := Point{X: last.X, Y: p.Y}
-		if horizontalFirst {
-			corner = Point{X: p.X, Y: last.Y}
-		}
-		points = append(points, corner)
+		points = append(points, Point{X: p.X, Y: last.Y})
 	}
-	if points[len(points)-1] != p {
-		points = append(points, p)
-	}
-	return points
+	return append(points, p)
 }
 
-// routeComponent draws every relationship of one component: one route per
-// relationship, in relationship order, self-references included.
+// newRoutes is one empty route per relationship of this component, in
+// relationship order, with the two sides the side policy fixed for it.
 //
-// One route per relationship is the local form of the invariant that the number
-// of drawn relationships equals the number of foreign keys in the document. It
-// holds here by construction - the loop below is over the relationships - and
-// the point of saying so is that nothing downstream may drop one.
-func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect) []route {
-	rt := newRouter(g, o, ranks, rects)
-
+// It is a function rather than four lines inside routeComponent because the
+// corridor planner needs the same list, from the same input, before any x
+// exists: it has to know which relationships this component draws and which
+// face each end attaches to in order to work out where the routes bend. Two
+// copies of this loop would be two answers to "which relationships are these",
+// and the plan is indexed by relationship id precisely so that the two lists
+// cannot be confused for each other.
+func newRoutes(g *graph, o order, ranks []int) []route {
 	member := make([]bool, len(g.nodes))
 	for _, layer := range o.layers {
 		for _, v := range layer {
 			member[v] = true
 		}
-	}
-
-	chainNodes := make([][]int, len(g.edges))
-	for _, c := range chains {
-		chainNodes[c.edge] = c.nodes
 	}
 
 	routes := make([]route, 0, len(g.edges))
@@ -360,6 +392,32 @@ func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect
 		childSide, parentSide := sidesOf(g, ranks, i)
 		routes = append(routes, route{edge: i, childSide: childSide, parentSide: parentSide})
 	}
+	return routes
+}
+
+// chainNodesOf re-keys the chains by relationship id, which is how every
+// caller wants them: a relationship with no chain - a self-reference, or a
+// same-rank relationship - answers nil rather than needing a lookup that can
+// fail.
+func chainNodesOf(g *graph, chains []chain) [][]int {
+	out := make([][]int, len(g.edges))
+	for _, c := range chains {
+		out[c.edge] = c.nodes
+	}
+	return out
+}
+
+// routeComponent draws every relationship of one component: one route per
+// relationship, in relationship order, self-references included.
+//
+// One route per relationship is the local form of the invariant that the number
+// of drawn relationships equals the number of foreign keys in the document. It
+// holds here by construction - newRoutes loops over the relationships - and the
+// point of saying so is that nothing downstream may drop one.
+func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect, plan corridors) []route {
+	rt := newRouter(g, o, ranks, rects, plan)
+	chainNodes := chainNodesOf(g, chains)
+	routes := newRoutes(g, o, ranks)
 
 	assignSlots(g, o, chainNodes, rects, routes)
 	lanes, plates := rt.allocateLanes(routes)
@@ -368,7 +426,7 @@ func routeComponent(g *graph, o order, ranks []int, chains []chain, rects []Rect
 		r := &routes[k]
 		switch classify(g, ranks, r.edge) {
 		case routeInterRank:
-			r.points = rt.interRankPoints(chainNodes[r.edge], r.childAt, r.parentAt)
+			r.points = rt.interRankPoints(chainNodes[r.edge], r)
 		case routeSameRank, routeSelfLoop:
 			label := g.edges[r.edge].label
 			r.points, r.labelRect = routeStaple(r.childAt, r.parentAt, lanes[k], plates[k], label)

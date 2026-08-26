@@ -13,8 +13,8 @@ func routed(doc *model.Document) (laidOut, order, []Rect, []route) {
 	l := layOut(doc)
 	o := orderComponent(l.g, l.members, l.ranks, l.chains)
 	demands := slotDemand(l.g, l.members, l.ranks)
-	rects := positionComponent(l.g, o, demands)
-	return l, o, rects, routeComponent(l.g, o, l.ranks, l.chains, rects)
+	rects, plan := positionComponent(l.g, o, l.ranks, l.chains, demands)
+	return l, o, rects, routeComponent(l.g, o, l.ranks, l.chains, rects, plan)
 }
 
 // handRouted does the same against ranks written out by hand, which is the only
@@ -27,8 +27,8 @@ func handRouted(doc *model.Document, ranks []int) (*graph, order, []Rect, []rout
 	members, ranks, chains := insertVirtualNodes(g, g.components[0], ranks)
 	o := orderComponent(g, members, ranks, chains)
 	demands := slotDemand(g, members, ranks)
-	rects := positionComponent(g, o, demands)
-	return g, o, rects, routeComponent(g, o, ranks, chains, rects)
+	rects, plan := positionComponent(g, o, ranks, chains, demands)
+	return g, o, rects, routeComponent(g, o, ranks, chains, rects, plan)
 }
 
 // segments is r's polyline as the segments the invariants speak about.
@@ -38,6 +38,25 @@ func segments(r route) []Segment {
 		out = append(out, Segment{A: r.points[i], B: r.points[i+1]})
 	}
 	return out
+}
+
+// segmentContains reports whether the axis-aligned segment s passes through p,
+// its two ends included.
+//
+// The routes no longer emit a POINT at every waypoint they pass - a step whose
+// two ends share a y draws nothing at all now - so "the route goes through
+// here" has to be asked of the segments rather than of the point list. That is
+// the stronger question in any case: a point at a node's x was only ever a
+// proxy for the route running down the corridor that node reserved.
+func segmentContains(s Segment, p Point) bool {
+	switch {
+	case s.A.Y == s.B.Y && p.Y == s.A.Y:
+		return min(s.A.X, s.B.X) <= p.X && p.X <= max(s.A.X, s.B.X)
+	case s.A.X == s.B.X && p.X == s.A.X:
+		return min(s.A.Y, s.B.Y) <= p.Y && p.Y <= max(s.A.Y, s.B.Y)
+	default:
+		return false
+	}
 }
 
 // routeOf finds the route drawn for relationship i.
@@ -253,25 +272,26 @@ func TestRouteInterRankIsAxisAligned(t *testing.T) {
 	}
 }
 
+// TestRouteInterRankPassesThroughItsChain is what makes the corridor the
+// virtual nodes reserved the corridor the route runs down.
+//
+// The statement moved with the channels, and it moved to the stronger one. It
+// used to be "the polyline holds a POINT at each chain node's own x, in chain
+// order", which was a proxy: a point there meant the route had turned at that
+// column. A route now turns inside the CORRIDOR instead, and a step whose two
+// waypoints share a y emits nothing at all - a route the coordinate pass made
+// straight is two points end to end. So what is asserted is the thing the proxy
+// stood for: some SEGMENT of the route contains the node's point.
 func TestRouteInterRankPassesThroughItsChain(t *testing.T) {
 	for _, tt := range spanDocuments() {
 		t.Run(tt.name, func(t *testing.T) {
 			l, _, rects, routes := routed(tt.doc)
 			for _, r := range routes {
-				chain := l.chainOf(r.edge)
-				if len(chain) == 0 {
-					continue
-				}
-
-				// One point per chain node, at that node's own x and on its
-				// route line, in chain order. That is what makes the corridor
-				// the virtual nodes reserved the corridor the route runs down.
-				at := 0
-				for _, v := range chain {
+				for _, v := range l.chainOf(r.edge) {
 					want := Point{X: rects[v].X, Y: anchorY(l.g.nodes[v].kind, rects[v])}
 					found := false
-					for ; at < len(r.points); at++ {
-						if r.points[at] == want {
+					for _, s := range segments(r) {
+						if segmentContains(s, want) {
 							found = true
 							break
 						}
@@ -468,8 +488,8 @@ func TestEveryEdgeHasExactlyOneRoute(t *testing.T) {
 				members, ranks, chains := insertVirtualNodes(g, component, ranks)
 				o := orderComponent(g, members, ranks, chains)
 				demands := slotDemand(g, members, ranks)
-				rects := positionComponent(g, o, demands)
-				for _, r := range routeComponent(g, o, ranks, chains, rects) {
+				rects, plan := positionComponent(g, o, ranks, chains, demands)
+				for _, r := range routeComponent(g, o, ranks, chains, rects, plan) {
 					drawn[r.edge]++
 				}
 			}
@@ -506,6 +526,13 @@ func TestRouteComponentIsDeterministic(t *testing.T) {
 // interRankPoints promises, asserted per component rather than waiting for the
 // whole-drawing invariant suite. If it passes here and fails there, the bug is
 // in packing or translation rather than in routing.
+//
+// The argument it is checking: the strip between one column's right boundary
+// and the next column's x holds no node at all, because rankX puts the next
+// column exactly gapWidth past the widest node of this one and every node in a
+// half-rank is left-aligned. So a vertical anywhere in that strip, and a
+// horizontal at a chain node's route line, cross nothing - with no obstacle
+// test in the router to make it so.
 func TestRouteAvoidsNonIncidentBoxes(t *testing.T) {
 	for _, tt := range spanDocuments() {
 		t.Run(tt.name, func(t *testing.T) {

@@ -8,12 +8,13 @@ import (
 )
 
 // positioned runs every stage up to and including this one over doc's first
-// component and hands back the graph, the order and the rectangles.
+// component and hands back the graph, the order and the rectangles. planned in
+// corridor_test.go is the same thing with the channel plan, which every
+// assertion about an x now needs: a corridor is gapWidth(count) wide and not
+// rankGap.
 func positioned(doc *model.Document) (laidOut, order, []Rect) {
-	l := layOut(doc)
-	o := orderComponent(l.g, l.members, l.ranks, l.chains)
-	demands := slotDemand(l.g, l.members, l.ranks)
-	return l, o, positionComponent(l.g, o, demands)
+	l, o, rects, _ := planned(doc)
+	return l, o, rects
 }
 
 // routeTravel is the quantity the coordinate pass minimises: the weighted
@@ -75,10 +76,10 @@ func TestOmegaIsTotalOverTheKinds(t *testing.T) {
 func TestRankXMonotonic(t *testing.T) {
 	for _, tt := range spanDocuments() {
 		t.Run(tt.name, func(t *testing.T) {
-			l, o, _ := positioned(tt.doc)
+			l, o, _, plan := planned(tt.doc)
 			demands := slotDemand(l.g, l.members, l.ranks)
 			widths, _ := finalSizes(l.g, demands)
-			xs := rankX(o, widths)
+			xs := rankX(o, widths, plan.count)
 
 			for r := range xs {
 				if r == 0 && xs[r] != 0 {
@@ -94,8 +95,11 @@ func TestRankXMonotonic(t *testing.T) {
 				if xs[r] <= xs[r-1] {
 					t.Errorf("half-rank %d starts at %d, which is not right of %d", r, xs[r], xs[r-1])
 				}
-				if got := xs[r] - xs[r-1] - widest; got != rankGap {
-					t.Errorf("the corridor after half-rank %d is %d wide, want rankGap %d", r-1, got, rankGap)
+				// The corridor is as wide as the channels the routes bending
+				// in it need, and exactly rankGap where none does.
+				if got, want := xs[r]-xs[r-1]-widest, gapWidth(plan.count[r-1]); got != want {
+					t.Errorf("the corridor after half-rank %d is %d wide, want gapWidth(%d) = %d",
+						r-1, got, plan.count[r-1], want)
 				}
 			}
 		})
@@ -105,21 +109,21 @@ func TestRankXMonotonic(t *testing.T) {
 // TestRankXUsesWidestNode pins the one thing a half-rank's width depends on:
 // its own widest node, and nothing else.
 func TestRankXUsesWidestNode(t *testing.T) {
-	l, o, _ := positioned(document(
+	l, o, _, plan := planned(document(
 		linked("short", "p"),
 		linked("a_considerably_longer_table_name", "p"),
 		linked("p"),
 	))
 	demands := slotDemand(l.g, l.members, l.ranks)
 	widths, _ := finalSizes(l.g, demands)
-	xs := rankX(o, widths)
+	xs := rankX(o, widths, plan.count)
 
 	narrow, wide := widths[0], widths[1]
 	if narrow >= wide {
 		t.Fatalf("the two tables in the first half-rank are %d and %d wide; the test needs them to differ", narrow, wide)
 	}
-	if want := wide + rankGap; xs[1] != want {
-		t.Errorf("the second half-rank starts at %d, want %d (the wide table plus rankGap)", xs[1], want)
+	if want := wide + gapWidth(plan.count[0]); xs[1] != want {
+		t.Errorf("the second half-rank starts at %d, want %d (the wide table plus its corridor)", xs[1], want)
 	}
 }
 
@@ -231,7 +235,8 @@ func TestBalanceYNeverLengthensTheRoutes(t *testing.T) {
 			// way assignY would.
 			edges, n, local := auxGraph(l.g, o, heights)
 			solved := rank(edges, n)
-			xs := rankX(o, widths)
+			plan := planCorridors(l.g, o, l.ranks, l.chains, widths, heights, assignY(l.g, o, heights))
+			xs := rankX(o, widths, plan.count)
 			before := make([]Rect, len(l.g.nodes))
 			for r, layer := range o.layers {
 				for _, v := range layer {
@@ -240,7 +245,7 @@ func TestBalanceYNeverLengthensTheRoutes(t *testing.T) {
 				}
 			}
 
-			after := positionComponent(l.g, o, demands)
+			after, _ := positionComponent(l.g, o, l.ranks, l.chains, demands)
 			if got, want := routeTravel(l.g, o, after), routeTravel(l.g, o, before); got > want {
 				t.Errorf("balancing lengthened the routes: %d after, %d before", got, want)
 			}
@@ -275,10 +280,10 @@ func TestAssignYStartsAtZero(t *testing.T) {
 func TestPositionComponentNodesStayInTheirRankBand(t *testing.T) {
 	for _, tt := range spanDocuments() {
 		t.Run(tt.name, func(t *testing.T) {
-			l, o, rects := positioned(tt.doc)
+			l, o, rects, plan := planned(tt.doc)
 			demands := slotDemand(l.g, l.members, l.ranks)
 			widths, _ := finalSizes(l.g, demands)
-			xs := rankX(o, widths)
+			xs := rankX(o, widths, plan.count)
 
 			for r, layer := range o.layers {
 				var widest Coord
@@ -286,10 +291,11 @@ func TestPositionComponentNodesStayInTheirRankBand(t *testing.T) {
 					widest = max(widest, widths[v])
 				}
 				for _, v := range layer {
-					// Left-aligned in the band, and never past its right edge:
-					// the corridor between two half-ranks is rankGap wide
-					// everywhere, which is what the routing relies on when it
-					// joins waypoints without testing for obstacles.
+					// Left-aligned in the band, and never past its right
+					// edge: the corridor between two half-ranks is then
+					// node-free over its whole width, which is what the routing
+					// relies on when it puts a channel in it and joins
+					// waypoints without testing for obstacles.
 					if rects[v].X != xs[r] {
 						t.Errorf("node %d is at x %d, want its half-rank's %d", v, rects[v].X, xs[r])
 					}
@@ -366,6 +372,11 @@ func TestPositionComponentOnDocumentShape(t *testing.T) {
 		// 0 child, 1 parent, 2 the label node between them. Nothing shares a
 		// half-rank, so the whole route is straight: the label node's route
 		// line, the child's centre and the parent's centre are one y.
+		//
+		// A straight route bends in no corridor, so both corridors here hold no
+		// channel and are exactly rankGap wide - which is D45, and the reason
+		// this sub-test's arithmetic did not move when corridors gained a
+		// variable width.
 		l, _, rects := positioned(document(linked("child", "parent"), linked("parent")))
 		w := func(v int) Coord { return rects[v].W }
 
@@ -389,7 +400,7 @@ func TestPositionComponentOnDocumentShape(t *testing.T) {
 		// document order. Half-ranks: order_lines 0, its label 1,
 		// orders and customer_profiles 2, three labels 3, customers and
 		// coupons 4 - the order TestOrderComponentOnDocumentShape pins.
-		_, _, rects := positioned(document(
+		_, _, rects, plan := planned(document(
 			linked("customers"),
 			linked("customer_profiles", "customers"),
 			linked("orders", "customers", "coupons"),
@@ -398,10 +409,16 @@ func TestPositionComponentOnDocumentShape(t *testing.T) {
 		))
 		w := func(v int) Coord { return rects[v].W }
 
-		x1 := w(3) + rankGap
-		x2 := x1 + w(8) + rankGap
-		x3 := x2 + max(w(2), w(1)) + rankGap
-		x4 := x3 + max(w(6), max(w(7), w(5))) + rankGap
+		// Each corridor is as wide as the channels the routes bending in it
+		// need. Written as gapWidth(plan.count[r]) rather than as the four
+		// numbers it evaluates to, because the numbers are an output of the
+		// allocator and TestChannelCountIsTheMaximumOverlap is where that is
+		// checked; what belongs here is that rankX spends exactly one corridor
+		// per half-rank and measures it from the widest node.
+		x1 := w(3) + gapWidth(plan.count[0])
+		x2 := x1 + w(8) + gapWidth(plan.count[1])
+		x3 := x2 + max(w(2), w(1)) + gapWidth(plan.count[2])
+		x4 := x3 + max(w(6), max(w(7), w(5))) + gapWidth(plan.count[3])
 
 		// orders is the tallest node of the half-rank everything else is
 		// aligned against, and normalisation puts it at 0.

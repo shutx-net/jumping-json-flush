@@ -327,6 +327,17 @@ func compareSlotEntries(a, b slotEntry) int {
 // rather than a made-up key, and it is also the one that reads best: a
 // self-reference takes the two slots side by side, in the order its two ends
 // are drawn, and a second self-reference on the same box takes the next two.
+//
+// # What this pass never reads
+//
+// A rectangle's X. Not on the top side, where the offset runs along the width
+// but the y handed back is simply the box's top edge, and not on the two
+// vertical sides, where both the sort key and the offset are heights. So every
+// attachment y is knowable before any column has a position - which is what
+// lets the corridor planner run this pass before rankX, on rectangles that have
+// their final size and their final y and no x at all. TestSlotYIsIndependentOfX
+// is what holds that sentence up; it is a property of this function rather than
+// a convention, so asserting it is worth more than repeating it here.
 func assignSlots(g *graph, o order, chainNodes [][]int, rects []Rect, routes []route) {
 	sides := [3]side{sideLeft, sideRight, sideTop}
 	var entries []slotEntry

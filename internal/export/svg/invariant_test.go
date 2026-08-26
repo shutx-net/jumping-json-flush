@@ -21,14 +21,18 @@ package svg
 // over one shared table of documents, so a new document is one line and gets all
 // ten checks.
 //
-// Nine of the ten hold as stated. The tenth - no two relationships drawn along
-// the same line - holds for horizontal segments and NOT for vertical ones, which
-// is a defect in the routing and not a licence taken here:
-// TestNoCollinearEdgeOverlap says which half it asserts and why, and
-// TestVerticalCollinearOverlapCeiling records how far the other half misses, in
-// measured numbers, together with the fix it is waiting for. Writing the
-// statement down and skipping it, or leaving the suite red, would both have been
-// worse than saying exactly what is true.
+// All ten hold as stated, and one of them did not until the commit that added
+// corridor.go. "No two relationships drawn along the same line" held for
+// horizontal segments and failed for vertical ones, because every route
+// approaching a column turned on that column's boundary and so shared one line
+// with every other route approaching it - 56 overlapping pairs on a
+// fifteen-table hub, the longest sharing 268 px of line, measured at commit
+// bd917e1 before this changed. Closing it
+// cost the corridor between two columns its constant width: it is now a
+// function of the routes that bend in it, which is why a change that looks like
+// a routing detail reaches coordinate assignment. TestNoCollinearEdgeOverlap
+// carries the argument, both halves of it, including the part that is measured
+// rather than proved.
 //
 // Beside the set, and deliberately not inside it, sits a per-fixture ceiling on
 // the ORDERING crossing count. TestCrossingCeiling says why it is a neighbour
@@ -115,7 +119,35 @@ func invariantDocuments(t *testing.T) []invariantDoc {
 			name: "several components of different sizes",
 			doc:  componentsDocument(3, 1, 1, 5, 2),
 		},
+		invariantDoc{
+			// A layered mesh, which is the shape that puts verticals running
+			// BOTH ways through one corridor - some descending, some ascending -
+			// together with ordering crossings. That is the configuration
+			// TestNoCollinearEdgeOverlap's horizontal residual needs, and the
+			// hub cannot produce it: every route into a hub bends the same way
+			// on the same side.
+			name: "a layered mesh of five ranks",
+			doc:  meshDocument(5, 4),
+		},
 	)
+}
+
+// meshDocument is layers half-ranks of width tables each, where every table
+// references two of the layer after it - the one below it and the one after
+// that, wrapping - so no two routes through a corridor bend alike.
+func meshDocument(layers, width int) *model.Document {
+	name := func(i, j int) string { return string(rune('a'+i)) + string(rune('a'+j)) }
+	var tables []model.Table
+	for i := range layers {
+		for j := range width {
+			if i+1 == layers {
+				tables = append(tables, linked(name(i, j)))
+				continue
+			}
+			tables = append(tables, linked(name(i, j), name(i+1, j), name(i+1, (j+1)%width)))
+		}
+	}
+	return document(tables...)
 }
 
 // hubDocument is a three-column lookup table referenced by n others.
@@ -274,6 +306,13 @@ func TestNoNodeOverlap(t *testing.T) {
 // relationship gets one virtual node per half-rank it crosses, and nothing else
 // can be placed where a node is - which is the whole argument for spending the
 // virtual nodes rather than writing a path planner.
+//
+// The other half of the argument is the strip BETWEEN two columns. rankX puts
+// the next column exactly gapWidth past the widest node of this one, and every
+// node in a half-rank is left-aligned at that half-rank's x, so the strip holds
+// no node at all - which is what lets a route turn anywhere inside it, on any
+// of the channels planCorridors handed out, with still no obstacle test in the
+// router. interRankPoints has it in full.
 func TestNoEdgeThroughNonIncidentNode(t *testing.T) {
 	for _, tt := range invariantDocuments(t) {
 		t.Run(tt.name, func(t *testing.T) {
@@ -402,36 +441,78 @@ func pieces(geo Geometry) []piece {
 //
 // Two relationships drawn along the same line for any distance are one line to a
 // reader, and no other invariant catches it: both are axis-aligned, neither is
-// inside a box, and the drawing is otherwise perfectly legal.
+// inside a box, and the drawing is otherwise perfectly legal. Every pair of
+// distinct segments is compared, on both axes. Sharing a single point is not an
+// overlap - collinearOverlap requires an interval of non-zero length - which is
+// what lets the comparison be total: consecutive segments of a route meet at
+// every corner.
 //
-// # This is the one statement in the set the drawing does not satisfy in full
+// # Vertical: by construction
 //
-// It holds for HORIZONTAL segments, which is what is asserted here, over every
-// pair in the whole drawing. It does NOT hold for vertical ones, and saying so
-// here in the open is better than stating the invariant and skipping it, or
-// asserting it and leaving the suite red. What holds and what does not:
+// Every vertical segment of an inter-rank route runs on a CHANNEL inside the
+// corridor between two columns, and planCorridors gives two verticals the same
+// channel only when overlapsMoreThanAPoint says their y intervals may share a
+// line. That is this test's own predicate, not a copy of it: collinearOverlap
+// asks exactly the same question of two vertical segments, so the allocator's
+// rule and this assertion are one function and cannot drift apart. Two
+// relationships approaching one column are therefore two lines. Verticals that
+// are not inter-rank are a staple's two legs, which allocateLanes keeps apart
+// by giving every staple over one half-rank its own lane.
 //
-//   - Horizontal. Every horizontal run of every route is either at an attachment
-//     point's own y on the side of the box it touches, or at a chain node's
-//     route line, or in a staple's lane. No two of those coincide - lanes come
-//     out of one pool per half-rank, route lines out of nodes that cannot
-//     overlap - so nothing runs along anything else. Measured 0 pairs on every
-//     document in the table.
-//   - Vertical. interRankPoints puts every vertical segment on one of the two
-//     lines in a column that no box's interior touches: the column's own x, and
-//     the column's right boundary. That is what makes "no edge crosses a box"
-//     hold with no obstacle test at all - and it also means that every route
-//     approaching one column shares ONE vertical line with every other route
-//     approaching it, so any two whose y intervals overlap are drawn on top of
-//     each other for that stretch. TestVerticalCollinearOverlapCeiling has the
-//     measured extent of it and the shape of the fix.
+// # Horizontal: it holds, and the proof it used to have is gone
 //
-// Every pair of distinct segments is compared, including two segments of ONE
-// route. Sharing a single point is not an overlap - collinearOverlap requires an
-// interval of non-zero length - which is what lets the comparison be total:
-// consecutive segments of a route meet at every corner, and a route is drawn as
-// several collinear pieces whenever its chain runs straight through several
-// half-ranks.
+// The old argument was a tiling one. Each horizontal run was confined to one
+// cell [xs[r], xs[r+1]) and the cells tile the axis, so two runs at one y were
+// either in one cell - impossible, since that needs two waypoints of two routes
+// at one y in one half-rank, which the separation constraints forbid - or in
+// different cells, where they can share at most the boundary point. Channels end
+// a run INSIDE a corridor, so the tiling is gone and the narrower argument below
+// is what is left. It is written out because a proof with a quiet hole in it is
+// worth less than a named residual, which is the same choice this file already
+// makes for TestCrossingCeiling.
+//
+// The configuration needed. Two horizontal runs at one y meeting inside the
+// corridor after half-rank g needs one route's half-rank-g waypoint and another
+// route's half-rank-(g+1) waypoint at EXACTLY the same y. Both routes must also
+// BEND there: a route that runs straight through the corridor occupies that y in
+// BOTH half-ranks, and then the other route's waypoint would be a second
+// waypoint at one y in one half-rank, which cannot happen. Call the route whose
+// half-rank-g waypoint is at y the one arriving from the LEFT; it turns at
+// channel cL and its run covers the corridor from the left up to cL. The other
+// arrives from the right and its run covers from cR to the right edge. They
+// overlap exactly when cL > cR.
+//
+// Four sub-cases, by which end of each vertical's y interval the shared y is:
+//
+//   - The shared y is the LO of both intervals. Safe BY CONSTRUCTION. Both
+//     verticals sort at the same lo, the descending-before-ascending key puts
+//     the left-arriving one first, and it takes the lowest free channel; every
+//     channel below that was occupied at that moment by an interval reaching
+//     past y, so it is still occupied a moment later, and the channel just taken
+//     is occupied too. The second one cannot land below the first.
+//   - The shared y is the HI of both. Not excluded. The two intervals then
+//     overlap, so they are on different channels, and which is lower is not
+//     constrained; this configuration also requires the two routes to CROSS in
+//     that corridor.
+//   - The shared y is the LO of one and the HI of the other, either way round.
+//     Not excluded. The two intervals touch at y and nothing else, so they may
+//     share a channel - and when they do the two runs stop at the same x and
+//     share one point, which is legal - but a third vertical placed in between
+//     can push them apart in the wrong order.
+//
+// And one case no assignment can fix: two routes that EXCHANGE y across one
+// corridor, A from y1 to y2 and B from y2 to y1. Then cA <= cB is required at
+// y1 and cB <= cA at y2, so they must share a channel, and sharing it makes the
+// two verticals themselves collinear over the whole interval.
+//
+// Measured: 0 overlapping pairs on both axes, over every document in the table
+// below and over two larger hubs - 30 and 50 tables into one lookup. The
+// configuration above occurred at all exactly twice, both on the fifty-table
+// hub, both in the third sub-case, and both came out with the two verticals
+// sharing one channel and therefore sharing one point. The answer if a real
+// document ever produces the overlap is a recorded follow-up: channel routing
+// with vertical constraints is NP-hard, and it is the path planner issue #32
+// rejected wearing a different hat.
 func TestNoCollinearEdgeOverlap(t *testing.T) {
 	for _, tt := range invariantDocuments(t) {
 		t.Run(tt.name, func(t *testing.T) {
@@ -439,115 +520,11 @@ func TestNoCollinearEdgeOverlap(t *testing.T) {
 
 			for a := range all {
 				for b := a + 1; b < len(all); b++ {
-					if !all[a].s.horizontal() || !all[b].s.horizontal() {
-						continue
-					}
 					if collinearOverlap(all[a].s, all[b].s) {
 						t.Errorf("relationship %d segment %d %+v runs along relationship %d segment %d %+v",
 							all[a].edge, all[a].at, all[a].s, all[b].edge, all[b].at, all[b].s)
 					}
 				}
-			}
-		})
-	}
-}
-
-// TestVerticalCollinearOverlapCeiling pins how much of the collinear-overlap
-// invariant the drawing currently fails, so that it cannot quietly get worse and
-// cannot be forgotten.
-//
-// # It is a defect, not a licensed exception
-//
-// Two relationship lines drawn along the same stretch of one vertical line are
-// one line to a reader, which is exactly what the invariant above exists to
-// forbid. Nothing here says the drawing is acceptable; what it says is how far
-// from acceptable it is, in numbers, at a commit.
-//
-// # Why it happens
-//
-// Not a slip. interRankPoints deliberately keeps every vertical segment on one
-// of a column's two safe lines - the column's own x, and the column's right
-// boundary past every node in it - because that is what makes "no edge passes
-// through a box it is not incident to" true with no obstacle test anywhere in
-// the router, and an obstacle test would be a second layout system arguing with
-// the first. The cost was not noticed when that choice was made: every route
-// approaching a column arrives on the same line, and two routes whose vertical
-// intervals overlap are then collinear. A crossing-free ordering does not help,
-// because two nested intervals do not cross and still overlap.
-//
-// # Measured, at commit a0bf0f8 (phase 12), in pairs and in tenths of a pixel
-//
-//	full.json                          1 pair,   440 (44 px of shared line)
-//	edge.json                          4 pairs,  500
-//	nofk.json                          0
-//	cycle.json                         0
-//	a hub with 15 incoming             56 pairs, 2680 (268 px)
-//	the other four documents           0
-//
-// The hub is the honest worst case and it is a realistic document: fifteen
-// tables referencing one lookup is an ordinary schema, and its approach line
-// carries fifteen routes.
-//
-// # The fix, and why it is not applied here
-//
-// The vertical approach has to move off the column boundary and into the
-// corridor between the two columns, one channel per route, with overlapping
-// intervals forced onto different channels - the same shape allocateLanes
-// already has for horizontal runs, one pool per boundary instead of per
-// half-rank. The corridor is box-free over its whole height, so the geometry is
-// available; what is not available is its WIDTH, which is rankGap today and
-// would have to come from the number of channels, and that is a coordinate
-// assignment input rather than a routing detail. So the change reaches two
-// passes, rewrites the load-bearing argument in interRankPoints, and moves every
-// byte of all four goldens. It belongs in its own commit with its own reasoning
-// and its own re-read of the pictures, not in the commit that freezes the
-// invariants.
-func TestVerticalCollinearOverlapCeiling(t *testing.T) {
-	ceilings := map[string]struct {
-		pairs int
-		run   Coord
-	}{
-		"full.json":  {1, 440},
-		"edge.json":  {4, 500},
-		"nofk.json":  {0, 0},
-		"cycle.json": {0, 0},
-		"a hub with more incoming relationships than its content is tall": {56, 2680},
-		"a two-table cycle and nothing else":                              {0, 0},
-		"a table with two self-references":                                {0, 0},
-		"two parallel relationships between one pair of tables":           {0, 0},
-		"several components of different sizes":                           {0, 0},
-	}
-
-	for _, tt := range invariantDocuments(t) {
-		t.Run(tt.name, func(t *testing.T) {
-			ceiling, ok := ceilings[tt.name]
-			if !ok {
-				t.Fatalf("no measured ceiling recorded for %s: measure it, do not guess it", tt.name)
-			}
-
-			all := pieces(layout(tt.doc))
-			pairs, longest := 0, Coord(0)
-			for a := range all {
-				for b := a + 1; b < len(all); b++ {
-					if !all[a].s.vertical() || !all[b].s.vertical() {
-						continue
-					}
-					if !collinearOverlap(all[a].s, all[b].s) {
-						continue
-					}
-					pairs++
-					lo := max(min(all[a].s.A.Y, all[a].s.B.Y), min(all[b].s.A.Y, all[b].s.B.Y))
-					hi := min(max(all[a].s.A.Y, all[a].s.B.Y), max(all[b].s.A.Y, all[b].s.B.Y))
-					longest = max(longest, hi-lo)
-				}
-			}
-
-			t.Logf("%s: %d overlapping vertical pair(s), longest shared run %d", tt.name, pairs, longest)
-			if pairs > ceiling.pairs {
-				t.Errorf("%d overlapping vertical pair(s), above the measured %d", pairs, ceiling.pairs)
-			}
-			if longest > ceiling.run {
-				t.Errorf("the longest shared vertical run is %d, above the measured %d", longest, ceiling.run)
 			}
 		})
 	}
@@ -620,8 +597,8 @@ func TestEndpointsOnBoundary(t *testing.T) {
 // What is checked is what a Geometry holds: every node rectangle, every label
 // rectangle and every point of every route. The crow's feet and the optionality
 // circles are placed by scene construction, from these attachment points, and
-// reach at most circleOffset + circleR outward - which is less than the rankGap
-// separating the box from the corridor the route leaves through, so a glyph
+// reach at most circleOffset + circleR outward - which is less than the
+// narrowest corridor the drawing can contain, which is rankGap, so a glyph
 // cannot be the thing that escapes a page these points are inside of.
 func TestEverythingInsideBounds(t *testing.T) {
 	for _, tt := range invariantDocuments(t) {

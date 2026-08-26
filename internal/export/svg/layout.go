@@ -55,9 +55,16 @@ func layout(doc *model.Document) Geometry {
 // coordinates, because the separation constraints are stated in widths and
 // heights. Coordinates before slot assignment and routing, because a slot's
 // place on a side and a staple's lane are both measured from finished
-// rectangles. Moving any one of them earlier leaves a later pass reading a
-// value that no longer describes the drawing, and the failure is a plausible
-// picture rather than a crash.
+// rectangles. And WITHIN coordinates, y before x, which is the one link in the
+// chain that is not simply "each pass consumes the last": the corridor between
+// two columns is as wide as the channels the routes bending in it need, and
+// which routes bend, and over what y interval, is a fact about the y's - so the
+// widths cannot be settled until the y's are. positionComponent has the
+// argument for why that is possible at all.
+//
+// Moving any one of them earlier leaves a later pass reading a value that no
+// longer describes the drawing, and the failure is a plausible picture rather
+// than a crash.
 func layOutComponents(g *graph) []block {
 	blocks := make([]block, 0, len(g.components))
 	for c := range g.components {
@@ -68,8 +75,8 @@ func layOutComponents(g *graph) []block {
 		members, ranks, chains := insertVirtualNodes(g, members, ranks)
 		o := orderComponent(g, members, ranks, chains)
 		demands := slotDemand(g, members, ranks)
-		rects := positionComponent(g, o, demands)
-		routes := routeComponent(g, o, ranks, chains, rects)
+		rects, plan := positionComponent(g, o, ranks, chains, demands)
+		routes := routeComponent(g, o, ranks, chains, rects, plan)
 
 		blocks = append(blocks, block{
 			members: members,
