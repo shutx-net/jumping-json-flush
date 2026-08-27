@@ -471,11 +471,17 @@ func TestParseCreateIndex(t *testing.T) {
 }
 
 func TestParseCommentOn(t *testing.T) {
+	// The two IS NULL lines remove a comment rather than setting one, so they
+	// contribute nothing to want. They are both here because they take
+	// different arms: pg_dump writes neither, but a dump edited by hand or
+	// concatenated from two others can carry either, and a version that
+	// recorded an empty comment would put an empty logicalName in the document.
 	const src = `COMMENT ON TABLE public.users IS 'ユーザー';
 COMMENT ON COLUMN public.users.email IS 'メールアドレス
 連絡先として使う';
 COMMENT ON COLUMN users.id IS 'identifier';
 COMMENT ON TABLE public.users IS NULL;
+COMMENT ON COLUMN public.users.email IS NULL;
 COMMENT ON SCHEMA public IS 'standard schema';
 COMMENT ON FUNCTION public.f() IS 'a function';
 COMMENT ON INDEX public.users_pkey IS 'an index';`
@@ -845,6 +851,16 @@ func TestParseErrors(t *testing.T) {
 			src:      "CREATE TABLE public.t (\n  a,\n  b integer\n);",
 			wantLine: 2,
 			wantMsg:  "expected a type name",
+		},
+		{
+			// A truncated file, which is what a dump interrupted mid-write
+			// looks like. The line reported is the one the argument list
+			// OPENED on rather than the end of the file, so the message points
+			// at the parenthesis that was never closed.
+			name:     "unterminated type argument list",
+			src:      "CREATE TABLE public.t (\n  a numeric(10",
+			wantLine: 2,
+			wantMsg:  "unterminated type argument list",
 		},
 	}
 

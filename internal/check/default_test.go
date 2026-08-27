@@ -32,7 +32,7 @@ func oneDefault(def string) *model.Document {
 func TestColumnDefaultAccepts(t *testing.T) {
 	defs := []string{
 		// Numbers, including the exponent form the scanner has to keep whole.
-		"0", "1", "0.00", "-1", "1e3", "1.5e-3",
+		"0", "1", "0.00", "-1", "1e3", "1.5e-3", ".5",
 
 		// Keyword constants, in both cases, from every system the schema names.
 		"CURRENT_TIMESTAMP", "current_timestamp", "CURRENT_DATE", "CURRENT_TIME",
@@ -205,6 +205,26 @@ func TestScanExpr(t *testing.T) {
 			name: "an escape string swallows the byte after a backslash",
 			in:   `E'a\b'`,
 			want: []string{`string "E'a\b'"`},
+			ok:   true,
+		},
+		{
+			// A doubled quote inside an ESCAPE string, which PostgreSQL accepts
+			// alongside the backslash form. It is a different arm from the
+			// doubled quote in the ordinary string two cases above, and both
+			// spellings reach a default that pg_dump wrote.
+			name: "a doubled quote inside an escape string stays inside it",
+			in:   `E'it''s'::text`,
+			want: []string{`string "E'it''s'"`, `punct "::"`, `word "text"`},
+			ok:   true,
+		},
+		{
+			// A number may begin with its decimal point. What this pins is the
+			// token COUNT: split into a punct and a number, the leading dot
+			// would be an operator with nothing before it and a perfectly good
+			// default would be reported as one that does not read as SQL.
+			name: "a number may begin with its decimal point",
+			in:   ".5",
+			want: []string{`number ".5"`},
 			ok:   true,
 		},
 		{

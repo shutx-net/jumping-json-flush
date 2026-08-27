@@ -59,6 +59,47 @@ func show(v *int) string {
 
 // TestCanonicalTypeName walks every spelling the switch lists, in the spelling
 // mysqldump writes it: lower case, with the parameters MySQL puts back.
+// TestMyTypeRendersItselfForDiagnostics is the twin of the PostgreSQL package's
+// test of the same shape, and it pins what a user reads inside "type %s: ..."
+// warnings. MySQL puts its attributes after the parentheses, so the rendering
+// has three parts to put back in the right order, and the unsigned and zerofill
+// halves are the ones nothing else exercises.
+//
+// Worth recording alongside: the method has no production caller that names it
+// - the warnings format a myType with %s - so it reads as more used than it is,
+// exactly as pgType.String does in the sibling. Neither is deleted here.
+func TestMyTypeRendersItselfForDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  myType
+		want string
+	}{
+		{
+			name: "words and arguments",
+			typ:  myType{Words: []string{"decimal"}, Args: []string{"10", "2"}},
+			want: "decimal(10,2)",
+		},
+		{
+			name: "an unsigned type",
+			typ:  myType{Words: []string{"int"}, Unsigned: true},
+			want: "int unsigned",
+		},
+		{
+			name: "every attribute at once",
+			typ:  myType{Words: []string{"decimal"}, Args: []string{"10", "2"}, Unsigned: true, Zerofill: true},
+			want: "decimal(10,2) unsigned zerofill",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.typ.String(); got != tt.want {
+				t.Errorf("String() got = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCanonicalTypeName(t *testing.T) {
 	tests := []struct {
 		name      string

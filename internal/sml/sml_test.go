@@ -3,6 +3,7 @@ package sml
 import (
 	"bytes"
 	"flag"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -277,6 +278,138 @@ func TestFreezePane(t *testing.T) {
 					view.Selection, tt.activePan, tt.topLeftCell)
 			}
 		})
+	}
+}
+
+// TestSetFloatWritesAnErrorCellForNaNAndInfinity covers the one behaviour in
+// this package whose failure would reach a user as a file that will not open.
+//
+// SpreadsheetML has no numeric spelling for NaN or infinity. Without the guard
+// the writer would emit <v>NaN</v> in a numeric cell, Excel would report the
+// workbook as corrupt, and nothing upstream would have noticed: the byte
+// determinism check compares two identical broken files and passes, and every
+// other test in this package writes finite numbers.
+//
+// The assertions are made on the XML read back rather than on the cell struct,
+// because the t="e" attribute is the half that Excel reads and it is produced by
+// a different function from the one under test - which is also why that arm has
+// never run in a test either.
+func TestSetFloatWritesAnErrorCellForNaNAndInfinity(t *testing.T) {
+	wb := New()
+	style := wb.Style(Style{Font: Font{Bold: true}})
+	sh := wb.AddSheet("s")
+	sh.SetFloat(1, 1, math.NaN(), style)
+	sh.SetFloat(1, 2, math.Inf(1), style)
+	sh.SetFloat(1, 3, math.Inf(-1), style)
+	// The control: an ordinary float must still be a numeric cell, or the guard
+	// would be firing for everything.
+	sh.SetFloat(1, 4, 1.5, style)
+
+	cells := writeAndOpen(t, wb).sheet(t, 1).cells()
+	for _, ref := range []string{"A1", "A2", "A3"} {
+		c, ok := cells[ref]
+		if !ok {
+			t.Fatalf("cell %s is missing", ref)
+		}
+		if c.T != "e" || c.V != "#NUM!" {
+			t.Errorf("cell %s got = t=%q v=%q, want t=%q v=%q", ref, c.T, c.V, "e", "#NUM!")
+		}
+		if c.Is != nil {
+			t.Errorf("cell %s carries an inline string, want an error value", ref)
+		}
+		// The style survives the substitution. A cell that lost it would lose
+		// the border it draws inside a merged range, which is a visible defect
+		// in a document nobody would think to check for it.
+		if c.S != int(style) {
+			t.Errorf("cell %s style got = %v, want %v", ref, c.S, style)
+		}
+	}
+	if c := cells["A4"]; c.T != "" || c.V != "1.5" {
+		t.Errorf("cell A4 got = t=%q v=%q, want a numeric cell holding 1.5", c.T, c.V)
+	}
+}
+
+// TestFreezeClampsNegativeArguments pins the two clamps separately. A caller
+// computing a frozen row count from a header that turned out to be empty is how
+// a negative arrives, and the two axes are clamped by two independent
+// statements - a mixed call is the only input that shows both, because a
+// version that clamped only one axis would still produce no pane at all for
+// Freeze(-1, -2).
+func TestFreezeClampsNegativeArguments(t *testing.T) {
+	t.Run("both negative", func(t *testing.T) {
+		wb := New()
+		wb.AddSheet("s").Freeze(-1, -2)
+		if view := writeAndOpen(t, wb).sheet(t, 1).SheetViews.SheetView[0]; view.Pane != nil {
+			t.Errorf("pane emitted for a sheet frozen at negative offsets: %+v", view.Pane)
+		}
+	})
+
+	t.Run("one negative axis", func(t *testing.T) {
+		wb := New()
+		wb.AddSheet("s").Freeze(-1, 2)
+		view := writeAndOpen(t, wb).sheet(t, 1).SheetViews.SheetView[0]
+		if view.Pane == nil {
+			t.Fatal("no pane emitted")
+		}
+		if view.Pane.XSplit != 0 || view.Pane.YSplit != 2 {
+			t.Errorf("split = %v/%v, want 0/2", view.Pane.XSplit, view.Pane.YSplit)
+		}
+		if view.Pane.TopLeftCell != "A3" || view.Pane.ActivePane != "bottomLeft" {
+			t.Errorf("pane = %+v, want a rows-only freeze at A3", view.Pane)
+		}
+	})
+}
+
+// TestSheetNameReportsWhatWasAllocated covers an exported method whose entire
+// purpose is to tell the caller what it actually got. Two of these names
+// collide only after sanitising and one only after case folding, so a caller
+// that assumed AddSheet kept its argument would build a reference to a sheet
+// that does not exist - and internal/export/xlsx builds exactly that kind of
+// reference.
+func TestSheetNameReportsWhatWasAllocated(t *testing.T) {
+	wb := New()
+	var got []string
+	for _, name := range []string{"users", "USERS", "order/items"} {
+		got = append(got, wb.AddSheet(name).Name())
+	}
+	want := []string{"users", "USERS(2)", "order_items"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Name() = %v, want %v", got, want)
+	}
+
+	// What the method says and what the workbook part says must be the same
+	// string; a sheet whose Name() disagreed with the file would be worse than
+	// one that had no Name() at all.
+	var book rdWorkbook
+	writeAndOpen(t, wb).unmarshal(t, partWorkbook, &book)
+	var written []string
+	for _, s := range book.Sheets.Sheet {
+		written = append(written, s.Name)
+	}
+	if !slices.Equal(written, want) {
+		t.Errorf("workbook part names = %v, want %v", written, want)
+	}
+}
+
+// TestNormalizeRGBRejectsWhatIsNotHex holds the rejection half of the rule the
+// type documents. A colour that is not six or eight hexadecimal digits becomes
+// the empty string, which means "no colour" everywhere downstream, rather than
+// reaching the file as an attribute Excel cannot parse.
+func TestNormalizeRGBRejectsWhatIsNotHex(t *testing.T) {
+	tests := []struct {
+		in   RGB
+		want RGB
+	}{
+		{in: "ff0000", want: "FFFF0000"},
+		{in: "80FF0000", want: "80FF0000"},
+		{in: "GG0000", want: ""},
+		{in: "12345", want: ""},
+		{in: "", want: ""},
+	}
+	for _, tt := range tests {
+		if got := normalizeRGB(tt.in); got != tt.want {
+			t.Errorf("normalizeRGB(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 

@@ -43,6 +43,44 @@ func TestLexTokens(t *testing.T) {
 			want: []string{"string:a\nb\\c'dq"},
 		},
 		{
+			// The rest of the escape table, one row per byte it decodes. This
+			// matters more than its size suggests: PostgreSQL quotes any
+			// literal containing a backslash as E'...', and the only string
+			// values this importer reads are COMMENT ON text and the sequence
+			// name inside nextval(). A comment is what becomes logicalName and
+			// description, so a wrong decode here is mojibake in a design
+			// document with nothing else to show for it.
+			name: "the remaining escapes this lexer decodes",
+			src:  `E'a\tb\rc\bd\fe'`,
+			want: []string{"string:a\tb\rc\bd\fe"},
+		},
+		{
+			// A doubled apostrophe inside E'...' is a different arm from the
+			// doubled apostrophe inside '...' two rows above, and both
+			// spellings occur in the same dump.
+			name: "doubled apostrophe inside an escape string",
+			src:  `E'it''s'`,
+			want: []string{"string:it's"},
+		},
+		{
+			// lexEscapeString says hex, unicode and octal escapes are
+			// deliberately NOT decoded, and this is the row that keeps the
+			// decision from quietly becoming its opposite: the fall-through
+			// yields the escaped byte itself, so \x41 is the three characters
+			// x41 and not the letter A.
+			name: "an escape this lexer does not decode passes through",
+			src:  `E'\x41'`,
+			want: []string{"string:x41"},
+		},
+		{
+			// The case that brings the whole group into a real dump: a comment
+			// holding a Windows path comes back as an escape string, and its
+			// doubled backslash has to collapse to one.
+			name: "a doubled backslash is one backslash",
+			src:  `E'C:\\tmp'`,
+			want: []string{`string:C:\tmp`},
+		},
+		{
 			name: "untagged dollar quote",
 			src:  `$$body$$`,
 			want: []string{"string:body"},
@@ -125,6 +163,23 @@ func TestLexTokens(t *testing.T) {
 			name: "exponent stays in one number token",
 			src:  `1.5e3`,
 			want: []string{"number:1.5e3"},
+		},
+		{
+			// What these two rows pin is not the arithmetic but the token
+			// COUNT. A number that split into several tokens would put a punct
+			// in the middle of a DEFAULT expression, and exprText stops at
+			// punctuation, so the default recorded in the document would be
+			// truncated rather than wrong-looking. The negative half of the
+			// same claim is the "qualified name" row above: public.users is not
+			// a number, because the dot there is not followed by a digit.
+			name: "a number may begin with its decimal point",
+			src:  `.5`,
+			want: []string{"number:.5"},
+		},
+		{
+			name: "a signed exponent stays in one number token",
+			src:  `1.5e-3`,
+			want: []string{"number:1.5e-3"},
 		},
 		{
 			name: "empty input",
@@ -290,6 +345,17 @@ func TestLexErrors(t *testing.T) {
 			name:     "unterminated escape string",
 			src:      `E'abc\`,
 			wantLine: 1,
+			wantMsg:  "unterminated string literal",
+		},
+		{
+			// The row above ends on a backslash, which is caught while
+			// resolving the escape; this one runs out of input with nothing
+			// pending, which is the arm a file truncated mid-write reaches.
+			// Both report the line the literal OPENED on, not the last line of
+			// the file.
+			name:     "escape string that reaches the end of the input",
+			src:      "SELECT\nE'abc",
+			wantLine: 2,
 			wantMsg:  "unterminated string literal",
 		},
 		{

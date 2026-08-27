@@ -111,6 +111,108 @@ func TestIndexNamesMayNotRepeatAcrossTables(t *testing.T) {
 	}
 }
 
+// TestATableNameCollidesWithAnIndex is the mirror of the test above and reaches
+// the other arm of the same finding. Document order decides which: the walk
+// claims each object as it meets it, so declaring the INDEX first - on table a,
+// which comes first - makes the table the second claimant and the index the
+// prior one. Reverse the two and TestIndexNameCollidesWithATableName's arm
+// fires instead, with a message naming a table where this one names an index.
+func TestATableNameCollidesWithAnIndex(t *testing.T) {
+	doc := twoTablesSharing(t, func(a, b *model.Table) {
+		a.Indexes = []model.Index{{Name: "b", Columns: []string{"n"}}}
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, `is called "b", a name already used by index b on table a`) {
+		t.Errorf("finding = %v, want it to name the index that holds the name", got[0])
+	}
+}
+
+// TestAPrimaryKeyNameCollidesWithAnEarlierName covers the primary key's arm of
+// the same rule. PostgreSQL creates an index behind every PRIMARY KEY, in the
+// same namespace as the tables, so a key named after an existing table is a
+// refusal rather than a curiosity - and the message has to say what took the
+// name, because that is what tells the author which of the two to rename.
+func TestAPrimaryKeyNameCollidesWithAnEarlierName(t *testing.T) {
+	doc := twoTablesSharing(t, func(a, b *model.Table) {
+		b.PrimaryKey = &model.PrimaryKey{Name: a.Name, Columns: []string{"id"}}
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, `declares primary key "a", a name already used by table a`) {
+		t.Errorf("finding = %v, want it to name the table that holds the name", got[0])
+	}
+}
+
+// TestAUniqueKeyNameCollidesWithAnEarlierName covers the last of the three
+// arms. It collides with an INDEX rather than with a table on purpose: the
+// prior claimant is rendered into the message, so the two renderings - a table
+// and an index - are both worth seeing once, and this is the cheaper of the two
+// places to see the index form.
+func TestAUniqueKeyNameCollidesWithAnEarlierName(t *testing.T) {
+	doc := twoTablesSharing(t, func(a, b *model.Table) {
+		a.Indexes = []model.Index{{Name: "shared", Columns: []string{"n"}}}
+		b.UniqueKeys = []model.UniqueKey{{Name: "shared", Columns: []string{"n"}}}
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, `declares unique key "shared", a name already used by index shared on table a`) {
+		t.Errorf("finding = %v, want it to name the index that holds the name", got[0])
+	}
+}
+
+// TestOneNameCollisionIsReportedOnce holds the rule both dialects' walks keep a
+// set for: three objects sharing a name is one mistake to fix, not two
+// findings. Without it the author would rename the second and be told about the
+// third, and clearing one refusal would take as many runs as there are
+// duplicates.
+//
+// Both dialects are here because the two walks keep their own sets, in two
+// files, and neither would notice the other losing its.
+func TestOneNameCollisionIsReportedOnce(t *testing.T) {
+	t.Run("three tables of one name", func(t *testing.T) {
+		doc := twoTablesSharing(t, func(a, b *model.Table) { b.Name = a.Name })
+		third := doc.Tables[1]
+		// A distinct key name, so that the only thing repeated is the table
+		// name.
+		third.PrimaryKey = &model.PrimaryKey{Name: "pk_c", Columns: []string{"id"}}
+		doc.Tables = append(doc.Tables, third)
+
+		if got := Check(doc); len(got) != 1 {
+			t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+		}
+	})
+
+	t.Run("three foreign keys of one name under MySQL", func(t *testing.T) {
+		doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, b *model.Table) {
+			for _, tbl := range []*model.Table{a, b} {
+				tbl.ForeignKeys = []model.ForeignKey{{
+					Name:       "fk_parent",
+					Columns:    []string{"id"},
+					References: model.Reference{Table: "a", Columns: []string{"id"}},
+				}}
+			}
+		})
+		third := doc.Tables[1]
+		third.Name = "c"
+		third.PrimaryKey = &model.PrimaryKey{Name: "pk_c", Columns: []string{"id"}}
+		doc.Tables = append(doc.Tables, third)
+
+		if got := Check(doc); len(got) != 1 {
+			t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+		}
+	})
+}
+
 // TestUnnamedConstraintsDoNotCollide covers the case an empty name would break
 // if the walk claimed one: the schema leaves a primary key and a unique key
 // nameable, and PostgreSQL invents a name for those that have none.
