@@ -283,8 +283,16 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 			if err := p.skipBalancedParens(); err != nil {
 				return err
 			}
-			p.acceptWord("not")
-			p.acceptWord("enforced")
+			// NOT ENFORCED is one optional phrase, so it is read whole
+			// or not at all. Two independent accepts would take the NOT
+			// of a following NOT NULL for its head and leave the NULL to
+			// be read as an explicit one, costing the column its NOT NULL
+			// and warning about nothing. ENFORCED alone is legal and is
+			// still accepted; a lone NOT is not, so a NOT left here
+			// belongs to the NOT NULL the loop reads next.
+			if !p.acceptWords("not", "enforced") {
+				p.acceptWord("enforced")
+			}
 		case p.acceptWord("comment"):
 			text, err := p.stringValue("COMMENT")
 			if err != nil {
