@@ -473,6 +473,93 @@ func TestCheckConstraintIsWarnedAndDropped(t *testing.T) {
 	}
 }
 
+// TestAColumnCHECKReadsNotEnforcedWholeOrNotAtAll is the table of what MySQL
+// 8.0 accepts after a column CHECK, and of the one thing that separates the
+// rows: whether the column is still NOT NULL.
+//
+// NOT ENFORCED is ONE optional phrase, so it has to be read whole or not at
+// all. Read as two independent words, the NOT of a following NOT NULL is taken
+// for its head; the ENFORCED that never arrives leaves the NULL behind, the
+// explicit-NULL arm swallows it, and the column comes out nullable with no
+// warning anywhere. That is the whole defect, and the rows below reach it
+// through three different surrounding texts.
+//
+// Bare ENFORCED is legal SQL and has a row of its own, because reading the
+// phrase whole must not cost it. A lone NOT after a CHECK is a syntax error, so
+// a NOT there can only begin NOT ENFORCED or NOT NULL - which is why trying the
+// phrase whole and abandoning it leaves no third possibility unhandled.
+//
+// Every row warns about the check constraint, so the warning count cannot tell
+// a right answer from a wrong one. It is asserted all the same: it is what says
+// the column went through the CHECK arm at all, and without it a row could pin
+// the right nullability for a reason that has nothing to do with this arm. The
+// default is asserted for the same kind of reason - it is what says the arm
+// consumes the phrase and no more, which a fix that reached for skipElement
+// would fail.
+func TestAColumnCHECKReadsNotEnforcedWholeOrNotAtAll(t *testing.T) {
+	tests := []struct {
+		name        string
+		column      string
+		wantNotNull bool
+		wantDefault string
+	}{
+		{
+			name:        "NOT NULL after the CHECK",
+			column:      "`a` int CHECK ((`a` > 0)) NOT NULL",
+			wantNotNull: true,
+		},
+		{
+			name:        "ENFORCED and then NOT NULL",
+			column:      "`a` int CHECK ((`a` > 0)) ENFORCED NOT NULL",
+			wantNotNull: true,
+		},
+		{
+			name:        "NOT ENFORCED and then NOT NULL",
+			column:      "`a` int CHECK ((`a` > 0)) NOT ENFORCED NOT NULL",
+			wantNotNull: true,
+		},
+		{
+			name:        "NOT NULL before the CHECK",
+			column:      "`a` int NOT NULL CHECK ((`a` > 0))",
+			wantNotNull: true,
+		},
+		{
+			name:        "a CONSTRAINT symbol in front of the CHECK",
+			column:      "`a` int CONSTRAINT `sym` CHECK ((`a` > 0)) NOT NULL",
+			wantNotNull: true,
+		},
+		{
+			name:        "NOT NULL and a DEFAULT after the CHECK",
+			column:      "`a` int CHECK ((`a` > 0)) NOT NULL DEFAULT 5",
+			wantNotNull: true,
+			wantDefault: "5",
+		},
+		{
+			name:   "NOT ENFORCED and nothing after it",
+			column: "`a` int CHECK ((`a` > 0)) NOT ENFORCED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n  "+tt.column+"\n);")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings got = %v, want exactly 1 about the check constraint", messages(warnings))
+			}
+			cols := dump.Tables[0].Columns
+			if len(cols) != 1 {
+				t.Fatalf("columns got = %+v, want 1", cols)
+			}
+			if cols[0].NotNull != tt.wantNotNull {
+				t.Errorf("NOT NULL got = %v, want %v", cols[0].NotNull, tt.wantNotNull)
+			}
+			if cols[0].HasDefault != (tt.wantDefault != "") || cols[0].Default != tt.wantDefault {
+				t.Errorf("default got = %q (present = %v), want %q", cols[0].Default, cols[0].HasDefault, tt.wantDefault)
+			}
+		})
+	}
+}
+
 // TestFulltextKeyIsWarnedAndDropped and its spatial sibling assert the same
 // thing about two different keys: neither is an index over the columns the
 // document would name, so importing either as a plain index would describe
@@ -976,18 +1063,17 @@ func TestADefaultEndsWhereACharacterSetBegins(t *testing.T) {
 // column - a symbol that was not consumed would leave the parser reading the
 // rest of the column list from the wrong place.
 //
-// NOT NULL is written BEFORE the CHECK here, and that is not a stylistic
-// choice. Written after it - `int CHECK (a > 0) NOT NULL`, which MySQL accepts
-// - the NOT NULL is lost: the check arm ends with two independent accepts for
-// NOT and ENFORCED, so the NOT of a following NOT NULL is taken for the start
-// of NOT ENFORCED and the NULL left behind is read as an explicit NULL. The
-// column then comes out nullable with no warning. That is a defect rather than
-// a decision, so it is reported and left unpinned here: a test asserting either
-// answer would settle a behaviour question inside a change that only adds
-// tests.
+// NOT NULL is written AFTER the CHECK here, and that is not a stylistic
+// choice. That order was once the broken one: the arm ended with two
+// independent accepts for NOT and ENFORCED, so the NOT of a following NOT NULL
+// was taken for the start of NOT ENFORCED, the NULL left behind was read as an
+// explicit NULL, and the column came out nullable with no warning. The whole
+// table of what may follow a column CHECK is
+// TestAColumnCHECKReadsNotEnforcedWholeOrNotAtAll; the order is kept here so
+// that a symbol test cannot go on passing on the easy one.
 func TestAColumnCONSTRAINTSymbolIsConsumed(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
-		"  `a` int NOT NULL CONSTRAINT `sym` CHECK (`a` > 0),\n"+
+		"  `a` int CONSTRAINT `sym` CHECK (`a` > 0) NOT NULL,\n"+
 		"  `b` int NOT NULL\n);")
 	if len(warnings) != 1 {
 		t.Fatalf("warnings got = %v, want exactly 1", messages(warnings))
