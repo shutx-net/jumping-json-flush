@@ -96,6 +96,11 @@ func checkTable(t *model.Table, defined map[string]*model.Table, f *findingList)
 	if pk := t.PrimaryKey; pk != nil {
 		// A table has at most one primary key, so its label needs no position.
 		pkLabel := constraintLabel("primary key", pk.Name, 0, t.Name)
+		// This cannot fire: add reports a repeat, and the primary key is the
+		// first name to enter a set created empty just above. It is written
+		// anyway so the four rules here read as one rule applied four times,
+		// and so that reordering them makes it live rather than silently
+		// wrong. A name a unique key repeats is still reported, by its own add.
 		if constraintNames.add(pk.Name) {
 			f.addf(label, "declares more than one constraint or index called %q", pk.Name)
 		}
