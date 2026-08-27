@@ -165,15 +165,18 @@ func TestLexStrings(t *testing.T) {
 			// the letter f and so does this. The PostgreSQL package's table
 			// decodes the same bytes to a form feed, and the two are meant to
 			// differ - nothing is shared between them.
-			//
-			// The comment makes the same claim about \v, and that half is
-			// deliberately not a row here: the PostgreSQL lexer does not decode
-			// \v either, although PostgreSQL documents it, so the two files
-			// disagree about who owns that escape. A row asserting either
-			// answer would settle that by fiat.
 			name: "an escape that belongs to the other dialect",
 			src:  `'a\fb'`,
 			want: []string{"string:afb"},
+		},
+		{
+			// \v looks like the row above but is not: it is no server's
+			// escape, only C's. Both servers read it as the letter v, so
+			// this row and its twin in the PostgreSQL package agree, and
+			// neither table may grow a 'v' case.
+			name: "an escape that is neither dialect's",
+			src:  `'a\vb'`,
+			want: []string{"string:avb"},
 		},
 		{
 			name: "an unknown escape yields the escaped character",

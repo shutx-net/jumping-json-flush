@@ -73,6 +73,16 @@ func TestLexTokens(t *testing.T) {
 			want: []string{"string:x41"},
 		},
 		{
+			// \v is C's escape, not PostgreSQL's: the server reads E'\v'
+			// as the letter v, exactly as it reads \q above. \q pins the
+			// fall-through itself; this pins the one letter a reader is
+			// likeliest to think belongs in the switch, and the mysql
+			// package pins the same answer.
+			name: "a C escape PostgreSQL does not share",
+			src:  `E'a\vb'`,
+			want: []string{"string:avb"},
+		},
+		{
 			// The case that brings the whole group into a real dump: a comment
 			// holding a Windows path comes back as an escape string, and its
 			// doubled backslash has to collapse to one.
