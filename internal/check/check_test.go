@@ -403,8 +403,8 @@ func TestDocument(t *testing.T) {
 			// prior claimant a second constraint can find - and the identical
 			// branch guarding the primary key itself can therefore never
 			// report, because the set is empty when its own name goes in. That
-			// branch is left alone here rather than tested or deleted: this
-			// change adds tests and does not decide what to do about dead code.
+			// branch is kept for the symmetry of the four rules, and check.go
+			// says so where it stands.
 			name: "a primary key and a unique key sharing a name",
 			doc: document(model.Table{
 				Name: "customers", LogicalName: "顧客",
