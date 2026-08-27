@@ -510,9 +510,9 @@ func (l *lexer) lexString(quote byte) (token, error) {
 // unescape resolves one backslash escape. Anything unknown yields the escaped
 // byte itself, which is what MySQL does too.
 //
-// \0 and \Z are MySQL's and have no PostgreSQL counterpart; \f and \v are
-// PostgreSQL's and have no MySQL one, so they are absent here and a "\f" is a
-// literal 'f' exactly as the server would read it.
+// \0 and \Z are MySQL's own; \f is PostgreSQL's and MySQL has none, so it is
+// absent here and a "\f" is a literal 'f' exactly as the server would read it.
+// C's table is not a guide: \v and \a are the letters v and a to both servers.
 func unescape(c byte) byte {
 	switch c {
 	case 'n':
