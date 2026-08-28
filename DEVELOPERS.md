@@ -227,13 +227,15 @@ direnv.
   reason it does not use a `services:` container: a service gives the server and
   leaves the client to the runner image, and the client is what decides the dump's
   shape. Three things turn it red. The regenerated dump no longer imports to its
-  golden, or its text changed in something other than the two banner lines
-  (`-- MySQL dump ... Distrib` and `-- Server version`, which move only when the
-  server does) — regenerate locally and commit the result. Or the round trip's
-  second pass is not the first, or the generated DDL did not apply at all — read
-  the `roundtrip-mysql<series>` artifact. Note that the committed captures were
+  golden, or its text changed in something other than the three lines that
+  describe the dump rather than the schema (`-- MySQL dump ... Distrib` and
+  `-- Server version`, which move only when the server does, and `-- Host: `,
+  which says whether the dump was taken over a socket or over TCP) — regenerate
+  locally and commit the result. Or the round trip's second pass is not the
+  first, or the generated DDL did not apply at all — read the
+  `roundtrip-mysql<series>` artifact. Note that the committed captures were
   taken with Ubuntu's `mysql-server` package and the workflow dumps with Oracle's
-  container image; both are 8.0, their versions show only in those two ignored
+  container image; both are 8.0, their versions show only in those ignored
   lines, and anything else that differs is the news this job exists to deliver.
   There is deliberately **no** upstream-series job: the PostgreSQL one is a single
   `apt-cache` command, while the MySQL equivalent means enumerating Docker Hub
