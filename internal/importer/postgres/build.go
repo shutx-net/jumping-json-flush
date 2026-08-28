@@ -195,6 +195,9 @@ func buildColumn(table string, pc pgColumn, d *diagList) (model.Column, error) {
 	if err != nil {
 		return model.Column{}, err
 	}
+	// A serial pseudo-type and an inline IDENTITY both say so outright; the
+	// other two sources are resolved further down.
+	identity := ct.AutoIncrement || pc.Identity
 	return model.Column{
 		Name:        pc.Name,
 		LogicalName: pc.Name, // replaced by a COMMENT ON, if the dump has one
@@ -202,10 +205,18 @@ func buildColumn(table string, pc pgColumn, d *diagList) (model.Column, error) {
 		Length:      ct.Length,
 		Precision:   ct.Precision,
 		Scale:       ct.Scale,
-		Nullable:    !pc.NotNull,
-		// A serial pseudo-type and an inline IDENTITY both say so outright; the
-		// other two sources are resolved further down.
-		AutoIncrement: ct.AutoIncrement || pc.Identity,
+		// PostgreSQL has no nullable identity column: 16.13 sets attnotnull for
+		// both of the spellings above whether or not the statement said so. A
+		// dump written by pg_dump always says it, so this only shows on a
+		// hand-written file - and there it decided whether the document jjf
+		// wrote was one internal/export/ddl would take back, because its P3
+		// precondition refuses an autoIncrement column declared nullable.
+		//
+		// The rule is about IDENTITY and not about autoIncrement. A nextval()
+		// default is recorded as autoIncrement too, and 16.13 leaves such a
+		// column nullable, so applyDefaults must not reach this way.
+		Nullable:      !pc.NotNull && !identity,
+		AutoIncrement: identity,
 	}, nil
 }
 
@@ -354,6 +365,12 @@ func applyIdentities(dump *pgDump, idx *tableIndex, target string, d *diagList) 
 			continue
 		}
 		col.AutoIncrement = true
+		// Same rule as buildColumn's, for the third of the four sources.
+		// PostgreSQL refuses this statement outright unless the column is
+		// already NOT NULL - "column ... must be declared NOT NULL before
+		// identity can be added" - so there is no state of the database in
+		// which this column is nullable.
+		col.Nullable = false
 	}
 }
 

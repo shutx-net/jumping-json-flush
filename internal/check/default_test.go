@@ -62,6 +62,13 @@ func TestColumnDefaultAccepts(t *testing.T) {
 		// An operator between two literals, which contains no word at all.
 		"'a' || 'b'",
 
+		// Radix literals. mysqldump writes the hexadecimal one for any default
+		// it cannot spell in the connection charset - an emoji, most often -
+		// so this is a value the importer really produces. PostgreSQL 16.13
+		// reads all three and MySQL 8.0.46 the first two; the check only has
+		// to stop calling the tail of one a bare word.
+		"0xF09F8DA3", "0x1f", "0X1F", "0b1010", "0B1010", "0o17", "0O17",
+
 		// A comment introducer and a statement terminator inside a string
 		// literal are ordinary text. '#ff0000' is the everyday one: a colour
 		// is a perfectly good default and starts with the byte MySQL reads as

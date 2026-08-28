@@ -418,6 +418,9 @@ func scanEscaped(s string, i int) (int, bool) {
 // be a finding about a perfectly good default. A '.' only starts or extends a
 // number when a digit follows it, which is what keeps public.users out.
 func scanNumber(s string, i int) int {
+	if end, ok := scanRadix(s, i); ok {
+		return end
+	}
 	leadingDot := s[i] == '.'
 	if leadingDot {
 		i++
@@ -437,6 +440,56 @@ func scanNumber(s string, i int) int {
 	}
 	return i
 }
+
+// scanRadix reads a hexadecimal, binary or octal literal starting at i and
+// reports whether there was one.
+//
+// mysqldump writes the hexadecimal form for any default it cannot spell in the
+// connection charset - an emoji is the everyday way to meet one - so
+// "DEFAULT 0xF09F8DA3" is a value the importer really produces. Without this,
+// the scan split it into the number 0 and the word xF09F8DA3, and the word was
+// reported as a bare word: jjf warning about a document jjf had just written,
+// and internal/export/ddl refusing it. Worse, the fix the message suggested -
+// quoting the word - would have stored the text instead of the emoji.
+//
+// PostgreSQL 16.13 reads all three prefixes and MySQL 8.0.46 the first two, so
+// like keywordConstants this only ever widens what passes. A prefix with no
+// digit after it is not a literal and is left to the ordinary number rule,
+// which is what keeps "0x" alone reportable.
+func scanRadix(s string, i int) (int, bool) {
+	if s[i] != '0' || i+2 >= len(s) {
+		return 0, false
+	}
+	var valid func(byte) bool
+	switch s[i+1] {
+	case 'x', 'X':
+		valid = isHexDigit
+	case 'b', 'B':
+		valid = isBinaryDigit
+	case 'o', 'O':
+		valid = isOctalDigit
+	default:
+		return 0, false
+	}
+	end := i + 2
+	for end < len(s) && valid(s[end]) {
+		end++
+	}
+	if end == i+2 {
+		return 0, false
+	}
+	return end, true
+}
+
+// isHexDigit, isBinaryDigit and isOctalDigit report whether c may appear in a
+// literal of that radix.
+func isHexDigit(c byte) bool {
+	return isExprDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+func isBinaryDigit(c byte) bool { return c == '0' || c == '1' }
+
+func isOctalDigit(c byte) bool { return c >= '0' && c <= '7' }
 
 // skipDigits returns the index of the first byte at or after i that is not a
 // digit.
