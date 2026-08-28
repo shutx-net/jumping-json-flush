@@ -410,6 +410,72 @@ func pgInfixTimePrecision(name string, c *model.Column) string {
 // Preconditions
 // ---------------------------------------------------------------------------
 
+// pgIdentifierLimit is P4: what PostgreSQL does with a name longer than it
+// stores.
+//
+// The measurement is in BYTES because NAMEDATALEN is, and 63 rather than 64
+// because the length includes the terminating NUL. The schema's identifier
+// pattern allows 128 characters, so this is reachable from a document jjf
+// validate calls clean.
+//
+// It is the only silent divergence in this file, and it is silent twice over.
+// PostgreSQL truncates rather than refusing, and says so as a NOTICE that psql
+// prints and no exit status carries: a document naming one object gets an
+// object of a name it never wrote, and only two names that agree in their first
+// 63 bytes turn it into an error - "already exists", against a name neither
+// table declared. Everything else this file refuses fails loudly, which is what
+// the Preconditions section of design/ddl-export.md says of PostgreSQL and what
+// this one precondition is the exception to.
+func pgIdentifierLimit() identifierLimit {
+	return identifierLimit{
+		max:     63,
+		unit:    "bytes",
+		measure: func(s string) int { return len(s) },
+		clause:  "PostgreSQL truncates an identifier to 63 bytes, so the object it creates would not be the one this document names",
+	}
+}
+
+// pgNulClause is P5: why a comment carrying U+0000 is refused rather than
+// written.
+//
+// PostgreSQL's text types cannot represent that byte at all, so the COMMENT
+// statement is not merely wrong but unparseable - psql answers it with
+// "unterminated quoted string". Choice 9 is what makes that worth refusing
+// ahead of time rather than leaving to the database: phase 4 runs last, so the
+// script would fail with every table already created, which is the half-applied
+// state all-or-nothing exists to prevent.
+const pgNulClause = "PostgreSQL cannot store that character in text at all, so the COMMENT statement would be rejected with every table already created"
+
+// pgIdentityType reports whether PostgreSQL will make an identity column of the
+// type called name, which has already been upper-cased.
+//
+// P6, and the one PRECONDITION in this file that reads a type name - the
+// renderers above read them too, and pass them through. It is a list of
+// what is ACCEPTED rather than of what is refused, which is the shape choice 5
+// warns against and is safe here for a reason that was measured rather than
+// assumed: PostgreSQL admits smallint, integer and bigint and nothing else, and
+// it refuses even a DOMAIN over integer. There is therefore no user-defined
+// type this list could wrongly refuse, which is the risk that makes a whitelist
+// the wrong shape everywhere else.
+//
+// Both spellings of each type, because the document may carry either: pg_dump
+// writes the long ones, and a hand-written document may say int4. SERIAL is
+// absent deliberately - it is not an identity type but a macro for one plus a
+// DEFAULT, and PostgreSQL answers a SERIAL identity column with "both default
+// and identity specified".
+//
+// A slice and a loop, not a map, for the reason internal/check's
+// keywordConstants gives: seven entries are not worth handing any part of this
+// package's behaviour to Go's map iteration.
+func pgIdentityType(name string) bool {
+	for _, t := range []string{"SMALLINT", "INT2", "INTEGER", "INT", "INT4", "BIGINT", "INT8"} {
+		if name == t {
+			return true
+		}
+	}
+	return false
+}
+
 // pgCheck reports the preconditions that are statements about PostgreSQL
 // rather than about the document, in document order.
 //
@@ -471,6 +537,15 @@ func pgCheck(doc *model.Document) []check.Finding {
 		t := &doc.Tables[i]
 		label := tableLabel(t.Name)
 
+		// P4 and P5, before anything about what the names mean: a name the
+		// database will not take, and text no string literal can carry.
+		findings = append(findings, identifierFindings(t, pgIdentifierLimit())...)
+		for _, o := range tableComments(t) {
+			if f, bad := nulFinding(o, pgNulClause); bad {
+				findings = append(findings, f)
+			}
+		}
+
 		// P1 - a table name is in the namespace too. internal/check
 		// deliberately does not report duplicate table names, so without this
 		// a document naming two tables "orders" would emit CREATE TABLE twice
@@ -495,6 +570,18 @@ func pgCheck(doc *model.Document) []check.Finding {
 		for j := range t.Columns {
 			c := &t.Columns[j]
 			if !c.AutoIncrement {
+				continue
+			}
+			// P6 - the type rule, first of the three. A type PostgreSQL will
+			// not make an identity column of at all is the whole problem with
+			// the column, and telling its author to also drop the default
+			// would be telling them to fix something they may be about to
+			// keep.
+			if !pgIdentityType(upperASCII(c.Type)) {
+				findings = append(findings, check.Finding{
+					Where:   columnLabel(c.Name, t.Name),
+					Message: fmt.Sprintf("is autoIncrement and declares type %q; PostgreSQL makes an identity column only of smallint, integer or bigint", c.Type),
+				})
 				continue
 			}
 			// P2 - PostgreSQL refuses "both default and identity specified

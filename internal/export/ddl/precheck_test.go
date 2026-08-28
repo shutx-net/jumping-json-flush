@@ -289,6 +289,233 @@ func TestIdentityColumnPreconditions(t *testing.T) {
 	}
 }
 
+// TestIdentityColumnTypes pins the one type rule PostgreSQL has for an identity
+// column. Every type name below was run against PostgreSQL 16 first: the seven
+// that pass are the three integer types under both their spellings, and a
+// domain over integer is refused too, which is what makes a list of accepted
+// names safe rather than a guess about a type jjf has never seen.
+func TestIdentityColumnTypes(t *testing.T) {
+	tests := []struct {
+		typeName string
+		refused  bool
+	}{
+		{typeName: "SMALLINT"},
+		{typeName: "INT2"},
+		{typeName: "INTEGER"},
+		{typeName: "INT"},
+		{typeName: "int4"},
+		{typeName: "BIGINT"},
+		{typeName: "INT8"},
+		{typeName: "NUMERIC", refused: true},
+		{typeName: "REAL", refused: true},
+		{typeName: "DOUBLE PRECISION", refused: true},
+		{typeName: "VARCHAR", refused: true},
+		{typeName: "BOOLEAN", refused: true},
+		{typeName: "SERIAL", refused: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typeName, func(t *testing.T) {
+			doc := twoTablesSharing(t, func(a, _ *model.Table) {
+				a.Columns[1].AutoIncrement = true
+				a.Columns[1].Type = tt.typeName
+			})
+			got := Check(doc)
+			if !tt.refused {
+				if len(got) != 0 {
+					t.Fatalf("Check refused %q: %v", tt.typeName, got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s) for %q, want 1: %v", len(got), tt.typeName, got)
+			}
+			if !strings.Contains(got[0].Message, "smallint, integer or bigint") {
+				t.Errorf("finding = %v, want it to name the three types", got[0])
+			}
+			if got[0].Where != "column n on table a" {
+				t.Errorf("finding is about %q, want the column", got[0].Where)
+			}
+		})
+	}
+}
+
+// TestIdentityTypeIsReportedBeforeTheOtherIdentityRules pins the order of the
+// three: a type PostgreSQL will not auto-increment at all is the whole problem
+// with the column, and telling its author to also drop the default would be
+// telling them to fix something they may be about to keep.
+func TestIdentityTypeIsReportedBeforeTheOtherIdentityRules(t *testing.T) {
+	doc := twoTablesSharing(t, func(a, _ *model.Table) {
+		a.Columns[1].AutoIncrement, a.Columns[1].Nullable = true, true
+		a.Columns[1].Default = strp("1")
+		a.Columns[1].Type = "VARCHAR"
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if !strings.Contains(got[0].Message, "smallint, integer or bigint") {
+		t.Errorf("finding = %v, want the type rule to win", got[0])
+	}
+}
+
+// TestPostgreSQLRefusesAnOverLongIdentifier pins the one silent divergence in
+// this list. PostgreSQL truncates an identifier to 63 bytes and says so only as
+// a NOTICE, so a document naming one object gets an object of another name and
+// nothing fails; two objects whose first 63 bytes agree collide instead. The
+// schema's identifier pattern allows 128 characters, so both are reachable from
+// a document jjf validate calls clean.
+func TestPostgreSQLRefusesAnOverLongIdentifier(t *testing.T) {
+	const limit = 63
+	fits, over := strings.Repeat("a", limit), strings.Repeat("a", limit+1)
+
+	tests := []struct {
+		name   string
+		mutate func(*model.Table)
+		where  string
+		names  string
+	}{
+		{
+			name:   "a table name",
+			mutate: func(t *model.Table) { t.Name = over },
+			where:  "table " + over,
+		},
+		{
+			name:   "a column name",
+			mutate: func(t *model.Table) { t.Columns[1].Name = over },
+			where:  "column " + over + " on table a",
+		},
+		{
+			name:   "a primary key name",
+			mutate: func(t *model.Table) { t.PrimaryKey.Name = over },
+			where:  "table a",
+			names:  "primary key",
+		},
+		{
+			name: "a unique key name",
+			mutate: func(t *model.Table) {
+				t.UniqueKeys = []model.UniqueKey{{Name: over, Columns: []string{"n"}}}
+			},
+			where: "table a",
+			names: "unique key",
+		},
+		{
+			name: "an index name",
+			mutate: func(t *model.Table) {
+				t.Indexes = []model.Index{{Name: over, Columns: []string{"n"}}}
+			},
+			where: "table a",
+			names: "index",
+		},
+		{
+			name: "a foreign key name",
+			mutate: func(t *model.Table) {
+				t.ForeignKeys = []model.ForeignKey{{
+					Name:       over,
+					Columns:    []string{"n"},
+					References: model.Reference{Table: "b", Columns: []string{"id"}},
+				}}
+				t.Columns[1].Type = "BIGINT"
+			},
+			where: "table a",
+			names: "foreign key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := twoTablesSharing(t, func(a, _ *model.Table) { tt.mutate(a) })
+			got := Check(doc)
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != tt.where {
+				t.Errorf("finding is about %q, want %q", got[0].Where, tt.where)
+			}
+			if !strings.Contains(got[0].Message, "63 bytes") {
+				t.Errorf("finding = %v, want it to name the limit", got[0])
+			}
+			if tt.names != "" && !strings.Contains(got[0].Message, tt.names) {
+				t.Errorf("finding = %v, want it to name the %s", got[0], tt.names)
+			}
+		})
+	}
+
+	t.Run("a name of exactly 63 bytes", func(t *testing.T) {
+		doc := twoTablesSharing(t, func(a, _ *model.Table) { a.Name = fits })
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused a name of %d bytes: %v", limit, got)
+		}
+	})
+}
+
+// TestPostgreSQLRefusesANulInCommentText pins the one character no SQL string
+// literal can carry. logicalName and description have a maxLength and no
+// pattern, so U+0000 is a value jjf validate accepts; PostgreSQL's text types
+// cannot hold it at all, and choice 9's all-or-nothing promise is what the
+// refusal keeps - psql stops at the COMMENT statement with the tables already
+// created.
+func TestPostgreSQLRefusesANulInCommentText(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*model.Table)
+		where  string
+		field  string
+	}{
+		{
+			name:   "a table logicalName",
+			mutate: func(t *model.Table) { t.LogicalName = "a\x00b" },
+			where:  "table a",
+			field:  "logicalName",
+		},
+		{
+			name:   "a table description",
+			mutate: func(t *model.Table) { t.Description = "a\x00b" },
+			where:  "table a",
+			field:  "description",
+		},
+		{
+			name:   "a column logicalName",
+			mutate: func(t *model.Table) { t.Columns[1].LogicalName = "a\x00b" },
+			where:  "column n on table a",
+			field:  "logicalName",
+		},
+		{
+			name:   "a column description",
+			mutate: func(t *model.Table) { t.Columns[1].Description = "a\x00b" },
+			where:  "column n on table a",
+			field:  "description",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := twoTablesSharing(t, func(a, _ *model.Table) { tt.mutate(a) })
+			got := Check(doc)
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != tt.where {
+				t.Errorf("finding is about %q, want %q", got[0].Where, tt.where)
+			}
+			if !strings.Contains(got[0].Message, tt.field) {
+				t.Errorf("finding = %v, want it to name %s", got[0], tt.field)
+			}
+			if !strings.Contains(got[0].Message, "U+0000") {
+				t.Errorf("finding = %v, want it to name the character", got[0])
+			}
+		})
+	}
+
+	t.Run("another control character is left alone", func(t *testing.T) {
+		doc := twoTablesSharing(t, func(a, _ *model.Table) { a.Description = "a\x01b" })
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused U+0001, which PostgreSQL stores: %v", got)
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // The dbms guard
 // ---------------------------------------------------------------------------
@@ -983,4 +1210,437 @@ func TestMySQLNamespacesDoNotBleedIntoEachOther(t *testing.T) {
 	if !strings.Contains(got[0].Message, "foreign key") {
 		t.Errorf("finding = %v, want the foreign key collision rather than a table one", got[0])
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The MySQL limits
+// ---------------------------------------------------------------------------
+
+// TestMySQLRefusesAnOverLongIdentifier pins MySQL's answer to the same schema
+// allowance PostgreSQL truncates silently: 65 characters is ERROR 1059, so the
+// script fails at the statement rather than creating an object of another name.
+func TestMySQLRefusesAnOverLongIdentifier(t *testing.T) {
+	const limit = 64
+	fits, over := strings.Repeat("a", limit), strings.Repeat("a", limit+1)
+
+	tests := []struct {
+		name   string
+		mutate func(*model.Table)
+		where  string
+		names  string
+	}{
+		{
+			name:   "a table name",
+			mutate: func(t *model.Table) { t.Name = over },
+			where:  "table " + over,
+		},
+		{
+			name:   "a column name",
+			mutate: func(t *model.Table) { t.Columns[1].Name = over },
+			where:  "column " + over + " on table a",
+		},
+		{
+			name:   "a primary key name",
+			mutate: func(t *model.Table) { t.PrimaryKey.Name = over },
+			where:  "table a",
+			names:  "primary key",
+		},
+		{
+			name: "an index name",
+			mutate: func(t *model.Table) {
+				t.Indexes = []model.Index{{Name: over, Columns: []string{"n"}}}
+			},
+			where: "table a",
+			names: "index",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) { tt.mutate(a) })
+			got := Check(doc)
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != tt.where {
+				t.Errorf("finding is about %q, want %q", got[0].Where, tt.where)
+			}
+			if !strings.Contains(got[0].Message, "64 characters") {
+				t.Errorf("finding = %v, want it to name the limit", got[0])
+			}
+			if tt.names != "" && !strings.Contains(got[0].Message, tt.names) {
+				t.Errorf("finding = %v, want it to name the %s", got[0], tt.names)
+			}
+		})
+	}
+
+	t.Run("a name of exactly 64 characters", func(t *testing.T) {
+		doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) { a.Name = fits })
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused a name of %d characters: %v", limit, got)
+		}
+	})
+}
+
+// TestMySQLRefusesAnOverLongComment pins the two comment limits and the reason
+// the count is not the length of either field: M4 joins logicalName and
+// description into one COMMENT, so a document under the schema's own maxLength
+// on both can still exceed what MySQL stores.
+func TestMySQLRefusesAnOverLongComment(t *testing.T) {
+	tests := []struct {
+		name   string
+		limit  int
+		mutate func(*model.Table, string)
+		where  string
+		says   string
+	}{
+		{
+			name:   "a column comment",
+			limit:  1024,
+			mutate: func(t *model.Table, s string) { t.Columns[1].Description = s },
+			where:  "column n on table a",
+			says:   "1024 characters on a column",
+		},
+		{
+			name:   "a table comment",
+			limit:  2048,
+			mutate: func(t *model.Table, s string) { t.Description = s },
+			where:  "table a",
+			says:   "2048 characters on a table",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The logical name is one character and the newline M4 joins with
+			// is another, so a description of limit-1 is the first that does
+			// not fit.
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				tt.mutate(a, strings.Repeat("x", tt.limit-1))
+			})
+			got := Check(doc)
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != tt.where {
+				t.Errorf("finding is about %q, want %q", got[0].Where, tt.where)
+			}
+			if !strings.Contains(got[0].Message, tt.says) {
+				t.Errorf("finding = %v, want it to say %q", got[0], tt.says)
+			}
+
+			fits := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				tt.mutate(a, strings.Repeat("x", tt.limit-2))
+			})
+			if got := Check(fits); len(got) != 0 {
+				t.Fatalf("Check refused a comment of exactly %d characters: %v", tt.limit, got)
+			}
+		})
+
+		t.Run(tt.name+" is counted in characters", func(t *testing.T) {
+			// MySQL counts what it stores in characters and not in bytes: a
+			// comment of limit multibyte characters is three times the limit in
+			// bytes and is stored without complaint.
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				tt.mutate(a, strings.Repeat("あ", tt.limit-2))
+			})
+			if got := Check(doc); len(got) != 0 {
+				t.Fatalf("Check counted bytes rather than characters: %v", got)
+			}
+		})
+	}
+}
+
+// TestMySQLRefusesANulInCommentText is PostgreSQL's rule against a different
+// wall: MySQL's own text types hold U+0000 quite happily, and it is the client
+// that refuses to send a statement containing one.
+func TestMySQLRefusesANulInCommentText(t *testing.T) {
+	doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+		a.Columns[1].Description = "a\x00b"
+	})
+
+	got := Check(doc)
+	if len(got) != 1 {
+		t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+	}
+	if got[0].Where != "column n on table a" {
+		t.Errorf("finding is about %q, want the column", got[0].Where)
+	}
+	if !strings.Contains(got[0].Message, "U+0000") || !strings.Contains(got[0].Message, "description") {
+		t.Errorf("finding = %v, want it to name the character and the field", got[0])
+	}
+}
+
+// TestMySQLAutoIncrementTypes pins which types MySQL will auto-increment. Every
+// name below was run against MySQL 8.0 first, and the surprises are why the
+// list is not PostgreSQL's: FLOAT, DOUBLE and BOOLEAN are all accepted, and
+// DECIMAL is not.
+func TestMySQLAutoIncrementTypes(t *testing.T) {
+	tests := []struct {
+		typeName string
+		refused  bool
+	}{
+		{typeName: "TINYINT"},
+		{typeName: "SMALLINT"},
+		{typeName: "MEDIUMINT"},
+		{typeName: "INT"},
+		{typeName: "INTEGER"},
+		{typeName: "BIGINT"},
+		{typeName: "BIGINT UNSIGNED"},
+		{typeName: "int8"},
+		{typeName: "BOOLEAN"},
+		{typeName: "FLOAT"},
+		{typeName: "DOUBLE"},
+		{typeName: "REAL"},
+		{typeName: "DOUBLE PRECISION"},
+		{typeName: "SERIAL"},
+		{typeName: "DECIMAL", refused: true},
+		{typeName: "NUMERIC", refused: true},
+		{typeName: "VARCHAR", refused: true},
+		{typeName: "DATE", refused: true},
+		{typeName: "YEAR", refused: true},
+		{typeName: "BIT", refused: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typeName, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				a.Columns[0].AutoIncrement = true
+				a.Columns[0].Type = tt.typeName
+			})
+			got := Check(doc)
+			if !tt.refused {
+				if len(got) != 0 {
+					t.Fatalf("Check refused %q: %v", tt.typeName, got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s) for %q, want 1: %v", len(got), tt.typeName, got)
+			}
+			if !strings.Contains(got[0].Message, "integer and floating-point") {
+				t.Errorf("finding = %v, want it to name the two families", got[0])
+			}
+			if got[0].Where != "column id on table a" {
+				t.Errorf("finding is about %q, want the column", got[0].Where)
+			}
+		})
+	}
+}
+
+// TestMySQLAutoIncrementTypeIsReportedSecond pins where the type rule sits
+// among M3's others. A second AUTO_INCREMENT column comes first because that
+// column's AUTO_INCREMENT is going away whatever its type is; everything after
+// the type is moot until the type can carry one at all.
+func TestMySQLAutoIncrementTypeIsReportedSecond(t *testing.T) {
+	t.Run("after a second autoIncrement column", func(t *testing.T) {
+		doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+			a.Columns[0].AutoIncrement = true
+			a.Columns[1].AutoIncrement, a.Columns[1].Type = true, "VARCHAR"
+			a.Columns[1].Length = new(int)
+			*a.Columns[1].Length = 10
+		})
+		got := Check(doc)
+		if len(got) != 1 {
+			t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+		}
+		if !strings.Contains(got[0].Message, "one AUTO_INCREMENT column per table") {
+			t.Errorf("finding = %v, want the second-column rule to win", got[0])
+		}
+	})
+
+	t.Run("before the default, nullable and key rules", func(t *testing.T) {
+		doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+			a.Columns[1].AutoIncrement, a.Columns[1].Nullable = true, true
+			a.Columns[1].Default, a.Columns[1].Type = strp("1"), "DATE"
+		})
+		got := Check(doc)
+		if len(got) != 1 {
+			t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+		}
+		if !strings.Contains(got[0].Message, "integer and floating-point") {
+			t.Errorf("finding = %v, want the type rule to win", got[0])
+		}
+	})
+}
+
+// TestMySQLRefusesADefaultOnATextColumn pins ERROR 1101 and the one shape that
+// escapes it. A parenthesised expression default is legal on all four families
+// since 8.0.13 and is what mysqldump writes back, so refusing every default
+// would break the round trip by construction.
+func TestMySQLRefusesADefaultOnATextColumn(t *testing.T) {
+	tests := []struct {
+		typeName string
+		def      string
+		refused  bool
+	}{
+		{typeName: "TEXT", def: "'x'", refused: true},
+		{typeName: "TINYTEXT", def: "'x'", refused: true},
+		{typeName: "MEDIUMTEXT", def: "'x'", refused: true},
+		{typeName: "LONGTEXT", def: "'x'", refused: true},
+		{typeName: "BLOB", def: "'x'", refused: true},
+		{typeName: "LONGBLOB", def: "'x'", refused: true},
+		{typeName: "JSON", def: "'{}'", refused: true},
+		{typeName: "GEOMETRY", def: "'x'", refused: true},
+		{typeName: "POINT", def: "'x'", refused: true},
+		{typeName: "text", def: "'x'", refused: true},
+		{typeName: "TEXT", def: "(_utf8mb4'x')"},
+		{typeName: "JSON", def: "(json_object())"},
+		{typeName: "VARCHAR", def: "'x'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typeName+" "+tt.def, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				a.Columns[1].Type, a.Columns[1].Default = tt.typeName, strp(tt.def)
+				if tt.typeName == "VARCHAR" {
+					a.Columns[1].Length = new(int)
+					*a.Columns[1].Length = 10
+				}
+			})
+			got := Check(doc)
+			if !tt.refused {
+				if len(got) != 0 {
+					t.Fatalf("Check refused %s DEFAULT %s: %v", tt.typeName, tt.def, got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != "column n on table a" {
+				t.Errorf("finding is about %q, want the column", got[0].Where)
+			}
+			if !strings.Contains(got[0].Message, "parenthes") {
+				t.Errorf("finding = %v, want it to name the shape that works", got[0])
+			}
+		})
+	}
+}
+
+// TestMySQLRefusesABareWordItsDefaultGrammarRejects pins the narrowest rule in
+// this file. internal/check's C8d already lets exactly sixteen bare words
+// through; MySQL's unparenthesised DEFAULT takes seven of them and answers the
+// rest with ERROR 1064, so this rule is that subtraction and nothing more.
+func TestMySQLRefusesABareWordItsDefaultGrammarRejects(t *testing.T) {
+	tests := []struct {
+		def     string
+		refused bool
+	}{
+		{def: "CURRENT_TIMESTAMP"},
+		{def: "current_timestamp"},
+		{def: "CURRENT_TIMESTAMP(3)"},
+		{def: "LOCALTIME"},
+		{def: "LOCALTIMESTAMP"},
+		{def: "NOW()"},
+		{def: "TRUE"},
+		{def: "FALSE"},
+		{def: "NULL"},
+		{def: "'x'"},
+		{def: "-1"},
+		{def: "0x41"},
+		{def: "(CURRENT_DATE)"},
+		{def: "(curdate())"},
+		{def: "CURRENT_DATE", refused: true},
+		{def: "current_date", refused: true},
+		{def: "CURRENT_TIME", refused: true},
+		{def: "CURRENT_USER", refused: true},
+		{def: "SESSION_USER", refused: true},
+		{def: "CURRENT_ROLE", refused: true},
+		{def: "CURRENT_CATALOG", refused: true},
+		{def: "CURRENT_SCHEMA", refused: true},
+		{def: "USER", refused: true},
+		{def: "SYSDATE", refused: true},
+		{def: "SYSTIMESTAMP", refused: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.def, func(t *testing.T) {
+			doc := twoTablesSharingFor(t, model.DBMSMySQL, func(a, _ *model.Table) {
+				a.Columns[1].Type, a.Columns[1].Default = "DATETIME", strp(tt.def)
+			})
+			got := Check(doc)
+			if !tt.refused {
+				if len(got) != 0 {
+					t.Fatalf("Check refused DEFAULT %s: %v", tt.def, got)
+				}
+				return
+			}
+			if len(got) != 1 {
+				t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+			}
+			if got[0].Where != "column n on table a" {
+				t.Errorf("finding is about %q, want the column", got[0].Where)
+			}
+			if !strings.Contains(got[0].Message, "("+tt.def+")") {
+				t.Errorf("finding = %v, want it to show the parenthesised form", got[0])
+			}
+		})
+	}
+}
+
+// TestMySQLRefusesAForeignKeyThatReordersItsTarget pins the divergence
+// internal/check cannot state. Its C4 compares the referenced columns as a SET
+// and says so, which is right for PostgreSQL; InnoDB needs an index it can walk
+// from the left, so the same document is ERROR 1822 here.
+func TestMySQLRefusesAForeignKeyThatReordersItsTarget(t *testing.T) {
+	// parentAndChild builds a two-column composite key on the parent and a
+	// foreign key on the child that names the referenced columns in refs.
+	parentAndChild := func(t *testing.T, dbms model.DBMS, refs []string, extra func(*model.Table)) *model.Document {
+		t.Helper()
+		return twoTablesSharingFor(t, dbms, func(a, b *model.Table) {
+			b.Columns = append(b.Columns, model.Column{Name: "m", LogicalName: "m", Type: "INTEGER"})
+			b.PrimaryKey = &model.PrimaryKey{Name: "pk_b", Columns: []string{"n", "m"}}
+			b.Columns[1].Nullable, b.Columns[2].Nullable = false, false
+			if extra != nil {
+				extra(b)
+			}
+			a.Columns = append(a.Columns, model.Column{Name: "m", LogicalName: "m", Type: "INTEGER"})
+			a.ForeignKeys = []model.ForeignKey{{
+				Name:       "fk_a",
+				Columns:    []string{"n", "m"},
+				References: model.Reference{Table: "b", Columns: refs},
+			}}
+		})
+	}
+
+	t.Run("in the order the target declares them", func(t *testing.T) {
+		doc := parentAndChild(t, model.DBMSMySQL, []string{"n", "m"}, nil)
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused a foreign key in key order: %v", got)
+		}
+	})
+
+	t.Run("reordered", func(t *testing.T) {
+		doc := parentAndChild(t, model.DBMSMySQL, []string{"m", "n"}, nil)
+		got := Check(doc)
+		if len(got) != 1 {
+			t.Fatalf("Check reported %d finding(s), want 1: %v", len(got), got)
+		}
+		if got[0].Where != "table a" {
+			t.Errorf("finding is about %q, want the referencing table", got[0].Where)
+		}
+		if !strings.Contains(got[0].Message, `foreign key "fk_a"`) {
+			t.Errorf("finding = %v, want it to name the foreign key", got[0])
+		}
+		if !strings.Contains(got[0].Message, "in that order") {
+			t.Errorf("finding = %v, want it to say what MySQL needs", got[0])
+		}
+	})
+
+	t.Run("reordered but matched by another key", func(t *testing.T) {
+		doc := parentAndChild(t, model.DBMSMySQL, []string{"m", "n"}, func(b *model.Table) {
+			b.Indexes = []model.Index{{Name: "ix_b", Columns: []string{"m", "n"}}}
+		})
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused a foreign key an index does match: %v", got)
+		}
+	})
+
+	t.Run("reordered under PostgreSQL", func(t *testing.T) {
+		doc := parentAndChild(t, model.DBMSPostgreSQL, []string{"m", "n"}, nil)
+		if got := Check(doc); len(got) != 0 {
+			t.Fatalf("Check refused a foreign key PostgreSQL accepts: %v", got)
+		}
+	})
 }
