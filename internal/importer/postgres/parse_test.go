@@ -605,6 +605,54 @@ func TestParseSkipsOutOfScopeStatements(t *testing.T) {
 
 }
 
+// TestAConnectInsideAStringIsNotADatabaseName covers #53's \connect case.
+//
+// connectedDatabase looked for a line beginning "\connect " in the raw bytes,
+// which is where psql looks - but psql looks there only BETWEEN statements,
+// and the raw-byte scan could not tell that. A COMMENT ON whose text runs over
+// several lines is an ordinary thing for a dump to carry, and a line inside it
+// was being read as the name of the database the document is about.
+//
+// TestParseSkipsOutOfScopeStatements is the other half of this pair: a
+// \connect that really is between statements still names the database.
+func TestAConnectInsideAStringIsNotADatabaseName(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "inside a COMMENT ON string",
+			src: "CREATE TABLE public.t (a integer);\n" +
+				"COMMENT ON TABLE public.t IS 'first line\n" +
+				"\\connect evil\n" +
+				"last line';\n",
+		},
+		{
+			name: "inside a dollar-quoted string",
+			src: "CREATE TABLE public.t (a integer);\n" +
+				"COMMENT ON TABLE public.t IS $tag$first line\n" +
+				"\\connect evil\n" +
+				"last line$tag$;\n",
+		},
+		{
+			name: "inside a block comment",
+			src: "/* first line\n" +
+				"\\connect evil\n" +
+				"last line */\n" +
+				"CREATE TABLE public.t (a integer);\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, _ := mustParse(t, tt.src)
+			if dump.Database != "" {
+				t.Errorf("database got = %q, want empty: no \\connect line stands between statements here", dump.Database)
+			}
+		})
+	}
+}
+
 func TestSkippable(t *testing.T) {
 	tests := []struct {
 		name string
