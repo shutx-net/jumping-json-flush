@@ -424,7 +424,7 @@ jjf import mysql schema.sql -o db-design.json
 | 段階 | 例 | 挙動 |
 | --- | --- | --- |
 | 黙って読み飛ばす | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO`、MySQL ではさらに `LOCK TABLES`, `DROP TABLE`, `DELIMITER`、トリガとルーチン、そしてすべてのテーブルオプション | 何も出さない。ダンプはこれらで埋まっており、いちいち警告すると本当に必要な警告が埋もれるため |
-| 警告する | `CHECK` 制約、部分索引・式索引、`INCLUDE`、btree 以外のアクセスメソッド、`DEFERRABLE`、`INHERITS`、生成列、MySQL ではさらに `FULLTEXT`・`SPATIAL` 索引、索引の前置長、鍵の `DESC`、`ON UPDATE CURRENT_TIMESTAMP`、`ENUM`・`SET` の値リスト、列に書いた `REFERENCES`、パーティション、InnoDB 以外のエンジン | 標準エラーへ行番号付きで 1 行出す。**周囲のテーブルや索引はそのまま取り込む** |
+| 警告する | `CHECK` 制約、部分索引・式索引、`INCLUDE`、btree 以外のアクセスメソッド、`DEFERRABLE`、`INHERITS`、生成列、`NULLS NOT DISTINCT`、MySQL ではさらに `FULLTEXT`・`SPATIAL` 索引、索引の前置長、鍵の `DESC`、`ON UPDATE CURRENT_TIMESTAMP`、`ENUM`・`SET` の値リスト、列に書いた `REFERENCES`、列の `CHARACTER SET`・`COLLATE`、`INVISIBLE`、索引のコメント、削除・変更・改名を行う `ALTER TABLE`、パーティション、InnoDB 以外のエンジン | 標準エラーへ行番号付きで 1 行出す。**周囲のテーブルや索引はそのまま取り込む** |
 | エラーにする | 構文として壊れた SQL、書けない識別子、同名テーブルの二重定義 | 終了コード 2。何も書かれない |
 
 ```text
@@ -494,6 +494,10 @@ MySQL では次が加わる。
 | `ON UPDATE CURRENT_TIMESTAMP` | 既定値ではなく自動更新の規則である。`default` に畳み込めば MySQL が拒否するスクリプトになる |
 | `ENUM`・`SET` の値リスト | フォーマットに置き場所が無い。型名は残り、値は警告が名指しする |
 | 外部キーを支えるために InnoDB が作る索引 | 外部キーと同じ名前で現れるが、jjf の文書は制約名と索引名を表ごとにひとつの名前空間で持つ。索引を作り直すのは文書の外部キーなので、失われるものは無い |
+| 列の `CHARACTER SET`・`COLLATE` | フォーマットに列ごとの照合順序の置き場所が無い。mysqldump は列の照合順序が表の既定と違えば必ずこの句を書き、落とすと意味が変わる ── `utf8mb4_bin` の列は表の既定と比較も整列も異なるので、黙って表の既定に戻ることになる |
+| 列・索引の `INVISIBLE` | どちらも文書が説明することになるものとは別物である。不可視の列は `SELECT *` に返らず、不可視の索引はオプティマイザに使われない。どちらも通常のものとして記録される |
+| 索引の `COMMENT` | フォーマットは列コメントと表コメントを保持するが、索引のコメントには置き場所が無い。ダンプの中で人が索引について書いた散文が残る唯一の場所である |
+| `ALTER TABLE ... DROP`・`MODIFY`・`CHANGE`・`RENAME` | 取り込むのは `ADD` だけなので、文書は `CREATE TABLE` が与えた定義を保ったままになる。mysqldump はこれらを書かないが、移行スクリプトは書く。他のアクション（`ENGINE`、`CONVERT TO CHARACTER SET`、`ALTER INDEX`、および将来の MySQL が追加するもの）は設計ではなく格納の変更なので黙って読み飛ばす |
 | 列に書いた `REFERENCES`（`pid INT REFERENCES parent (id)`） | MySQL はこの句を読んだうえで、そこから何も作らない。`SHOW CREATE TABLE` に `FOREIGN KEY` の行は出ず、`information_schema.REFERENTIAL_CONSTRAINTS` にも行は無く、MyISAM でも InnoDB でも答えは同じである。取り込めば、データベースに存在しない制約が文書に載ることになる。MySQL が実際に効かせる表レベルの `FOREIGN KEY` は従来どおり取り込む |
 | 可為 null 列の `DEFAULT NULL` | MySQL は既定値を与えられなかった可為 null 列すべてにこれを書き、内容は `nullable` が既に言っていることと同じである。列ごとに警告すれば他が埋もれるので黙って落とす |
 
