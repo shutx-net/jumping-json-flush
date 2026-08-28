@@ -17,12 +17,13 @@ import (
 // "cannot use column reference in DEFAULT expression", so the finding moves a
 // failure the author would have met later forward to where it is cheap.
 //
-// At most one finding comes out per column, and the order the three C8 cases
+// At most one finding comes out per column, and the order the four C8 cases
 // are tried is the order in which one mistake stops the next question from
 // meaning anything: past an unbalanced quote the tokens are not the ones the
-// author wrote, and inside an unbalanced parenthesis a bare word is a symptom
-// rather than a second mistake. checkTable already declines to evaluate C5 for
-// a column C1 just reported, for the same reason.
+// author wrote, past a comment introducer the rest of the text is not the
+// expression at all, and inside an unbalanced parenthesis a bare word is a
+// symptom rather than a second mistake. checkTable already declines to
+// evaluate C5 for a column C1 just reported, for the same reason.
 func checkColumnDefault(c *model.Column, pos int, table string, f *findingList) {
 	// Absent is not a finding: no "default" key means no DEFAULT clause, which
 	// is exactly what an author with nothing to default to should write.
@@ -47,13 +48,35 @@ func checkColumnDefault(c *model.Column, pos int, table string, f *findingList) 
 		f.addf(label, "declares the default %q, which has an unbalanced single quote", def)
 		return
 	}
+	if text, found := firstExprEnd(toks); found {
+		// C8b. Unlike keywordConstants, which only ever widens what passes,
+		// this narrows it - so it earns its place only because all three
+		// spellings mean the same thing in every system the schema's dbms enum
+		// permits. A comment is nowhere part of an expression, and a statement
+		// does not end inside one, so nothing a DEFAULT could legitimately
+		// carry is refused here and the check stays a statement about the
+		// document rather than about the database behind it.
+		//
+		// What it saves is the one failure in this file that nobody sees. The
+		// generated DDL writes a column on one line, so a comment opened in
+		// the default swallows the clauses written after it - and PostgreSQL
+		// writes DEFAULT before NOT NULL, so the script succeeds, the column
+		// is nullable, and the document and the database disagree with nothing
+		// printed anywhere to say so.
+		if text == ";" {
+			f.addf(label, "declares the default %q, which ends its statement at %q; a DEFAULT is one expression", def, text)
+			return
+		}
+		f.addf(label, "declares the default %q, which starts a comment at %q; the text after it is not part of the expression", def, text)
+		return
+	}
 	if !balancedParens(toks) {
-		// C8b.
+		// C8c.
 		f.addf(label, "declares the default %q, which has an unbalanced parenthesis", def)
 		return
 	}
 	if word, found := firstBareWord(toks); found {
-		// C8c. Only the FIRST bare word is named, unlike reportMissingColumns,
+		// C8d. Only the FIRST bare word is named, unlike reportMissingColumns,
 		// which names every missing column: a constraint's column list is a
 		// list of independent names the author fixes one by one, but a default
 		// is ONE expression, so "hello world" is a single unquoted string
@@ -200,6 +223,21 @@ func firstBareWord(toks []exprToken) (string, bool) {
 	return "", false
 }
 
+// firstExprEnd returns the text of the first token that ends the expression -
+// a comment introducer or a statement terminator - and whether there was one.
+//
+// The first and not all of them, for the reason firstBareWord gives: a default
+// is ONE expression, so the text past the first of these is not a series of
+// further mistakes but the one mistake's remainder.
+func firstExprEnd(toks []exprToken) (string, bool) {
+	for _, tk := range toks {
+		if tk.kind == exprEnd {
+			return tk.text, true
+		}
+	}
+	return "", false
+}
+
 // followsAWord reports whether tk, standing immediately after a word, is what
 // gives that word a meaning. See firstBareWord for what each case is.
 func followsAWord(tk exprToken) bool {
@@ -214,7 +252,8 @@ func followsAWord(tk exprToken) bool {
 // ---------------------------------------------------------------------------
 
 // exprKind classifies a token of a default expression. The set is exactly what
-// firstBareWord and balancedParens have to distinguish and nothing more.
+// firstBareWord, balancedParens and firstExprEnd have to distinguish and
+// nothing more.
 type exprKind uint8
 
 // Token kinds produced by scanExpr.
@@ -223,6 +262,11 @@ const (
 	exprNumber
 	exprWord
 	exprPunct
+	// exprEnd is a comment introducer or a statement terminator: the point at
+	// which the text stops being the expression. It is a kind of its own
+	// rather than an exprPunct so that the finding can name what it found -
+	// "--" and "/*" are read the same way but are not the same typo.
+	exprEnd
 )
 
 // exprToken is one token, carrying the source slice it came from. Case is
@@ -296,6 +340,20 @@ func scanExpr(s string) ([]exprToken, bool) {
 		case c == ':' && i+1 < len(s) && s[i+1] == ':':
 			toks = append(toks, exprToken{kind: exprPunct, text: s[i : i+2]})
 			i += 2
+
+		// Found by adjacency rather than by spacing: "1--2" opens a comment
+		// exactly as "1 -- 2" does. The scan stops making tokens of what
+		// follows, because what follows is not the expression - but it does
+		// not stop scanning, because the caller reports the first of these and
+		// a total scanner must return either way.
+		case c == '-' && i+1 < len(s) && s[i+1] == '-',
+			c == '/' && i+1 < len(s) && s[i+1] == '*':
+			toks = append(toks, exprToken{kind: exprEnd, text: s[i : i+2]})
+			i += 2
+
+		case c == ';':
+			toks = append(toks, exprToken{kind: exprEnd, text: s[i : i+1]})
+			i++
 
 		default:
 			// One byte per token. The check only ever asks about "(", ")",
