@@ -72,8 +72,8 @@ means.
 
 | PostgreSQL | `type` | Parameters |
 | --- | --- | --- |
-| `character varying`, `varchar` | `VARCHAR` | `length` |
-| `character`, `char`, `bpchar` | `CHAR` | `length` |
+| `character varying`, `varchar`, `char varying`, `national character varying`, `national char varying` | `VARCHAR` | `length` |
+| `character`, `char`, `bpchar`, `national character`, `national char` | `CHAR` | `length` |
 | `bit` | `BIT` | `length` |
 | `bit varying`, `varbit` | `BIT VARYING` | `length` |
 | `numeric`, `decimal` | `NUMERIC` | `precision`, `scale` |
@@ -114,8 +114,8 @@ export would then produce a database that dumps `tinyint(1)` again.
 
 | MySQL | `type` | Parameters |
 | --- | --- | --- |
-| `varchar` | `VARCHAR` | `length` |
-| `char`, `character` | `CHAR` | `length` |
+| `varchar`, `character varying`, `char varying`, `nchar varying`, `national varchar`, `national character varying`, `national char varying` | `VARCHAR` | `length` |
+| `char`, `character`, `national char`, `national character` | `CHAR` | `length` |
 | `binary` | `BINARY` | `length` |
 | `varbinary` | `VARBINARY` | `length` |
 | `bit` | `BIT` | `length` |
@@ -132,6 +132,7 @@ export would then produce a database that dumps `tinyint(1)` again.
 | `date`, `year`, `json` | the same name in upper case | — |
 | `tinytext`, `text`, `mediumtext`, `longtext` | the same name in upper case | — |
 | `tinyblob`, `blob`, `mediumblob`, `longblob` | the same name in upper case | — |
+| `long varchar`, `long varbinary` | `MEDIUMTEXT`, `MEDIUMBLOB` | — |
 | `enum('a','b')`, `set('a','b')` | `ENUM`, `SET` | the value list is dropped |
 | `bigint unsigned`, `decimal(10,2) unsigned`, `int unsigned zerofill` | `BIGINT UNSIGNED`, `DECIMAL UNSIGNED`, `INTEGER UNSIGNED ZEROFILL` | those of the base type |
 | any type not listed — the geometry types, whatever a later MySQL adds | the same name in upper case | — |

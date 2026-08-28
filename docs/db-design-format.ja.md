@@ -69,8 +69,8 @@
 
 | PostgreSQL | `type` | パラメータ |
 | --- | --- | --- |
-| `character varying`, `varchar` | `VARCHAR` | `length` |
-| `character`, `char`, `bpchar` | `CHAR` | `length` |
+| `character varying`, `varchar`, `char varying`, `national character varying`, `national char varying` | `VARCHAR` | `length` |
+| `character`, `char`, `bpchar`, `national character`, `national char` | `CHAR` | `length` |
 | `bit` | `BIT` | `length` |
 | `bit varying`, `varbit` | `BIT VARYING` | `length` |
 | `numeric`, `decimal` | `NUMERIC` | `precision`, `scale` |
@@ -108,8 +108,8 @@ MySQL は真偽値をそう格納し、`mysqldump` もそう書き戻すので�
 
 | MySQL | `type` | パラメータ |
 | --- | --- | --- |
-| `varchar` | `VARCHAR` | `length` |
-| `char`, `character` | `CHAR` | `length` |
+| `varchar`, `character varying`, `char varying`, `nchar varying`, `national varchar`, `national character varying`, `national char varying` | `VARCHAR` | `length` |
+| `char`, `character`, `national char`, `national character` | `CHAR` | `length` |
 | `binary` | `BINARY` | `length` |
 | `varbinary` | `VARBINARY` | `length` |
 | `bit` | `BIT` | `length` |
@@ -126,6 +126,7 @@ MySQL は真偽値をそう格納し、`mysqldump` もそう書き戻すので�
 | `date`, `year`, `json` | 同じ名前の大文字 | — |
 | `tinytext`, `text`, `mediumtext`, `longtext` | 同じ名前の大文字 | — |
 | `tinyblob`, `blob`, `mediumblob`, `longblob` | 同じ名前の大文字 | — |
+| `long varchar`, `long varbinary` | `MEDIUMTEXT`, `MEDIUMBLOB` | — |
 | `enum('a','b')`, `set('a','b')` | `ENUM`, `SET` | 値リストは捨てる |
 | `bigint unsigned`, `decimal(10,2) unsigned`, `int unsigned zerofill` | `BIGINT UNSIGNED`, `DECIMAL UNSIGNED`, `INTEGER UNSIGNED ZEROFILL` | 基底の型のものを引き継ぐ |
 | 表に無い型（geometry 系、将来の MySQL が足すもの） | 同じ名前の大文字 | — |

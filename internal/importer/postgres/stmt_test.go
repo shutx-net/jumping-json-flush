@@ -351,6 +351,133 @@ func oneUniqueKeyOverA(t *testing.T, table pgTable) {
 // column unless its very next token is USING or an opening parenthesis, which
 // for a column definition would mean a type called `using` or an immediately
 // parenthesised type. Neither is legal, so nothing legal is lost.
+// TestAMultiWordTypeDoesNotSwallowTheRestOfTheTable is the PostgreSQL half of
+// what #57 names, and it is the same shape as the MySQL one: parseTypeName
+// stops after a word it does not know continues, the remaining words of the
+// type fall to the attribute loop, and a skip that advances one token at a time
+// walks onto the ")" of "(10)" - which the loop reads as the end of the column
+// list. The rest of the table then disappears without a word.
+//
+// Every spelling below was accepted by PostgreSQL 16.13 before it was written
+// here. "character varying" and "bit varying" already worked; these are the
+// spellings of the same types that did not.
+func TestAMultiWordTypeDoesNotSwallowTheRestOfTheTable(t *testing.T) {
+	tests := []struct {
+		name  string
+		typ   string
+		words string
+		args  string
+	}{
+		{name: "national character varying", typ: "national character varying(10)", words: "national character varying", args: "10"},
+		{name: "national character", typ: "national character(10)", words: "national character", args: "10"},
+		{name: "national char", typ: "national char(10)", words: "national char", args: "10"},
+		{name: "char varying", typ: "char varying(10)", words: "char varying", args: "10"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE public.t (\n"+
+				"  j "+tt.typ+",\n"+
+				"  k integer NOT NULL,\n"+
+				"  PRIMARY KEY (k)\n);")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+			tbl := dump.Tables[0]
+			var names []string
+			for _, c := range tbl.Columns {
+				names = append(names, c.Name)
+			}
+			if !slices.Equal(names, []string{"j", "k"}) {
+				t.Fatalf("columns got = %v, want [j k]", names)
+			}
+			if !tbl.Columns[1].NotNull {
+				t.Errorf("column k got = %+v, want NOT NULL", tbl.Columns[1])
+			}
+			if len(tbl.Constraints) != 1 {
+				t.Errorf("constraints got = %+v, want the primary key", tbl.Constraints)
+			}
+			typ := tbl.Columns[0].Type
+			if got := strings.Join(typ.Words, " "); got != tt.words {
+				t.Errorf("type words got = %q, want %q", got, tt.words)
+			}
+			if got := strings.Join(typ.Args, "|"); got != tt.args {
+				t.Errorf("type args got = %q, want %q", got, tt.args)
+			}
+		})
+	}
+}
+
+// TestADefaultMayCallAFunctionNamedByAnUnreservedWord is the second half of
+// #57, and the one that reaches an ordinary pg_dump file.
+//
+// startsColumnConstraint claims in its own comment that every word it lists is
+// reserved in PostgreSQL, so none can continue a DEFAULT expression. Asked,
+// pg_get_keywords() disagrees about exactly two of the thirteen: "generated"
+// and "no" are unreserved, so a function may be called either - and then
+// pg_dump writes "DEFAULT public.no()" and the expression is cut at the word.
+// What follows is cause A's swallowing, so the columns after it are lost too.
+func TestADefaultMayCallAFunctionNamedByAnUnreservedWord(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "a function called no", expr: "public.no()"},
+		{name: "a function called generated", expr: "public.generated()"},
+		// Already correct today, because exprText only consults the stop
+		// predicate at parenthesis depth zero. It is here so that a fix for
+		// the two above cannot quietly break the case that worked.
+		{name: "the same call inside parentheses", expr: "(1 + public.no())"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE public.t (\n"+
+				"  j integer DEFAULT "+tt.expr+",\n"+
+				"  k integer NOT NULL,\n"+
+				"  l text\n);")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+			tbl := dump.Tables[0]
+			var names []string
+			for _, c := range tbl.Columns {
+				names = append(names, c.Name)
+			}
+			if !slices.Equal(names, []string{"j", "k", "l"}) {
+				t.Fatalf("columns got = %v, want [j k l]", names)
+			}
+			col := tbl.Columns[0]
+			if !col.HasDefault || col.Default != tt.expr {
+				t.Errorf("default got = %q (present = %v), want exactly %q", col.Default, col.HasDefault, tt.expr)
+			}
+			if !tbl.Columns[1].NotNull {
+				t.Errorf("column k got = %+v, want NOT NULL", tbl.Columns[1])
+			}
+		})
+	}
+}
+
+// TestNOINHERITAndGENERATEDStillEndADefault guards the other direction of the
+// same fix: the two words earn their place in startsColumnConstraint through
+// the clauses that really do follow a default, and gating them on what comes
+// next must not stop those clauses from ending the expression.
+func TestNOINHERITAndGENERATEDStillEndADefault(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE public.t (\n"+
+		"  j integer DEFAULT 1 GENERATED BY DEFAULT AS IDENTITY,\n"+
+		"  k integer NOT NULL\n);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	col := dump.Tables[0].Columns[0]
+	if !col.HasDefault || col.Default != "1" {
+		t.Errorf("default got = %q (present = %v), want exactly %q", col.Default, col.HasDefault, "1")
+	}
+	if !col.Identity {
+		t.Errorf("column j got = %+v, want an identity column", col)
+	}
+}
+
 func TestAColumnCalledExcludeIsAColumn(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE TABLE public.t (\n"+
 		"  exclude integer NOT NULL,\n"+

@@ -123,6 +123,15 @@ func TestNormalizeType(t *testing.T) {
 		{name: "varchar with a length", sql: "character varying(255)", want: "VARCHAR", length: intp(255)},
 		{name: "varchar without a length", sql: "character varying", want: "VARCHAR"},
 		{name: "varchar alias", sql: "varchar(10)", want: "VARCHAR", length: intp(10)},
+		// The standard SQL spellings PostgreSQL accepts and then reports as
+		// character varying and character; 16.13 was asked for every want
+		// below. The length is the point: an unlisted type is paramNone, so a
+		// missing row here would drop the 5 with a warning.
+		{name: "char varying is a spelling of character varying", sql: "char varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "national character varying", sql: "national character varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "national char varying", sql: "national char varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "national character", sql: "national character(5)", want: "CHAR", length: intp(5)},
+		{name: "national char", sql: "national char(5)", want: "CHAR", length: intp(5)},
 		{name: "char with a length", sql: "character(1)", want: "CHAR", length: intp(1)},
 		{name: "char without a length", sql: "char", want: "CHAR"},
 		{name: "bpchar", sql: "bpchar(4)", want: "CHAR", length: intp(4)},
