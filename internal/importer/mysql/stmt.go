@@ -270,14 +270,30 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 				Table: t.Name, Columns: []string{name}, Line: at,
 			})
 		case p.acceptWord("references"):
-			c := myConstraint{
-				Kind: constraintForeign, NameLine: at,
-				Table: t.Name, Columns: []string{name}, Line: at,
-			}
-			if err := p.parseReferences(&c, d); err != nil {
+			// MySQL parses a REFERENCES clause written on a column and then
+			// IGNORES it. Asked on 8.0.46: SHOW CREATE TABLE carries no
+			// FOREIGN KEY line, information_schema.REFERENTIAL_CONSTRAINTS has
+			// no row, the server raises no warning of its own, and MyISAM
+			// answers the same way as InnoDB. The table-level FOREIGN KEY
+			// spelling in the same database does create one, so the silence is
+			// about this clause rather than about the engine.
+			//
+			// Importing it would put a constraint in the document that the
+			// database does not have - and the document is what the diagram,
+			// the workbook and "jjf export ddl" all describe, so the invention
+			// would reach every one of them with nothing saying so. This is
+			// the one inline spelling that parts company with PRIMARY KEY,
+			// UNIQUE and KEY above, all of which MySQL does honour.
+			//
+			// The clause is still parsed, because its tokens have to be
+			// consumed either way, into a constraint nobody keeps. Its own
+			// diagnostics go with it: MATCH FULL is not a second thing to
+			// report once the clause it qualifies is gone.
+			d.warnf(at, "%s: inline REFERENCES is not imported; MySQL ignores the clause and creates no foreign key", label)
+			var dropped diagList
+			if err := p.parseReferences(&myConstraint{Table: t.Name}, &dropped); err != nil {
 				return err
 			}
-			t.Constraints = append(t.Constraints, c)
 		case p.acceptWord("check"):
 			d.warnf(at, "%s: check constraint is not imported", label)
 			if err := p.skipBalancedParens(); err != nil {

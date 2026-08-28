@@ -906,20 +906,26 @@ func TestUnknownColumnOptionIsSkippedNotRejected(t *testing.T) {
 // TestInlineColumnConstraintsBecomeTableConstraints covers the spellings a
 // hand-made file uses and mysqldump never does, so that build.go has one shape
 // to resolve rather than two.
+//
+// REFERENCES is not among them, and the fourth column is here to say so in the
+// same place as the three that are: MySQL creates a key for an inline PRIMARY
+// KEY, UNIQUE and KEY, and creates nothing at all for an inline REFERENCES.
+// TestAnInlineREFERENCESIsWarnedAndDropped has the measurement.
 func TestInlineColumnConstraintsBecomeTableConstraints(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
 		"  `id` int NOT NULL PRIMARY KEY,\n"+
 		"  `code` varchar(8) NOT NULL UNIQUE KEY,\n"+
 		"  `alt` int KEY,\n"+
 		"  `owner` int REFERENCES `users` (`id`) ON DELETE RESTRICT\n);")
-	if len(warnings) != 0 {
-		t.Errorf("warnings got = %v, want none", messages(warnings))
+	if msgs := messages(warnings); len(msgs) != 1 ||
+		!strings.Contains(msgs[0], "inline REFERENCES is not imported") {
+		t.Errorf("warnings got = %v, want the one about the inline REFERENCES", msgs)
 	}
 	table := dump.Tables[0]
 	if len(table.Columns) != 4 {
 		t.Fatalf("columns got = %v, want 4", len(table.Columns))
 	}
-	kinds := []constraintKind{constraintPrimaryKey, constraintUnique, constraintPrimaryKey, constraintForeign}
+	kinds := []constraintKind{constraintPrimaryKey, constraintUnique, constraintPrimaryKey}
 	if len(table.Constraints) != len(kinds) {
 		t.Fatalf("constraints got = %+v, want %v", table.Constraints, len(kinds))
 	}
@@ -928,9 +934,92 @@ func TestInlineColumnConstraintsBecomeTableConstraints(t *testing.T) {
 			t.Errorf("constraint %d kind got = %v, want %v", i, got, want)
 		}
 	}
-	if fk := table.Constraints[3]; fk.RefTable.Name != "users" ||
-		!slices.Equal(fk.RefColumns, []string{"id"}) || fk.OnDelete != "RESTRICT" {
-		t.Errorf("foreign key got = %+v, want a reference to users(id)", fk)
+}
+
+// TestAnInlineREFERENCESIsWarnedAndDropped pins what MySQL really does with a
+// REFERENCES clause written on a column: it parses the clause and then ignores
+// it. Asked on 8.0.46, SHOW CREATE TABLE carries no FOREIGN KEY line, and
+// information_schema.REFERENTIAL_CONSTRAINTS has no row - with no warning from
+// the server either, and the same answer under MyISAM as under InnoDB. The
+// table-level FOREIGN KEY spelling in the same database does create one, which
+// is what makes the silence about this one a fact about the clause rather than
+// about the engine.
+//
+// Importing it as a foreign key therefore put a constraint in the document that
+// does not exist in the database. The document is what the diagram, the
+// workbook and "jjf export ddl" all describe, so the invention travelled to
+// every one of them, and nothing said so.
+//
+// Dropped rather than refused, and warned about rather than dropped in silence:
+// this is a clause of a statement jjf maps, which is exactly the case
+// "jjf import -h" promises a warning for.
+func TestAnInlineREFERENCESIsWarnedAndDropped(t *testing.T) {
+	tests := []struct {
+		name   string
+		column string
+	}{
+		{name: "the bare clause", column: "`pid` int REFERENCES `parent` (`id`)"},
+		{name: "with a referential action", column: "`pid` int REFERENCES `parent` (`id`) ON DELETE CASCADE"},
+		// One warning for the whole clause and not one per part of it: the
+		// clause is gone, so MATCH FULL is not a second thing to report.
+		{name: "with every sub-clause it may carry", column: "`pid` int REFERENCES `parent` (`id`) MATCH FULL ON DELETE CASCADE ON UPDATE SET NULL"},
+		{name: "no column list", column: "`pid` int REFERENCES `parent`"},
+		{name: "an attribute after the clause", column: "`pid` int REFERENCES `parent` (`id`) NOT NULL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `child` (\n"+
+				"  `id` int NOT NULL,\n"+
+				"  "+tt.column+",\n"+
+				"  PRIMARY KEY (`id`)\n);")
+			table := dump.Tables[0]
+			for _, c := range table.Constraints {
+				if c.Kind == constraintForeign {
+					t.Errorf("constraint got = %+v, want no foreign key: MySQL creates none for an inline REFERENCES", c)
+				}
+			}
+			if msgs := messages(warnings); len(msgs) != 1 ||
+				!strings.Contains(msgs[0], "inline REFERENCES is not imported") {
+				t.Errorf("warnings got = %v, want exactly one about the inline REFERENCES", msgs)
+			}
+			// The clause is dropped, not the rest of the column definition:
+			// both columns and the primary key are still read.
+			var names []string
+			for _, c := range table.Columns {
+				names = append(names, c.Name)
+			}
+			if !slices.Equal(names, []string{"id", "pid"}) {
+				t.Errorf("columns got = %v, want [id pid]", names)
+			}
+			if len(table.Constraints) != 1 || table.Constraints[0].Kind != constraintPrimaryKey {
+				t.Errorf("constraints got = %+v, want the primary key alone", table.Constraints)
+			}
+		})
+	}
+}
+
+// TestATableLevelForeignKeyIsStillImported is the other half of the claim: the
+// spelling MySQL does honour keeps working, so the drop above is about the
+// inline clause and not about foreign keys.
+func TestATableLevelForeignKeyIsStillImported(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `child` (\n"+
+		"  `id` int NOT NULL,\n"+
+		"  `pid` int DEFAULT NULL,\n"+
+		"  PRIMARY KEY (`id`),\n"+
+		"  CONSTRAINT `fk_child_parent` FOREIGN KEY (`pid`) REFERENCES `parent` (`id`) ON DELETE CASCADE\n);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	table := dump.Tables[0]
+	if len(table.Constraints) != 2 {
+		t.Fatalf("constraints got = %+v, want the primary key and the foreign key", table.Constraints)
+	}
+	fk := table.Constraints[1]
+	if fk.Kind != constraintForeign || fk.Name != "fk_child_parent" ||
+		fk.RefTable.Name != "parent" || !slices.Equal(fk.RefColumns, []string{"id"}) ||
+		fk.OnDelete != "CASCADE" {
+		t.Errorf("foreign key got = %+v, want fk_child_parent to parent(id)", fk)
 	}
 }
 

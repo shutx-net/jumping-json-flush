@@ -460,7 +460,7 @@ can hold — not by how unusual the SQL is.
 | Tier | Example | What happens |
 | --- | --- | --- |
 | Skipped in silence | `SET`, `GRANT`, `CREATE VIEW`, `CREATE FUNCTION`, `OWNER TO`, and for MySQL also `LOCK TABLES`, `DROP TABLE`, `DELIMITER`, a trigger or a routine, and every table option | Nothing. A dump is full of these, and warning about each would bury the warnings that matter |
-| Warned about | a `CHECK` constraint, a partial or expression index, `INCLUDE`, a non-btree access method, `DEFERRABLE`, `INHERITS`, a generated column, and for MySQL also a `FULLTEXT` or `SPATIAL` index, an index prefix length, `DESC` in a key, `ON UPDATE CURRENT_TIMESTAMP`, an `ENUM` or `SET` value list, partitioning, and a non-InnoDB engine | One line on standard error naming the dump line, and **the surrounding table or index is still imported** |
+| Warned about | a `CHECK` constraint, a partial or expression index, `INCLUDE`, a non-btree access method, `DEFERRABLE`, `INHERITS`, a generated column, and for MySQL also a `FULLTEXT` or `SPATIAL` index, an index prefix length, `DESC` in a key, `ON UPDATE CURRENT_TIMESTAMP`, an `ENUM` or `SET` value list, an inline `REFERENCES`, partitioning, and a non-InnoDB engine | One line on standard error naming the dump line, and **the surrounding table or index is still imported** |
 | An error | SQL that does not parse, a name the format cannot hold, the same table defined twice | Exit 2. Nothing is written |
 
 ```text
@@ -535,6 +535,7 @@ For MySQL the list adds:
 | `ON UPDATE CURRENT_TIMESTAMP` | An automatic update rule, not a default value. Folding it into `default` would produce a script MySQL refuses |
 | An `ENUM` or `SET` value list | The format has nowhere to keep one. The type name survives and the values are named in the warning |
 | The index InnoDB creates to back a foreign key | It arrives under the foreign key's own name, and a jjf document keeps constraint and index names in one namespace per table. The foreign key is what recreates it, so nothing is lost |
+| An inline `REFERENCES` on a column, `pid INT REFERENCES parent (id)` | MySQL parses the clause and then creates nothing from it: no `FOREIGN KEY` line in `SHOW CREATE TABLE`, no row in `information_schema.REFERENTIAL_CONSTRAINTS`, and the same answer under MyISAM as under InnoDB. Importing it would put a constraint in the document that the database does not have. The table-level `FOREIGN KEY` spelling, which MySQL does honour, is imported as usual |
 | `DEFAULT NULL` on a nullable column | MySQL writes it for every nullable column it was not given a default for, and it says exactly what `nullable` already says. Dropped in silence, because a warning per column would bury the rest |
 
 How a type becomes a `type` plus `length` / `precision` / `scale` is in the format
