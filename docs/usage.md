@@ -523,6 +523,12 @@ nowhere to live in the design format, so they warn and are dropped. Anything
 outside the schema `-schema` selected is dropped too — silently, except for a
 foreign key that pointed into it, which is a real relationship and is reported.
 
+A table whose columns are not written in its own statement is reported and
+dropped whole rather than invented from what the statement does say:
+`CREATE TABLE child (LIKE parent)`, a typed table, a partition, and — for MySQL —
+`CREATE TABLE t LIKE other` and a table defined from a query. Neither dump tool
+writes any of them, so this is about hand-written SQL.
+
 For MySQL the list adds:
 
 | Not imported | Why |

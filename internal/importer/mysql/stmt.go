@@ -216,6 +216,9 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 
 	col := myColumn{Name: name, Line: line, Type: typ}
 	label := "column " + t.Name.String() + "." + name
+	if isSerialType(typ) {
+		expandSerial(&col, t, name, line)
+	}
 
 	for !p.done() && !p.peek().isPunct(",") && !p.peek().isPunct(")") {
 		at := p.peek().line
@@ -249,6 +252,12 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 			col.Default = p.exprText(src, stopAtColumnAttribute(p.i))
 		case p.acceptWord("auto_increment"):
 			col.AutoIncrement = true
+		case p.acceptWords("serial", "default", "value"):
+			// The attribute spelling of the same shorthand, which leaves the
+			// column's own type alone: MySQL 8.0.46 reads
+			// "id INT SERIAL DEFAULT VALUE" as an int that is NOT NULL,
+			// AUTO_INCREMENT and UNIQUE.
+			expandSerial(&col, t, name, at)
 		case p.acceptWords("on", "update"):
 			// ON UPDATE CURRENT_TIMESTAMP is an automatic update rule, not a
 			// default value, and it is recorded as a flag for that reason.
@@ -372,6 +381,45 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 	}
 	t.Columns = append(t.Columns, col)
 	return nil
+}
+
+// isSerialType reports whether the type read is the bare word SERIAL.
+//
+// One word and no arguments, because SERIAL takes neither: anything else that
+// begins with the word is a type this parser has never heard of, and passing it
+// through is what the default arm of the type table is for.
+func isSerialType(t myType) bool {
+	return len(t.Words) == 1 && t.Words[0] == "serial" && len(t.Args) == 0
+}
+
+// expandSerial records what MySQL reads SERIAL to mean, on the column and on
+// its table.
+//
+// SERIAL is not a type. MySQL 8.0.46 reads it as
+// BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE, SHOW CREATE TABLE reports
+// every one of those, and mysqldump writes the expansion back rather than the
+// shorthand - so a column recorded as a nullable type called SERIAL got four
+// facts wrong at once, and the document then disagreed with a document made
+// from a dump of the same table.
+//
+// Expanded rather than reported, because nothing is lost: the design format
+// holds all four. The unique key is not an invention for the same reason the
+// inline REFERENCES of a MySQL column is not imported - what decides is what
+// the server does, and the server creates this one. It takes the column's name,
+// which is the name the server gives it.
+//
+// The type is left alone when the caller is the attribute spelling, where the
+// column already has a type of its own; only the flags and the key are shared.
+func expandSerial(col *myColumn, t *myTable, name string, line int) {
+	if isSerialType(col.Type) {
+		col.Type = myType{Words: []string{"bigint"}, Unsigned: true, Line: col.Type.Line}
+	}
+	col.NotNull = true
+	col.AutoIncrement = true
+	t.Constraints = append(t.Constraints, myConstraint{
+		Kind: constraintUnique, Name: name, NameLine: line,
+		Table: t.Name, Columns: []string{name}, Line: line,
+	})
 }
 
 // stringValue reads the string a COMMENT clause or a string-valued option

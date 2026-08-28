@@ -16,13 +16,13 @@ import (
 // returns an error, and it is returned unwrapped so that the CLI alone decides
 // which exit code it carries.
 func parse(src []byte, d *diagList) (*pgDump, error) {
-	out := &pgDump{Database: connectedDatabase(src)}
-	out.DumpVersion, out.DumpVersionLine = dumpVersion(src)
-
-	toks, err := lex(src)
+	toks, connected, err := lexDump(src)
 	if err != nil {
 		return nil, err
 	}
+	out := &pgDump{Database: connected}
+	out.DumpVersion, out.DumpVersionLine = dumpVersion(src)
+
 	for _, stmt := range splitStatements(toks) {
 		if skippable(stmt) {
 			continue
@@ -410,28 +410,6 @@ func dumpVersion(src []byte) (string, int) {
 		}
 	}
 	return "", 0
-}
-
-// connectPrefix is the psql command pg_dumpall writes before each database.
-const connectPrefix = `\connect `
-
-// connectedDatabase returns the database name of the first \connect line, or "".
-//
-// It is a hint and nothing more: plain pg_dump never writes one, and the CLI's
-// -database flag overrides whatever is found here. Raw bytes again, because the
-// lexer skips psql commands.
-func connectedDatabase(src []byte) string {
-	for rest := src; len(rest) > 0; {
-		var cur []byte
-		cur, rest = nextLine(rest)
-		if !bytes.HasPrefix(cur, []byte(connectPrefix)) {
-			continue
-		}
-		name := strings.TrimSpace(string(cur[len(connectPrefix):]))
-		name, _, _ = strings.Cut(name, " ")
-		return strings.Trim(name, `"`)
-	}
-	return ""
 }
 
 // nextLine splits off one line, without its terminator, and returns the rest.

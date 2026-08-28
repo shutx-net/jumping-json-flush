@@ -129,6 +129,7 @@ export would then produce a database that dumps `tinyint(1)` again.
 | `float` | `FLOAT` | — |
 | `double`, `double precision`, `real` | `DOUBLE` | — |
 | `bool`, `boolean` | `BOOLEAN` | — |
+| `serial`, and `SERIAL DEFAULT VALUE` written as an attribute | `BIGINT UNSIGNED` for the type spelling, the column's own type for the attribute one | `nullable: false`, `autoIncrement: true`, and the unique key MySQL creates. The shorthand is expanded because the server expands it: `SHOW CREATE TABLE` reports all four and `mysqldump` writes them back |
 | `date`, `year`, `json` | the same name in upper case | — |
 | `tinytext`, `text`, `mediumtext`, `longtext` | the same name in upper case | — |
 | `tinyblob`, `blob`, `mediumblob`, `longblob` | the same name in upper case | — |

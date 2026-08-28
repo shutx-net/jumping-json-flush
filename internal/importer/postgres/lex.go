@@ -112,6 +112,12 @@ type lexer struct {
 	// atLineStart reports whether the next byte begins a line. psql backslash
 	// commands are only recognised there, exactly as psql itself does.
 	atLineStart bool
+	// connected is the argument of the first \connect line, and sawConnect
+	// says whether one was seen at all - so that a "\connect" with nothing
+	// after it still stops a later line from being read instead, exactly as
+	// taking the first one always did.
+	connected  string
+	sawConnect bool
 }
 
 // lex tokenizes a dump.
@@ -124,25 +130,69 @@ type lexer struct {
 // The returned slice always ends with a kindEOF token, so the parser never has
 // to bounds-check its lookahead.
 func lex(src []byte) ([]token, error) {
+	toks, _, err := lexDump(src)
+	return toks, err
+}
+
+// lexDump tokenizes a dump and returns, besides the tokens, the database named
+// by its first \connect line - "" when it has none.
+//
+// The second value is produced here rather than by a scan of its own because
+// the lexer is the only thing that knows where such a line IS one. psql
+// recognises a backslash command at the start of a line and BETWEEN
+// statements, which is exactly the condition skipIgnorable already tests; a
+// scan of the raw bytes cannot tell that line from one inside a string
+// literal, a dollar-quoted body or a block comment, and a COMMENT ON whose
+// text runs over several lines is an ordinary thing for a dump to carry. Read
+// from the bytes, "\connect evil" written inside such a comment named the
+// database the document was about.
+//
+// It stays a hint and nothing more: plain pg_dump never writes a \connect
+// line, and the CLI's -database flag overrides whatever is found here.
+//
+// Two functions rather than one changed signature, because the tokens alone
+// are what every other caller in this package and its tests wants.
+func lexDump(src []byte) ([]token, string, error) {
 	l := &lexer{src: src, line: 1, atLineStart: true}
 	// One token per four bytes is a cheap guess that avoids most regrowth.
 	toks := make([]token, 0, len(src)/4)
 
 	for {
 		if err := l.skipIgnorable(); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if l.i >= len(l.src) {
 			break
 		}
 		tok, err := l.next()
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		toks = append(toks, tok)
 	}
-	return append(toks, token{kind: kindEOF, line: l.line, pos: len(src), end: len(src)}), nil
+	toks = append(toks, token{kind: kindEOF, line: l.line, pos: len(src), end: len(src)})
+	return toks, l.connected, nil
 }
+
+// noteConnect records the argument of the first \connect line and ignores
+// every later one, together with every other backslash command.
+//
+// cmd is one whole psql line, from the backslash to just before the newline.
+// It arrives from skipIgnorable, which is the only caller and reaches this
+// point only when the line really is a command: at the start of a line, and
+// between tokens rather than inside one.
+func (l *lexer) noteConnect(cmd []byte) {
+	if l.sawConnect || !bytes.HasPrefix(cmd, []byte(connectPrefix)) {
+		return
+	}
+	l.sawConnect = true
+	name := strings.TrimSpace(string(cmd[len(connectPrefix):]))
+	name, _, _ = strings.Cut(name, " ")
+	l.connected = strings.Trim(name, `"`)
+}
+
+// connectPrefix is the psql command pg_dumpall writes before each database.
+const connectPrefix = `\connect `
 
 // advance consumes n bytes. It is the ONLY place the read offset moves, so the
 // line counter and atLineStart can never fall out of step with it.
@@ -178,8 +228,11 @@ func (l *lexer) skipIgnorable() error {
 			l.advance(1)
 		case l.atLineStart && c == '\\':
 			// \connect, \restrict and friends are psql commands, not SQL. They
-			// run to the end of the line and mean nothing to this importer.
+			// run to the end of the line and mean nothing to this importer -
+			// except \connect, whose argument lexDump reports.
+			start := l.i
 			l.skipToEndOfLine()
+			l.noteConnect(l.src[start:l.i])
 		case c == '-' && l.peek(1) == '-':
 			// Checked before the operator rule so "--" never becomes a token.
 			l.skipToEndOfLine()

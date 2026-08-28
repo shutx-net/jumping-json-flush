@@ -478,6 +478,53 @@ func TestNOINHERITAndGENERATEDStillEndADefault(t *testing.T) {
 	}
 }
 
+// TestALikeElementDropsTheTable covers #53's LIKE case. PostgreSQL copies the
+// definition of another table into this one, so the columns the table really
+// has are not written in this statement at all.
+//
+// Measured on 16.13: "CREATE TABLE child (LIKE parent INCLUDING ALL)" gives
+// child the columns id and note, copied from parent. What the parser produced
+// instead was a table with one column called "like", of type PARENT - a column
+// nothing in the database has, arrived at by reading a table element as a
+// column definition because isConstraintStart did not know the word.
+//
+// Dropped rather than guessed, and the answer internal/importer/mysql already
+// gives for the same SQL: the definition is not here to import, so inventing a
+// table from what IS here describes something that does not exist.
+func TestALikeElementDropsTheTable(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "LIKE as the only element",
+			src:  "CREATE TABLE public.child (LIKE public.parent INCLUDING ALL);",
+		},
+		{
+			// PostgreSQL allows it beside ordinary columns, which MySQL does
+			// not. The table is still not one this statement describes.
+			name: "LIKE beside a column of its own",
+			src:  "CREATE TABLE public.child (LIKE public.parent, extra text);",
+		},
+		{
+			name: "LIKE after a column of its own",
+			src:  "CREATE TABLE public.child (extra text, LIKE public.parent);",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, tt.src)
+			if msgs := messages(warnings); len(msgs) != 1 || !strings.Contains(msgs[0], "LIKE") {
+				t.Fatalf("warnings got = %v, want exactly one about LIKE", msgs)
+			}
+			if len(dump.Tables) != 0 {
+				t.Errorf("tables got = %+v, want none: the definition is not in this statement", dump.Tables)
+			}
+		})
+	}
+}
+
 func TestAColumnCalledExcludeIsAColumn(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE TABLE public.t (\n"+
 		"  exclude integer NOT NULL,\n"+

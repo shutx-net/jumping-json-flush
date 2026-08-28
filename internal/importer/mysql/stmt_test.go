@@ -2,9 +2,12 @@ package mysql
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shutx-net/jumping-json-flush/internal/model"
 )
 
 // wholeDump is a whole "mysqldump --no-data" file from MySQL 8.0.46, verbatim
@@ -1233,6 +1236,70 @@ func TestAlterTableActionsThatChangeTheDesignAreReported(t *testing.T) {
 				t.Errorf("warnings got = %v, want none", messages(warnings))
 			}
 		})
+	}
+}
+
+// TestSerialIsReadAsTheServerExpandsIt covers #53's SERIAL case, and the
+// assertion is an equivalence rather than a literal: the document a hand-written
+// SERIAL produces must be the document mysqldump's own expansion produces,
+// because they describe one table.
+//
+// MySQL 8.0.46 was asked. "CREATE TABLE t (id SERIAL)" gives
+//
+//	`id` bigint unsigned NOT NULL AUTO_INCREMENT,
+//	UNIQUE KEY `id` (`id`)
+//
+// and mysqldump writes exactly that back. The parser was recording a nullable
+// column of a type called SERIAL with no AUTO_INCREMENT and no key - four facts
+// wrong at once, none of them reported.
+func TestSerialIsReadAsTheServerExpandsIt(t *testing.T) {
+	// Compared as DOCUMENTS and not as parse trees: the two spellings put the
+	// unique key on different lines, and a line number is exactly the kind of
+	// difference this equivalence is not about.
+	build := func(src string) []model.Table {
+		t.Helper()
+		doc, warnings, err := Import([]byte(src), Options{Database: "d", Source: "s.sql"})
+		if err != nil {
+			t.Fatalf("Import returned error %v, want none", err)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("warnings got = %v, want none: nothing is lost, the shorthand is expanded", messages(warnings))
+		}
+		return doc.Tables
+	}
+
+	hand := build("CREATE TABLE `t` (\n" +
+		"  `id` SERIAL,\n" +
+		"  `name` varchar(10) DEFAULT NULL\n);")
+	// What mysqldump writes for the very same table, verbatim.
+	dumped := build("CREATE TABLE `t` (\n" +
+		"  `id` bigint unsigned NOT NULL AUTO_INCREMENT,\n" +
+		"  `name` varchar(10) DEFAULT NULL,\n" +
+		"  UNIQUE KEY `id` (`id`)\n);")
+	if !reflect.DeepEqual(hand, dumped) {
+		t.Errorf("SERIAL produced\n  %+v\nand the expansion mysqldump writes produced\n  %+v\nwant them equal", hand, dumped)
+	}
+}
+
+// TestSerialDefaultValueIsTheSameShorthand covers the attribute spelling, which
+// leaves the column's own type alone: MySQL 8.0.46 reads
+// "id INT SERIAL DEFAULT VALUE" as an int that is NOT NULL, AUTO_INCREMENT and
+// UNIQUE, and writes exactly that back.
+func TestSerialDefaultValueIsTheSameShorthand(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n  `id` int SERIAL DEFAULT VALUE\n);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	table := dump.Tables[0]
+	col := table.Columns[0]
+	if strings.Join(col.Type.Words, " ") != "int" || col.Type.Unsigned {
+		t.Errorf("type got = %v, want int with no attribute: the column named its own", col.Type)
+	}
+	if !col.NotNull || !col.AutoIncrement {
+		t.Errorf("column got = %+v, want NOT NULL and AUTO_INCREMENT", col)
+	}
+	if len(table.Constraints) != 1 || table.Constraints[0].Kind != constraintUnique {
+		t.Errorf("constraints got = %+v, want the unique key the shorthand implies", table.Constraints)
 	}
 }
 

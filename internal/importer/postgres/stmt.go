@@ -130,6 +130,26 @@ func (p *parser) parseCreateTable(src []byte, out *pgDump, d *diagList) error {
 	}
 	if !p.acceptPunct(")") { // CREATE TABLE t () is legal and has no elements
 		for {
+			// LIKE copies another table's definition into this one, so the
+			// columns this table really has are not written here at all.
+			// Checked inside the loop and not once at the head, because
+			// PostgreSQL allows the element beside ordinary columns - which
+			// MySQL, whose importer answers the same SQL the same way, does
+			// not. Dropped rather than guessed: a table built from what IS
+			// written here describes something the database does not have,
+			// and the parser used to build one whose single column was called
+			// "like".
+			//
+			// The word alone decides, and that was measured rather than
+			// assumed: pg_get_keywords() calls LIKE reserved, and 16.13 reads
+			// "CREATE TABLE t (like text)" as an element copying a table
+			// called text rather than as a column. A column honestly called
+			// "like" is therefore quoted, and a quoted name is a
+			// kindQuotedIdent, which atWord never returns.
+			if p.atWord("like") {
+				d.warnf(line, "table %s: LIKE copies a definition this dump does not state; not imported", name)
+				return nil
+			}
 			if isConstraintStart(p) {
 				c, ok, err := p.parseTableConstraint(name, d)
 				if err != nil {

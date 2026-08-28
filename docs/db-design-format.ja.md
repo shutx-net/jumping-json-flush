@@ -123,6 +123,7 @@ MySQL は真偽値をそう格納し、`mysqldump` もそう書き戻すので�
 | `float` | `FLOAT` | — |
 | `double`, `double precision`, `real` | `DOUBLE` | — |
 | `bool`, `boolean` | `BOOLEAN` | — |
+| `serial`、および属性として書く `SERIAL DEFAULT VALUE` | 型として書けば `BIGINT UNSIGNED`、属性として書けばその列自身の型 | `nullable: false`、`autoIncrement: true`、および MySQL が作るユニークキー。サーバが展開するので取り込み側も展開する ── `SHOW CREATE TABLE` は 4 つとも報告し、`mysqldump` はそれを書き戻す |
 | `date`, `year`, `json` | 同じ名前の大文字 | — |
 | `tinytext`, `text`, `mediumtext`, `longtext` | 同じ名前の大文字 | — |
 | `tinyblob`, `blob`, `mediumblob`, `longblob` | 同じ名前の大文字 | — |
