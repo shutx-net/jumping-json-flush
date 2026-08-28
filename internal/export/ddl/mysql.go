@@ -567,6 +567,10 @@ func myColumnFindings(t *model.Table) []check.Finding {
 	for j := range t.Columns {
 		c := &t.Columns[j]
 		label := columnLabel(c.Name, t.Name)
+		// said is the finding count this column started with, so that every
+		// rule below can honour the one-finding-per-column rule against it
+		// rather than against the rule immediately before it.
+		said := len(findings)
 
 		if c.AutoIncrement {
 			// M3, all four rules. Each is a fact about MySQL: the first two
@@ -575,7 +579,6 @@ func myColumnFindings(t *model.Table) []check.Finding {
 			// accepts a nullable AUTO_INCREMENT column and stores it NOT NULL,
 			// which is C5's argument for a column outside the primary key and
 			// PostgreSQL's identity rule in another grammar.
-			said := len(findings)
 			switch {
 			case auto != "":
 				findings = append(findings, check.Finding{
@@ -628,8 +631,68 @@ func myColumnFindings(t *model.Table) []check.Finding {
 				}
 			}
 		}
+		if len(findings) > said {
+			continue
+		}
+
+		// M9, the MySQL half of internal/check's C8b. That check refuses "--",
+		// "/*" and ";" in a default because all three mean the same thing in
+		// every system the schema names; "#" cannot join them, because it is a
+		// comment in MySQL and MariaDB alone and an operator in PostgreSQL.
+		// Refusing it there would refuse a legal document, which is M5's
+		// mistake in another grammar.
+		//
+		// What it prevents is the same failure C8b prevents: the generator
+		// writes a column definition on one line, so a comment opened inside
+		// the default runs to the end of it and takes whatever was written
+		// after - the comma before the next column, or the COMMENT clause
+		// carrying this column's own description.
+		if myHashComment(c.Default) {
+			findings = append(findings, check.Finding{
+				Where:   label,
+				Message: fmt.Sprintf(`declares the default %q, in which "#" starts a comment; MySQL reads one to the end of the line, which is where the generated column definition continues`, *c.Default),
+			})
+		}
 	}
 	return findings
+}
+
+// myHashComment reports whether def contains a "#" that MySQL would read as the
+// start of a comment. A column with no default has none.
+//
+// Quote awareness is the whole job, and the reason this is a walk rather than a
+// strings.Contains: '#ff0000' is an ordinary string default that must pass,
+// while a "#" standing outside quotes is a comment. The rule for what closes a
+// string is internal/check's - a doubled quote does not - re-implemented rather
+// than shared for the reason precheck.go's tableLabel gives, and narrower than
+// scanExpr because this looks for one byte instead of tokenising an expression.
+//
+// A string that is never closed ends the walk with nothing reported: that
+// document already has internal/check's C8a finding against it, and a second
+// finding about a "#" inside the text it could not read would be guesswork.
+func myHashComment(def *string) bool {
+	if def == nil {
+		return false
+	}
+	s := *def
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '#':
+			return true
+		case '\'':
+			for i++; i < len(s); i++ {
+				if s[i] != '\'' {
+					continue
+				}
+				if i+1 < len(s) && s[i+1] == '\'' {
+					i++
+					continue
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 // myLeadsAKey reports whether column is the first column of the table's primary

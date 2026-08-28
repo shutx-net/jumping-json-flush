@@ -61,6 +61,17 @@ func TestColumnDefaultAccepts(t *testing.T) {
 
 		// An operator between two literals, which contains no word at all.
 		"'a' || 'b'",
+
+		// A comment introducer and a statement terminator inside a string
+		// literal are ordinary text. '#ff0000' is the everyday one: a colour
+		// is a perfectly good default and starts with the byte MySQL reads as
+		// a comment when it stands outside quotes.
+		"'--'", "'/* */'", "';'", "'#'", "'#ff0000'", "'a; b'", "'-- not a comment'",
+
+		// One minus is subtraction and one slash is division. Only the doubled
+		// minus and the slash-star pair introduce a comment, so an expression
+		// that merely contains either byte must still pass.
+		"-1", "1 - -2", "1/2", "1 * 2",
 	}
 
 	for _, def := range defs {
@@ -167,6 +178,68 @@ func TestColumnDefaultReports(t *testing.T) {
 			def:  "(now",
 			want: []string{
 				`column notes on table t: declares the default "(now", which has an unbalanced parenthesis`,
+			},
+		},
+		{
+			// The case that cost the most: PostgreSQL writes DEFAULT before
+			// NOT NULL, so a comment opened inside the default swallows the
+			// clause the generator writes after it. The script then succeeds
+			// and the column is nullable, leaving the document and the
+			// database disagreeing with nothing to read that says so.
+			name: "a line comment swallows the clause the generated DDL writes after the default",
+			def:  "1 --",
+			want: []string{
+				`column notes on table t: declares the default "1 --", which starts a comment at "--"; the text after it is not part of the expression`,
+			},
+		},
+		{
+			name: "a line comment with text of its own",
+			def:  "1 -- fixme",
+			want: []string{
+				`column notes on table t: declares the default "1 -- fixme", which starts a comment at "--"; the text after it is not part of the expression`,
+			},
+		},
+		{
+			// No space is needed to start one, so the pair has to be found by
+			// adjacency rather than by the spacing an author happened to use.
+			name: "two minus signs need no space between them or after them",
+			def:  "1--2",
+			want: []string{
+				`column notes on table t: declares the default "1--2", which starts a comment at "--"; the text after it is not part of the expression`,
+			},
+		},
+		{
+			name: "a block comment that is never closed",
+			def:  "1 /* fixme",
+			want: []string{
+				`column notes on table t: declares the default "1 /* fixme", which starts a comment at "/*"; the text after it is not part of the expression`,
+			},
+		},
+		{
+			// Closing it changes nothing: the DDL is one line, and a comment
+			// that opens and closes inside the default still means the field
+			// is carrying text that is not the expression.
+			name: "a block comment that is closed again",
+			def:  "1 /* fixme */",
+			want: []string{
+				`column notes on table t: declares the default "1 /* fixme */", which starts a comment at "/*"; the text after it is not part of the expression`,
+			},
+		},
+		{
+			name: "a semicolon ends the statement rather than the expression",
+			def:  "1 ;",
+			want: []string{
+				`column notes on table t: declares the default "1 ;", which ends its statement at ";"; a DEFAULT is one expression`,
+			},
+		},
+		{
+			// Reported before the parenthesis, not after it: a "(" the author
+			// wrote inside a comment is not one they have to balance, so
+			// naming the parenthesis first would name the wrong mistake.
+			name: "a comment is reported before the parenthesis it hides",
+			def:  "(1 --",
+			want: []string{
+				`column notes on table t: declares the default "(1 --", which starts a comment at "--"; the text after it is not part of the expression`,
 			},
 		},
 	}

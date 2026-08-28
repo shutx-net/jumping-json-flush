@@ -724,6 +724,8 @@ db-design.json: warning: column created_at on table orders: declares the default
 | `declares the default "now", in which "now" is a bare word; a string literal is written 'now'` | SQL の文字列リテラルを書くべきところに引用符のない語を書いた。SQL ではカラム参照になる | SQL の引用符を足して `"default": "'now'"` にする。関数なら括弧を残す（`"now()"`）。`CURRENT_TIMESTAMP` のようなキーワード定数はそのままでよい |
 | `declares the default "it's", which has an unbalanced single quote` | `default` の引用符が開いたまま閉じていない。多くは引用符なしの語に混じったアポストロフィ | リテラル内のアポストロフィを二重にする: `"'it''s'"` |
 | `declares the default "(1 + 2", which has an unbalanced parenthesis` | `default` の括弧が閉じていない、または閉じ括弧だけがある | 対応を取る |
+| `declares the default "1 --", which starts a comment at "--"; the text after it is not part of the expression` | `default` に `--` か `/*` が入っている。SQL のコメントが始まる。生成される DDL はカラムを 1 行で書くので、既定値の後に続く句 — `NOT NULL` を含む — がコメントに飲まれる | コメントを消す。カラムについての覚え書きは専用の `description` に書く。文字列リテラルの内側（`"'-- literal'"` など）はただの文字なので報告されない |
+| `declares the default "1 ;", which ends its statement at ";"; a DEFAULT is one expression` | `default` に `;` が入っている。式が続くのではなく文が終わってしまう | 消す。`default` は 1 つの式であって文ではない |
 
 設計の良し悪しは検査しない。`jjf` が求めたかのように正規化・インデックス設計・型選択を
 助言しないこと。テーブル名の文書内での重複と、外部キー両端の型互換性も検査しない。

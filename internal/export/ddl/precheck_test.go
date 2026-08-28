@@ -854,6 +854,59 @@ func TestMySQLDoesNotRefuseSetDefault(t *testing.T) {
 	}
 }
 
+// TestMySQLRefusesAHashInADefault is the MySQL half of the comment introducers
+// internal/check refuses for every system, and it is here rather than there for
+// the reason M5 gives: "#" is a comment in MySQL and MariaDB alone. PostgreSQL
+// reads it as an operator, so a package that speaks about the document alone
+// refusing it would refuse a legal PostgreSQL document - stricter than the
+// target in one direction and wrong in the other at the same time.
+func TestMySQLRefusesAHashInADefault(t *testing.T) {
+	tests := []struct {
+		name string
+		def  string
+		want bool
+	}{
+		{name: "a hash opens a comment", def: "1 #", want: true},
+		// The commented-out text is a number rather than a word on purpose:
+		// "1 # fixme" would also draw internal/check's bare-word finding,
+		// which is the right answer for PostgreSQL - where "fixme" really is
+		// a column reference - and would say nothing about this rule.
+		{name: "a hash with text of its own", def: "1 # 2", want: true},
+		{name: "a hash after a string literal", def: "'a' #", want: true},
+		// The everyday false positive this must not produce: a colour is a
+		// perfectly good default and starts with the byte in question.
+		{name: "a hash inside a string literal is text", def: "'#ff0000'", want: false},
+		{name: "a doubled quote does not end the string early", def: "'it''s #1'", want: false},
+		{name: "a default with no hash at all", def: "1", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			with := func(dbms model.DBMS) []check.Finding {
+				return Check(twoTablesSharingFor(t, dbms, func(a, _ *model.Table) {
+					def := tt.def
+					a.Columns[1].Default = &def
+				}))
+			}
+
+			got := with(model.DBMSMySQL)
+			if tt.want {
+				if len(got) != 1 || !strings.Contains(got[0].Message, `"#" starts a comment`) {
+					t.Errorf("MySQL reported %v for default %q, want the comment finding alone", got, tt.def)
+				}
+			} else if len(got) != 0 {
+				t.Errorf("MySQL reported %v for default %q, which it accepts", got, tt.def)
+			}
+
+			// The other direction of the same claim: PostgreSQL says nothing
+			// about any of these, because none of them is a comment there.
+			if pg := with(model.DBMSPostgreSQL); len(pg) != 0 {
+				t.Errorf("PostgreSQL reported %v for default %q, where # is an operator", pg, tt.def)
+			}
+		})
+	}
+}
+
 // TestMySQLAcceptsWhatPostgreSQLRefusesAndBack is the claim of the dialect axis
 // in one test: one document, two targets, two different answers. Without the
 // axis one of the two would be wrong.
