@@ -49,12 +49,14 @@ name: MySQL fixtures
 #
 # THE COMMITTED CAPTURES AND THIS JOB DO NOT COME FROM THE SAME BUILD. The
 # mysql8.0 fixtures were taken with Ubuntu's mysql-server package and this job
-# dumps with Oracle's mysql:8.0 container image. Both are the 8.0 series, the two
-# banner lines above are where their versions show, and the comparison ignores
-# exactly those. If anything ELSE differs, that is news rather than noise, and it
-# is the news this job exists to deliver: read the diff in the job summary before
-# concluding that the committed fixture is stale. pg-fixtures.yml carries the
-# same admission about its pg16 leg for the same reason.
+# dumps with Oracle's mysql:8.0 container image; the mysql8.4 ones came from the
+# mysql:8.4 image this job runs, which drifts from them by a patch release the
+# moment that tag moves. Either way the series is the same, the two banner lines
+# above are where the versions show, and the comparison ignores exactly those.
+# If anything ELSE differs, that is news rather than noise, and it is the news
+# this job exists to deliver: read the diff in the job summary before concluding
+# that the committed fixture is stale. pg-fixtures.yml carries the same
+# admission about its pg16 leg for the same reason.
 #
 # The server is a container this job starts itself, with the clients taken out of
 # that same container through two wrapper scripts, rather than a "services:"
@@ -96,8 +98,8 @@ name: MySQL fixtures
 # with failure modes of its own. A scheduled job's only way to say anything is to
 # go red, so a flaky one teaches people to ignore it, which is the warning
 # pg-fixtures.yml's own upstream job carries at length. Until that is built,
-# noticing MySQL 8.4 or 9.x is a human's job; the importer meanwhile claims
-# exactly the majors it has captures for, and
+# noticing such a release - 9.x, or whatever follows 8.4 - is a human's job;
+# the importer meanwhile claims exactly the majors it has captures for, and
 # TestCapturedSeriesCoverTheSupportedMajors is what holds it to that.
 #
 # Nothing here is ever committed. The regenerated dumps live in the runner's
@@ -174,10 +176,10 @@ jobs:
         # repository about which servers exist. testdata/dump/mysql<series>/ is
         # the list, and TestCapturedSeriesCoverTheSupportedMajors already holds
         # that list to minSupportedMajor..maxSupportedMajor in
-        # internal/importer/mysql. Committing a mysql8.4 capture therefore
-        # extends this job by itself, and no edit here can be forgotten - which
-        # is the whole reason the captures are kept per SERIES: 8.0 and 8.4 are
-        # different series of one major whose mysqldump output differs.
+        # internal/importer/mysql. Committing the mysql8.4 capture extended this
+        # job by itself, and no edit here can be forgotten - which is the whole
+        # reason the captures are kept per SERIES: 8.0 and 8.4 are different
+        # series of one major whose mysqldump output differs.
         #
         # The series name is also the Docker Hub tag the verify job runs, so a
         # captured series with no image is one red leg and not a broken matrix.

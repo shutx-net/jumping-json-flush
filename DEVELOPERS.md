@@ -52,7 +52,7 @@ direnv.
 | round trip one document | `PGBIN=/usr/lib/postgresql/17/bin OUTDIR=/tmp/rt sh internal/export/ddl/testdata/roundtrip.sh edge.json` |
 | run the MySQL DDL round trip | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root sh internal/export/ddl/testdata/roundtrip-mysql.sh` |
 | round trip one MySQL document | `MYSQL_HOST=127.0.0.1 OUTDIR=/tmp/rt-mysql sh internal/export/ddl/testdata/roundtrip-mysql.sh edge.json` |
-| start a MySQL for the two MySQL scripts | `docker run --rm -d --name jjf-mysql -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -p 3306:3306 mysql:8.0` |
+| start a MySQL for the two MySQL scripts (the tag picks the series) | `docker run --rm -d --name jjf-mysql -e MYSQL_ALLOW_EMPTY_PASSWORD=1 -p 3306:3306 mysql:8.0` |
 | cross-build check | `for t in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/jjf \|\| echo "FAIL $t"; done` |
 
 ## Things to watch out for
@@ -202,13 +202,16 @@ direnv.
   8.4 are different series of one major and their `mysqldump` output differs, so a
   directory per major would hide the difference the captures exist to expose. The
   supported range is stated over majors, is exactly what the captures cover, and
-  `TestCapturedSeriesCoverTheSupportedMajors` is what holds it there — adding
-  `mysql8.4/` is one directory and no code. `internal/importer/mysql/testdata/
-  generate.sh` connects to a server it did not start, because there is no portable
-  MySQL equivalent of `initdb` plus `pg_ctl`; its header carries a `docker run`
-  line and an `apt-get` line for getting one, and `MYSQL_SOCKET` for the local
-  package, whose root account authenticates through the socket and answers TCP with
-  "Access denied"
+  `TestCapturedSeriesCoverTheSupportedMajors` is what holds it there — `mysql8.4/`
+  went in as one directory and no code, and the next series goes in the same way.
+  `internal/importer/mysql/testdata/generate.sh` connects to a server it did not
+  start, because there is no portable MySQL equivalent of `initdb` plus `pg_ctl`;
+  its header carries a `docker run` line and an `apt-get` line for getting one,
+  and `MYSQL_SOCKET` for the local package, whose root account authenticates
+  through the socket and answers TCP with "Access denied". One run of it refreshes
+  one series and no other: it reads the series out of the dump's own banner and
+  writes only that directory, so keeping both captures current means pointing it
+  at a server of each
 - **`--default-character-set=utf8mb4` is not optional** anywhere a `mysql` or
   `mysqldump` command appears. Without it a client may negotiate latin1 and every
   Japanese `COMMENT` in a capture is encoded twice — and such a dump still lexes,
@@ -233,16 +236,17 @@ direnv.
   which says whether the dump was taken over a socket or over TCP) — regenerate
   locally and commit the result. Or the round trip's second pass is not the
   first, or the generated DDL did not apply at all — read the
-  `roundtrip-mysql<series>` artifact. Note that the committed captures were
-  taken with Ubuntu's `mysql-server` package and the workflow dumps with Oracle's
-  container image; both are 8.0, their versions show only in those ignored
-  lines, and anything else that differs is the news this job exists to deliver.
-  There is deliberately **no** upstream-series job: the PostgreSQL one is a single
-  `apt-cache` command, while the MySQL equivalent means enumerating Docker Hub
-  tags and telling an innovation release from an LTS, so noticing 8.4 or 9.x is a
-  human's job for now. Do not make it a required status check, for the reason the
-  PostgreSQL bullet gives, and remember that GitHub disables a scheduled workflow
-  after 60 days without a commit
+  `roundtrip-mysql<series>` artifact. Note that `mysql8.0/` was captured with
+  Ubuntu's `mysql-server` package while the workflow dumps with Oracle's
+  container image, and that `mysql8.4/` came from the same `mysql:8.4` image the
+  workflow runs; either way the series matches, the versions show only in those
+  ignored lines, and anything else that differs is the news this job exists to
+  deliver. There is deliberately **no** upstream-series job: the PostgreSQL one
+  is a single `apt-cache` command, while the MySQL equivalent means enumerating
+  Docker Hub tags and telling an innovation release from an LTS, so noticing
+  9.x — or whatever follows 8.4 — is a human's job for now. Do not make it a
+  required status check, for the reason the PostgreSQL bullet gives, and remember
+  that GitHub disables a scheduled workflow after 60 days without a commit
 - `go.mod` pins the toolchain in two directives that do different jobs. `go 1.26`
   is the floor: a go command older than that refuses to build, which is where the
   enforcement lives. `toolchain go1.26.7` is the exact release the go command

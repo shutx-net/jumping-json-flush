@@ -439,13 +439,13 @@ connects to a database.
   header banner for `mysql`, and otherwise from the input file name — which then
   has to be a legal identifier itself
 - `-strict` turns every warning into an error. Nothing is written in that case
-- Dumps from **pg_dump 13 to 18** and from **MySQL 8.0** are what this was written
-  against, verified against real dumps committed in the repository: every PostgreSQL
-  major in that range imports to the same document, byte for byte, and so does
-  every captured MySQL series. The version banner in the dump header is read, and a
-  dump from outside those ranges produces a warning rather than a failure. The
-  supported range is exactly what the captures cover: adding a MySQL 8.4 or 9.x
-  capture is what would widen it
+- Dumps from **pg_dump 13 to 18** and from **MySQL 8.0 and 8.4** are what this was
+  written against, verified against real dumps committed in the repository: every
+  PostgreSQL major in that range imports to the same document, byte for byte, and so
+  does every captured MySQL series. The version banner in the dump header is read,
+  and a dump from outside those ranges produces a warning rather than a failure. The
+  supported range is exactly what the captures cover, and for MySQL it is stated over
+  majors, so a 9.x capture is what would widen it
 
 **Pass `--default-character-set=utf8mb4` to `mysqldump`.** Without it the client
 may negotiate `latin1`, and every Japanese `COMMENT` in the dump is encoded twice.
