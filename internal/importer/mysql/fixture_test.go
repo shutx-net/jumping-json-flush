@@ -213,10 +213,13 @@ func TestImportFixtures(t *testing.T) {
 // has to import to the same document. A mysqldump that starts writing a
 // different shape is caught here rather than in the field.
 //
-// With one captured series it asserts nothing yet, which is the honest state of
-// a claim backed by one capture and is exactly the shape the PostgreSQL
-// sibling's TestImportAgreesAcrossPgDumpMajors has. Adding testdata/dump/
-// mysql8.4/ is what turns it into a real comparison, and it needs no code.
+// The second captured series is what made it assert anything, and adding one
+// needs no code: testdata/dump/mysql8.4/ is a directory. What that capture
+// showed is that mysqldump 8.4 writes these fixtures exactly as 8.0 does apart
+// from the three header lines that describe the dump rather than the schema -
+// the ones .github/workflows/mysql-fixtures.yml ignores - so today the
+// documents agree because the text does. A failure here means that stopped
+// being true.
 //
 // Only the documents are compared. Diagnostics legitimately differ between
 // series - the warning line numbers move with the dump header, and a series
