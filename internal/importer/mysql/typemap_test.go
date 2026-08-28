@@ -112,6 +112,21 @@ func TestCanonicalTypeName(t *testing.T) {
 		{name: "varchar with a length", sql: "varchar(255)", want: "VARCHAR", length: intp(255)},
 		{name: "char with a length", sql: "char(36)", want: "CHAR", length: intp(36)},
 		{name: "character is a synonym for char", sql: "character(1)", want: "CHAR", length: intp(1)},
+		// The standard SQL spellings MySQL accepts and then reports as the
+		// one-word type. Every want below is what 8.0.46 stored when asked.
+		// The length is the point: an unlisted type is paramNone, so a missing
+		// row here would drop the 5 and the exporter would write a bare
+		// NATIONAL VARCHAR, which is ERROR 1064.
+		{name: "NATIONAL VARCHAR is a synonym for varchar", sql: "national varchar(5)", want: "VARCHAR", length: intp(5)},
+		{name: "CHARACTER VARYING is a synonym for varchar", sql: "character varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "CHAR VARYING is a synonym for varchar", sql: "char varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "NCHAR VARYING is a synonym for varchar", sql: "nchar varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "NATIONAL CHARACTER VARYING is a synonym for varchar", sql: "national character varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "NATIONAL CHAR VARYING is a synonym for varchar", sql: "national char varying(5)", want: "VARCHAR", length: intp(5)},
+		{name: "NATIONAL CHAR is a synonym for char", sql: "national char(5)", want: "CHAR", length: intp(5)},
+		{name: "NATIONAL CHARACTER is a synonym for char", sql: "national character(5)", want: "CHAR", length: intp(5)},
+		{name: "LONG VARCHAR is a synonym for mediumtext", sql: "long varchar", want: "MEDIUMTEXT"},
+		{name: "LONG VARBINARY is a synonym for mediumblob", sql: "long varbinary", want: "MEDIUMBLOB"},
 		{name: "binary", sql: "binary(16)", want: "BINARY", length: intp(16)},
 		{name: "varbinary", sql: "varbinary(255)", want: "VARBINARY", length: intp(255)},
 		{name: "bit", sql: "bit(8)", want: "BIT", length: intp(8)},

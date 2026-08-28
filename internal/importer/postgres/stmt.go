@@ -290,7 +290,19 @@ func (p *parser) parseColumnDefinition(src []byte, t *pgTable, d *diagList) erro
 			// An unrecognised column option is skipped rather than rejected:
 			// tolerance here is what keeps a dump from a newer PostgreSQL
 			// working.
-			p.next()
+			//
+			// Whatever it carries in parentheses is skipped WITH it. One token
+			// at a time would walk onto the ")" that closes those parentheses,
+			// which the loop condition above reads as the end of the column
+			// list - and every column, constraint and key written after this
+			// one would then be lost without a word.
+			if p.peek().isPunct("(") {
+				if err := p.skipBalancedParens(); err != nil {
+					return err
+				}
+			} else {
+				p.next()
+			}
 		}
 	}
 	t.Columns = append(t.Columns, col)
@@ -334,8 +346,23 @@ func (p *parser) parseTypeName(d *diagList) (pgType, error) {
 		if p.acceptWord("precision") {
 			t.Words = append(t.Words, "precision")
 		}
-	case "character", "bit":
+	case "character", "char", "bit":
 		if p.acceptWord("varying") {
+			t.Words = append(t.Words, "varying")
+		}
+	case "national":
+		// NATIONAL CHARACTER and NATIONAL CHAR, either of which may be
+		// followed by VARYING. PostgreSQL 16.13 accepts all three and reports
+		// them as character / character varying; they are read here rather
+		// than left to the attribute loop because a type's own words are not
+		// column options - the loop would drop them, and the parenthesis
+		// after them would end the column list.
+		if p.acceptWord("character") {
+			t.Words = append(t.Words, "character")
+		} else if p.acceptWord("char") {
+			t.Words = append(t.Words, "char")
+		}
+		if len(t.Words) > 1 && p.acceptWord("varying") {
 			t.Words = append(t.Words, "varying")
 		}
 	case "interval":

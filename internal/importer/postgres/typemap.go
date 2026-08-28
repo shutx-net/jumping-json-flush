@@ -138,9 +138,15 @@ func canonicalTypeName(words string) (name string, param paramKind, auto bool, k
 
 	switch words {
 	// Character and bit strings: the parameter is a length.
-	case "character varying", "varchar":
+	// The NATIONAL and CHAR VARYING spellings are standard SQL synonyms
+	// PostgreSQL accepts and then reports as character varying and character;
+	// 16.13 was asked before they were written here. They are mapped rather
+	// than passed through so that the length survives: an unlisted type is
+	// paramNone, and the parameter would be dropped with a warning.
+	case "character varying", "varchar", "char varying",
+		"national character varying", "national char varying":
 		return "VARCHAR", paramLength, false, true
-	case "character", "char", "bpchar":
+	case "character", "char", "bpchar", "national character", "national char":
 		return "CHAR", paramLength, false, true
 	case "bit":
 		return "BIT", paramLength, false, true

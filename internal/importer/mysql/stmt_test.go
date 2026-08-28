@@ -365,6 +365,100 @@ func TestParseColumnTypes(t *testing.T) {
 	}
 }
 
+// TestAMultiWordTypeDoesNotSwallowTheRestOfTheTable is the MySQL half of what
+// #57 names. A type whose parentheses hang off its SECOND word is the shape
+// that breaks: parseTypeName stops after the first word, the attribute loop
+// meets "varchar" and then "(", and a skip that advances one token at a time
+// walks onto the ")" of "(5)" - which the loop reads as the end of the column
+// list. Everything after it is then eaten by parseTableOptions in silence.
+//
+// Every spelling below was accepted by MySQL 8.0.46 before it was written here.
+// The assertion is deliberately about the whole table rather than the type: a
+// column, a key and a NOT NULL disappearing is the defect, and the type is what
+// caused it.
+func TestAMultiWordTypeDoesNotSwallowTheRestOfTheTable(t *testing.T) {
+	tests := []struct {
+		name  string
+		typ   string
+		words string
+		args  string
+	}{
+		{name: "NATIONAL VARCHAR", typ: "national varchar(5)", words: "national varchar", args: "5"},
+		{name: "NATIONAL CHAR", typ: "national char(5)", words: "national char", args: "5"},
+		{name: "NATIONAL CHARACTER", typ: "national character(5)", words: "national character", args: "5"},
+		{name: "CHARACTER VARYING", typ: "character varying(5)", words: "character varying", args: "5"},
+		{name: "CHAR VARYING", typ: "char varying(5)", words: "char varying", args: "5"},
+		{name: "NCHAR VARYING", typ: "nchar varying(5)", words: "nchar varying", args: "5"},
+		{name: "NATIONAL CHARACTER VARYING", typ: "national character varying(5)", words: "national character varying", args: "5"},
+		// The two that carry no parentheses at all: they cost the table
+		// nothing today, and they are here so that the words are read whole
+		// rather than leaving a column of type LONG.
+		{name: "LONG VARCHAR", typ: "long varchar", words: "long varchar"},
+		{name: "LONG VARBINARY", typ: "long varbinary", words: "long varbinary"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+				"  `j` "+tt.typ+",\n"+
+				"  `k` int NOT NULL,\n"+
+				"  KEY `ix_k` (`k`)\n);")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+			tbl := dump.Tables[0]
+			var names []string
+			for _, c := range tbl.Columns {
+				names = append(names, c.Name)
+			}
+			if !slices.Equal(names, []string{"j", "k"}) {
+				t.Fatalf("columns got = %v, want [j k]", names)
+			}
+			if !tbl.Columns[1].NotNull {
+				t.Errorf("column k got = %+v, want NOT NULL", tbl.Columns[1])
+			}
+			if len(tbl.Indexes) != 1 || tbl.Indexes[0].Name != "ix_k" {
+				t.Errorf("indexes got = %+v, want one called ix_k", tbl.Indexes)
+			}
+			typ := tbl.Columns[0].Type
+			if got := strings.Join(typ.Words, " "); got != tt.words {
+				t.Errorf("type words got = %q, want %q", got, tt.words)
+			}
+			if got := strings.Join(typ.Args, "|"); got != tt.args {
+				t.Errorf("type args got = %q, want %q", got, tt.args)
+			}
+		})
+	}
+}
+
+// TestAnUnknownAttributeKeepsItsParenthesesToItself is the same defect without
+// the type: whatever an unrecognised attribute carries in parentheses has to be
+// skipped whole.
+//
+// The attribute here is invented, which is the point. The default branch of the
+// attribute loop exists so that a dump from a newer MySQL still parses, and an
+// attribute jjf has never heard of is exactly what it will meet - so its ")"
+// must not be able to end the column list.
+func TestAnUnknownAttributeKeepsItsParenthesesToItself(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+		"  `j` int somethingnew(3),\n"+
+		"  `k` int NOT NULL\n);")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	tbl := dump.Tables[0]
+	var names []string
+	for _, c := range tbl.Columns {
+		names = append(names, c.Name)
+	}
+	if !slices.Equal(names, []string{"j", "k"}) {
+		t.Fatalf("columns got = %v, want [j k]", names)
+	}
+	if !tbl.Columns[1].NotNull {
+		t.Errorf("column k got = %+v, want NOT NULL", tbl.Columns[1])
+	}
+}
+
 // TestParseInlineComments covers the whole of what MySQL has instead of a
 // COMMENT ON statement: a column says its comment in its own definition and a
 // table says its own in the options after the closing parenthesis.

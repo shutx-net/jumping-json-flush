@@ -177,9 +177,17 @@ func canonicalTypeName(words string) (name string, param paramKind, known bool) 
 	switch words {
 	// Character, binary and bit strings: the parameter is a length. TINYINT is
 	// here rather than with the integers, for the reason above.
-	case "varchar":
+	// The multi-word spellings are standard SQL synonyms MySQL accepts and
+	// then reports as the one-word type: 8.0.46 stores every VARCHAR row below
+	// as varchar and every CHAR row as char. Mapping them here rather than
+	// letting defaultTypeName pass them through is what keeps the length: an
+	// unlisted type is paramNone, so "NATIONAL VARCHAR(5)" would lose its 5
+	// and the exporter would then write a bare NATIONAL VARCHAR, which is
+	// ERROR 1064.
+	case "varchar", "national varchar", "character varying", "char varying",
+		"nchar varying", "national character varying", "national char varying":
 		return "VARCHAR", paramLength, true
-	case "char", "character":
+	case "char", "character", "national char", "national character":
 		return "CHAR", paramLength, true
 	case "binary":
 		return "BINARY", paramLength, true
@@ -242,7 +250,7 @@ func canonicalTypeName(words string) (name string, param paramKind, known bool) 
 		return "TINYTEXT", paramNone, true
 	case "text":
 		return "TEXT", paramNone, true
-	case "mediumtext":
+	case "mediumtext", "long varchar":
 		return "MEDIUMTEXT", paramNone, true
 	case "longtext":
 		return "LONGTEXT", paramNone, true
@@ -250,7 +258,7 @@ func canonicalTypeName(words string) (name string, param paramKind, known bool) 
 		return "TINYBLOB", paramNone, true
 	case "blob":
 		return "BLOB", paramNone, true
-	case "mediumblob":
+	case "mediumblob", "long varbinary":
 		return "MEDIUMBLOB", paramNone, true
 	case "longblob":
 		return "LONGBLOB", paramNone, true

@@ -317,7 +317,19 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 			// An unrecognised column attribute is skipped rather than
 			// rejected: tolerance here is what keeps a dump from a newer MySQL
 			// working, and MySQL's attribute list is long and still growing.
-			p.next()
+			//
+			// Whatever it carries in parentheses is skipped WITH it. One token
+			// at a time would walk onto the ")" that closes those parentheses,
+			// which the loop condition above reads as the end of the column
+			// list - and every column and key written after this one would
+			// then be swallowed by parseTableOptions without a word.
+			if p.peek().isPunct("(") {
+				if err := p.skipBalancedParens(); err != nil {
+					return err
+				}
+			} else {
+				p.next()
+			}
 		}
 	}
 	t.Columns = append(t.Columns, col)
@@ -365,8 +377,28 @@ func (p *parser) parseTypeName() (myType, error) {
 	}
 
 	t := myType{Words: []string{name}, Line: line}
-	if t.Words[0] == "double" && p.acceptWord("precision") {
-		t.Words = append(t.Words, "precision")
+	// The multi-word type names, every one of them a standard SQL spelling
+	// MySQL accepts as a synonym of a one-word type. They are read here rather
+	// than left to the attribute loop because a type's own words are not
+	// attributes: the loop would drop them, and the parenthesis that follows
+	// them would end the column list. Measured against MySQL 8.0.46, which
+	// accepts all of these and reports them as varchar, char, mediumtext,
+	// mediumblob and double.
+	switch t.Words[0] {
+	case "double":
+		p.acceptTypeWord(&t, "precision")
+	case "national":
+		if !p.acceptTypeWord(&t, "varchar") {
+			if p.acceptTypeWord(&t, "character") || p.acceptTypeWord(&t, "char") {
+				p.acceptTypeWord(&t, "varying")
+			}
+		}
+	case "character", "char", "nchar":
+		p.acceptTypeWord(&t, "varying")
+	case "long":
+		if !p.acceptTypeWord(&t, "varchar") {
+			p.acceptTypeWord(&t, "varbinary")
+		}
 	}
 	if p.peek().isPunct("(") {
 		args, err := p.typeArgs()
@@ -393,6 +425,16 @@ func (p *parser) parseTypeName() (myType, error) {
 			return t, nil
 		}
 	}
+}
+
+// acceptTypeWord consumes w when it is at the cursor and records it as another
+// word of the type name being read.
+func (p *parser) acceptTypeWord(t *myType, w string) bool {
+	if !p.acceptWord(w) {
+		return false
+	}
+	t.Words = append(t.Words, w)
+	return true
 }
 
 // typeArgs reads the parenthesised argument list of a type. Each argument is
