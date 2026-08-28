@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/shutx-net/jumping-json-flush/internal/check"
 	"github.com/shutx-net/jumping-json-flush/internal/model"
@@ -23,9 +24,12 @@ import (
 // design/ddl-export.md's MySQL table is the record this file implements, and
 // the comments below cite it by row: M1 for the three phases, M2 for the
 // backticks, M3 for AUTO_INCREMENT, M4 for the folded comments, M5 for the
-// inverted namespaces, M6 for the doubled backslash, M7 for the parameters and
-// M8 for what the type name alone decides. A row and its function must move
-// together; the numbers are cited so that they can be.
+// inverted namespaces, M6 for the doubled backslash, M7 for the parameters,
+// M8 for what the type name alone decides, M9 for the "#" in a default, M10
+// for the lengths and the one character MySQL will not take, M11 for what the
+// type and the grammar decide about a default, and M12 for a foreign key's
+// column order. A row and its function must move together; the numbers are
+// cited so that they can be.
 
 // ---------------------------------------------------------------------------
 // Phases
@@ -392,6 +396,18 @@ func myAttributeSuffix(name string) (base, attr string) {
 	return name, ""
 }
 
+// myTypeBase is the type name with any UNSIGNED or ZEROFILL split off it, which
+// is what the two rules decided by the type name alone have to compare.
+//
+// A thin name over myAttributeSuffix so that a rule reads as the question it is
+// asking. M7 put the split there for the opposite purpose - to render the
+// parameters before the attribute - and the two callers want the same first
+// half for different second halves.
+func myTypeBase(name string) string {
+	base, _ := myAttributeSuffix(name)
+	return base
+}
+
 // myRenderType folds a column's declared attributes back into its type, which
 // is the reverse of what the importer took apart.
 //
@@ -450,6 +466,250 @@ func myKeyUnusableType(name string) (clause string, unusable bool) {
 // Preconditions
 // ---------------------------------------------------------------------------
 
+// myIdentifierLimit is M10's first half: what MySQL does with a name longer
+// than it takes.
+//
+// The measurement is in CHARACTERS rather than bytes, which is the one thing
+// PostgreSQL's limit does not share: MySQL counts what it stores, and 64 is
+// 64 characters whatever they encode to. The schema's identifier pattern is
+// ASCII only, so no document jjf validate accepts can tell the two apart; they
+// are kept apart anyway, because Check is total over a model that never met the
+// schema.
+//
+// MySQL refuses rather than truncating - ERROR 1059 - so this is a loud failure
+// prevented early rather than PostgreSQL's silent one prevented at all.
+func myIdentifierLimit() identifierLimit {
+	return identifierLimit{
+		max:     64,
+		unit:    "characters",
+		measure: utf8.RuneCountInString,
+		clause:  "MySQL refuses an identifier longer than 64 characters",
+	}
+}
+
+// myNulClause is M10's third: why a comment carrying U+0000 is refused rather
+// than written.
+//
+// The wall is a different one from PostgreSQL's. MySQL's own text types hold
+// that byte quite happily; it is the mysql client that refuses to send a
+// statement containing one unless it is run in binary mode, which is not how a
+// generated script is applied. The refusal is therefore about the script rather
+// than about the column, and the message says so.
+const myNulClause = "the mysql client refuses to send a statement containing that character"
+
+// myCommentLimits are M10's second half, the two lengths MySQL stores: 1024
+// characters on a column and 2048 on a table, measured on 8.0, one more of
+// either being ERROR 1629 and ERROR 1628.
+//
+// What makes them reachable from a document jjf validate accepts is M4 rather
+// than either limit on its own: $defs/description allows 2000 characters and
+// $defs/logicalName allows 255, and the generator joins them with a newline
+// into ONE comment. A table comment of 2256 characters is therefore two fields
+// each well inside the schema's own bounds.
+func myCommentLimits() (column, table int) { return 1024, 2048 }
+
+// myCommentFindings reports what MySQL refuses about the comments of one table,
+// in document order: the table's own, then its columns'.
+//
+// At most one finding per object, the rule internal/check's checkColumnDefault
+// follows. The length is checked before the character because a comment that is
+// both too long and unsendable is one field to rewrite.
+func myCommentFindings(t *model.Table) []check.Finding {
+	columnMax, tableMax := myCommentLimits()
+
+	var findings []check.Finding
+	for _, o := range tableComments(t) {
+		max, object := tableMax, "table"
+		if o.column {
+			max, object = columnMax, "column"
+		}
+		if n := utf8.RuneCountInString(o.text); n > max {
+			findings = append(findings, check.Finding{
+				Where: o.where,
+				Message: fmt.Sprintf(
+					"needs a COMMENT of %d characters, which is its logicalName and its description joined; MySQL stores at most %d characters on a %s",
+					n, max, object),
+			})
+			continue
+		}
+		if f, bad := nulFinding(o, myNulClause); bad {
+			findings = append(findings, f)
+		}
+	}
+	return findings
+}
+
+// myAutoIncrementType reports whether MySQL will auto-increment a column of the
+// type called name, which has already been upper-cased and had any UNSIGNED or
+// ZEROFILL split off it.
+//
+// A list of what is ACCEPTED, for the reason pgIdentityType gives and with the
+// same measurement behind it: MySQL has no user-defined types at all, so there
+// is no name this list can wrongly refuse that the server would have accepted.
+// It is not PostgreSQL's list with more entries - FLOAT, DOUBLE and BOOLEAN all
+// auto-increment in MySQL and none of them can be a PostgreSQL identity column,
+// while DECIMAL is refused by both. Every entry below was run against MySQL 8.0.
+//
+// The short spellings are here because MySQL accepts them and a hand-written
+// document may use them: INT1 through INT8 and FLOAT4 / FLOAT8 are its own
+// synonyms, and INT4 is not PostgreSQL's int4 arriving by accident. SERIAL is
+// present although the importer never writes it - expandSerial takes it apart
+// into BIGINT UNSIGNED - because a hand-written document may still say it and
+// MySQL accepts SERIAL AUTO_INCREMENT.
+func myAutoIncrementType(name string) bool {
+	for _, t := range []string{
+		"TINYINT", "INT1", "BOOL", "BOOLEAN",
+		"SMALLINT", "INT2",
+		"MEDIUMINT", "INT3", "MIDDLEINT",
+		"INT", "INTEGER", "INT4",
+		"BIGINT", "INT8", "SERIAL",
+		"FLOAT", "FLOAT4",
+		"DOUBLE", "DOUBLE PRECISION", "FLOAT8", "REAL",
+	} {
+		if name == t {
+			return true
+		}
+	}
+	return false
+}
+
+// myDefaultlessType reports whether MySQL refuses a plain default on a column
+// of the type called name, which has already been upper-cased.
+//
+// The four families are the ones ERROR 1101 itself names - "BLOB, TEXT,
+// GEOMETRY or JSON column can't have a default value" - and the list is written
+// out rather than shared with myKeyUnusableType, which names two of them for a
+// different rule: a spatial index over a geometry column is ordinary, so the
+// two lists agree today by coincidence and not by construction. Each was run
+// against MySQL 8.0.
+func myDefaultlessType(name string) bool {
+	for _, t := range []string{
+		"TEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT",
+		"BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB",
+		"JSON",
+		"GEOMETRY", "POINT", "LINESTRING", "POLYGON",
+		"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION",
+	} {
+		if name == t {
+			return true
+		}
+	}
+	return false
+}
+
+// myParenthesisedDefault reports whether def is written as MySQL's
+// parenthesised expression default rather than as a bare literal.
+//
+// The test is that the text STARTS with a parenthesis, and not that the first
+// one closes at the end of it. The weaker test is deliberate: the stronger one
+// needs to know where a string literal ends, MySQL's backslash escapes make
+// that a second grammar to get right, and getting it wrong would refuse a
+// legal document - which M5's row already names as the worse of the two
+// mistakes. What the weaker test misses is DEFAULT ('a')+1, which MySQL answers
+// with a syntax error of its own; what it must never do is refuse
+// DEFAULT (_utf8mb4'a\')'), which is a value mysqldump writes.
+func myParenthesisedDefault(def string) bool {
+	return strings.HasPrefix(strings.TrimLeft(def, " \t\r\n"), "(")
+}
+
+// myBareDefaultWords are the bare words MySQL's unparenthesised DEFAULT does
+// not admit, answering each with ERROR 1064.
+//
+// It is a list of what is REFUSED, and it is exactly a subtraction: internal/
+// check's C8d already refuses every bare word outside its sixteen
+// keywordConstants, so those sixteen are the only ones that can reach this
+// rule, and these ten are the ones MySQL's grammar rejects. The six that
+// survive are CURRENT_TIMESTAMP, LOCALTIME, LOCALTIMESTAMP, TRUE, FALSE and
+// NULL. Written as the refusals rather than as the survivors so that a word
+// this package has never heard of - a charset introducer, a function C8d reads
+// as a call - passes untouched: a list of survivors would refuse it, and
+// refusing a legal document is the mistake M5's row exists to name.
+//
+// Each was run against MySQL 8.0 on a DATETIME column, which is the most
+// permissive one: TRUE and FALSE answer with ERROR 1067 there, a type error
+// rather than a syntax error, and are legal on an INT column.
+func myBareDefaultWords() []string {
+	return []string{
+		"CURRENT_DATE", "CURRENT_TIME",
+		"CURRENT_USER", "SESSION_USER", "CURRENT_ROLE",
+		"CURRENT_CATALOG", "CURRENT_SCHEMA", "USER",
+		"SYSDATE", "SYSTIMESTAMP",
+	}
+}
+
+// myLeadingWord returns the word an expression begins with, and the empty
+// string when it begins with anything else - a quote, a digit, a sign or the
+// parenthesis that makes the whole rule moot.
+//
+// The word bytes are MySQL's unquoted identifier characters. Nothing here folds
+// case: the caller does that, with upperASCII, for the reason typemap.go gives.
+func myLeadingWord(s string) string {
+	i := 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') {
+		i++
+	}
+	if i == len(s) || !myWordStart(s[i]) {
+		return ""
+	}
+	end := i
+	for end < len(s) && myWordByte(s[end]) {
+		end++
+	}
+	return s[i:end]
+}
+
+// myWordStart and myWordByte are MySQL's unquoted identifier characters. They
+// carry the dialect prefix although the ASCII half of the answer is every
+// system's, for the reason myNamedKey gives: an unprefixed name in this package
+// means shared by both dialects, and only text.go and typemap.go hold those.
+func myWordStart(b byte) bool {
+	return b == '_' || b == '$' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+func myWordByte(b byte) bool { return myWordStart(b) || (b >= '0' && b <= '9') }
+
+// myLeadsAKeyInOrder reports whether cols are the leading columns, IN ORDER, of
+// this table's primary key, of one of its unique keys or of one of its indexes.
+//
+// Every one of the three may serve, unlike myLeadsAKey's question about
+// AUTO_INCREMENT: M1 creates the indexes in phase 2 and adds the foreign keys
+// in phase 3, so by the time the constraint is added every key the document
+// declares exists.
+//
+// A leading PREFIX and not an equal list, because that is what InnoDB requires
+// and what it was measured doing: a foreign key onto (a, b) of a table whose
+// primary key is (a, b, c) is accepted. internal/check's C4 makes that case
+// rare rather than impossible - it wants the referenced columns constrained
+// unique as a SET, which (a, b) of a key on (a, b, c) is not - and the two
+// checks are orthogonal, so a document that gets both wrong hears both.
+func myLeadsAKeyInOrder(t *model.Table, cols []string) bool {
+	prefix := func(key []string) bool {
+		if len(key) < len(cols) {
+			return false
+		}
+		for i, name := range cols {
+			if key[i] != name {
+				return false
+			}
+		}
+		return true
+	}
+	if pk := t.PrimaryKey; pk != nil && prefix(pk.Columns) {
+		return true
+	}
+	for _, uk := range t.UniqueKeys {
+		if prefix(uk.Columns) {
+			return true
+		}
+	}
+	for _, ix := range t.Indexes {
+		if prefix(ix.Columns) {
+			return true
+		}
+	}
+	return false
+}
+
 // myCheck reports the preconditions that are statements about MySQL rather than
 // about the document, in document order.
 //
@@ -491,10 +751,27 @@ func myCheck(doc *model.Document) []check.Finding {
 	// in one namespace silence a collision in the other.
 	tablesReported := make(map[string]bool)
 	constraintsReported := make(map[string]bool)
+	// byName finds a foreign key's referenced table for the order rule. Like
+	// the maps above it is only ever LOOKED UP and assigned, NEVER ranged
+	// over. The FIRST table of a name wins, which is the one CREATE TABLE the
+	// script would have created before the collision M5 reports; a table with
+	// no name at all is left out, so that a reference to nothing finds nothing
+	// and internal/check's C2 keeps that case to itself.
+	byName := make(map[string]*model.Table, len(doc.Tables))
+	for i := range doc.Tables {
+		if t := &doc.Tables[i]; t.Name != "" && byName[t.Name] == nil {
+			byName[t.Name] = t
+		}
+	}
 
 	for i := range doc.Tables {
 		t := &doc.Tables[i]
 		label := tableLabel(t.Name)
+
+		// M10, before anything about what the names mean: a name MySQL will
+		// not take, and a comment it will not store.
+		findings = append(findings, identifierFindings(t, myIdentifierLimit())...)
+		findings = append(findings, myCommentFindings(t)...)
 
 		// M5, first half - a table name is schema-wide. internal/check
 		// deliberately does not report duplicate table names, so without this
@@ -522,30 +799,74 @@ func myCheck(doc *model.Document) []check.Finding {
 		// which is the inverse of PostgreSQL, where pg_constraint is unique per
 		// table and internal/export/ddl/precheck_test.go's
 		// TestForeignKeyNamesMayRepeatAcrossTables pins that they may.
-		for _, fk := range t.ForeignKeys {
-			if fk.Name == "" {
+		//
+		// A closure rather than the body of the loop below, because M12's
+		// order rule has to run for every foreign key including the unnamed
+		// ones this says nothing about.
+		claimForeignKey := func(name string) {
+			if name == "" {
 				// The schema makes foreignKeys[].name optional and MySQL
 				// invents one, so several unnamed foreign keys in one document
 				// are ordinary rather than a collision.
-				continue
+				return
 			}
-			owner := "foreign key " + fk.Name + " on table " + t.Name
-			prior, taken := constraints[fk.Name]
+			owner := "foreign key " + name + " on table " + t.Name
+			prior, taken := constraints[name]
 			if !taken {
-				constraints[fk.Name] = owner
-				continue
+				constraints[name] = owner
+				return
 			}
-			if constraintsReported[fk.Name] {
-				continue
+			if constraintsReported[name] {
+				return
 			}
-			constraintsReported[fk.Name] = true
+			constraintsReported[name] = true
 			findings = append(findings, check.Finding{
 				Where:   label,
-				Message: fmt.Sprintf("declares foreign key %q, a name already used by %s; InnoDB keeps foreign key names in one namespace per schema", fk.Name, prior),
+				Message: fmt.Sprintf("declares foreign key %q, a name already used by %s; InnoDB keeps foreign key names in one namespace per schema", name, prior),
 			})
+		}
+		for k := range t.ForeignKeys {
+			fk := &t.ForeignKeys[k]
+			claimForeignKey(fk.Name)
+			if f, bad := myForeignKeyOrderFinding(byName, label, fk); bad {
+				findings = append(findings, f)
+			}
 		}
 	}
 	return findings
+}
+
+// myForeignKeyOrderFinding reports a foreign key whose referenced columns no
+// key of the referenced table carries as its leading columns, in that order.
+//
+// This is the divergence internal/check cannot state and says so: its
+// sameColumnSet compares the referenced columns as a SET, with the comment "a
+// foreign key on (b, a) against a primary key on (a, b) is still the same
+// target". That is exactly right for PostgreSQL, which was measured accepting
+// it. InnoDB needs an index it can walk from the left and answers the same
+// document with ERROR 1822, Missing index for constraint in the referenced
+// table - which is M5's argument about namespaces applied to column order, and
+// belongs here for the same reason M5 does. It is M12.
+//
+// Three things are skipped in silence, each because another check owns it and
+// this one would have nothing to add: a foreign key with no referenced columns,
+// one naming a table the document does not define (internal/check's C2), and
+// one whose two column lists are of different lengths (C3).
+func myForeignKeyOrderFinding(byName map[string]*model.Table, label string, fk *model.ForeignKey) (check.Finding, bool) {
+	cols := fk.References.Columns
+	target := byName[fk.References.Table]
+	if len(cols) == 0 || target == nil || len(cols) != len(fk.Columns) {
+		return check.Finding{}, false
+	}
+	if myLeadsAKeyInOrder(target, cols) {
+		return check.Finding{}, false
+	}
+	return check.Finding{
+		Where: label,
+		Message: fmt.Sprintf(
+			"declares %s referencing (%s) of table %q; MySQL needs an index on that table whose leading columns are those, in that order, and its primaryKey, uniqueKeys and indexes all begin differently",
+			myNamedKey("foreign key", fk.Name), strings.Join(cols, ", "), fk.References.Table),
+	}, true
 }
 
 // myColumnFindings reports what MySQL refuses about the columns of one table,
@@ -553,10 +874,12 @@ func myCheck(doc *model.Document) []check.Finding {
 //
 // At most one finding comes out per column, the rule internal/check's
 // checkColumnDefault already follows: one authoring mistake, one finding. The
-// order the four AUTO_INCREMENT rules are tried in is the order in which one
+// order the five AUTO_INCREMENT rules are tried in is the order in which one
 // explains the others - a second AUTO_INCREMENT column is the whole problem
 // with that column, and telling its author that it also leads no key would be
-// telling them to fix something they are about to delete.
+// telling them to fix something they are about to delete. A type MySQL will
+// not auto-increment comes next for the same reason, and before the two rules
+// about a DEFAULT it may be keeping.
 func myColumnFindings(t *model.Table) []check.Finding {
 	var findings []check.Finding
 
@@ -573,17 +896,25 @@ func myColumnFindings(t *model.Table) []check.Finding {
 		said := len(findings)
 
 		if c.AutoIncrement {
-			// M3, all four rules. Each is a fact about MySQL: the first two
-			// are refused outright by the server, the third is refused as an
-			// invalid default, and the fourth is the silent one - MySQL
-			// accepts a nullable AUTO_INCREMENT column and stores it NOT NULL,
-			// which is C5's argument for a column outside the primary key and
-			// PostgreSQL's identity rule in another grammar.
+			// M3, all five rules. Each is a fact about MySQL: the first three
+			// are refused outright by the server, the fourth is refused as an
+			// invalid default, and the fifth is the silent one - MySQL accepts
+			// a nullable AUTO_INCREMENT column and stores it NOT NULL, which
+			// is C5's argument for a column outside the primary key and
+			// PostgreSQL's identity rule in another grammar. The type rule is
+			// a list of what is ACCEPTED, for the reason myAutoIncrementType
+			// gives at length; it is not pgIdentityType's list, because the
+			// two databases disagree about FLOAT, DOUBLE and BOOLEAN.
 			switch {
 			case auto != "":
 				findings = append(findings, check.Finding{
 					Where:   label,
 					Message: fmt.Sprintf("is autoIncrement, and so is column %q on the same table; MySQL allows one AUTO_INCREMENT column per table", auto),
+				})
+			case !myAutoIncrementType(upperASCII(myTypeBase(c.Type))):
+				findings = append(findings, check.Finding{
+					Where:   label,
+					Message: fmt.Sprintf("is autoIncrement and declares type %q; MySQL auto-increments only its integer and floating-point types", c.Type),
 				})
 			case c.Default != nil:
 				findings = append(findings, check.Finding{
@@ -629,6 +960,46 @@ func myColumnFindings(t *model.Table) []check.Finding {
 					})
 					break
 				}
+			}
+		}
+		if len(findings) > said {
+			continue
+		}
+
+		// M11, first half - the type's own answer to a default, before
+		// anything about what the default says: a column MySQL gives no
+		// default to at all is one whose author is about to delete the field
+		// rather than rewrite it. The parenthesis is the whole of the
+		// exception and it is not a courtesy: DEFAULT ('x') on a TEXT column
+		// is legal since 8.0.13 and is what mysqldump writes back, so refusing
+		// every default on those families would break the round trip by
+		// construction.
+		if c.Default != nil && !myParenthesisedDefault(*c.Default) && myDefaultlessType(upperASCII(myTypeBase(c.Type))) {
+			findings = append(findings, check.Finding{
+				Where:   label,
+				Message: fmt.Sprintf("declares type %q and the default %s; MySQL gives a BLOB, TEXT, GEOMETRY or JSON column no default unless it is written as a parenthesised expression, as in (%s)", c.Type, *c.Default, *c.Default),
+			})
+		}
+		if len(findings) > said {
+			continue
+		}
+
+		// M11, second half - the grammar's answer to a bare word.
+		// internal/check's C8d has already let sixteen of them through as
+		// SQL's niladic constants, and MySQL's unparenthesised DEFAULT takes
+		// six: the rest are ERROR 1064, and the parenthesised form is what
+		// MySQL wants instead.
+		if c.Default != nil && !myParenthesisedDefault(*c.Default) {
+			word := upperASCII(myLeadingWord(*c.Default))
+			for _, refused := range myBareDefaultWords() {
+				if word != refused {
+					continue
+				}
+				findings = append(findings, check.Finding{
+					Where:   label,
+					Message: fmt.Sprintf("declares the default %q, which MySQL takes only in parentheses; write it as (%s), because an unparenthesised DEFAULT admits a literal, CURRENT_TIMESTAMP, LOCALTIME, LOCALTIMESTAMP and NOW() and nothing else", *c.Default, *c.Default),
+				})
+				break
 			}
 		}
 		if len(findings) > said {

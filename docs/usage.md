@@ -321,10 +321,16 @@ For PostgreSQL:
   none of them may collide with any other. Foreign key constraint names do not:
   they are scoped per table, and two tables may legally carry a constraint of one
   name
-- **Identity columns.** A column that is `autoIncrement` may not also carry a
-  `default` — PostgreSQL refuses a column that is both — and may not be
-  `nullable`, because PostgreSQL would silently make it `NOT NULL` and the
-  database would stop matching the document
+- **Identity columns.** A column that is `autoIncrement` must declare one of
+  `smallint`, `integer` and `bigint` — PostgreSQL makes an identity column of
+  nothing else — may not also carry a `default`, because PostgreSQL refuses a
+  column that is both, and may not be `nullable`, because PostgreSQL would
+  silently make it `NOT NULL` and the database would stop matching the document
+- **A name longer than 63 bytes.** The schema allows 128 characters and
+  PostgreSQL truncates, so this is the one refusal that prevents a *silent*
+  divergence rather than an error: without it the database gets an object whose
+  name the document never wrote, and only two names agreeing in their first 63
+  bytes turn it into a visible failure
 
 For MySQL, where the namespaces are **the exact inverse**:
 
@@ -334,17 +340,49 @@ For MySQL, where the namespaces are **the exact inverse**:
   key names per database and answers a collision with `Duplicate foreign key
   constraint name`. Index names are the other way round: they live in the table,
   so two MySQL tables may each carry an `ix_created`
-- **`AUTO_INCREMENT`, four ways.** At most one such column per table; it must be
-  the first column of the table's `primaryKey` or of one of its `uniqueKeys`
-  (an `indexes` entry cannot serve, because the script creates it a phase after
-  the table); it may not also carry a `default`; and it may not be `nullable`,
-  because MySQL would store it `NOT NULL` and the database would stop matching
-  the document
+- **`AUTO_INCREMENT`, five ways.** At most one such column per table; its type
+  must be one MySQL auto-increments, which is its integer and floating-point
+  families and nothing else; it must be the first column of the table's
+  `primaryKey` or of one of its `uniqueKeys` (an `indexes` entry cannot serve,
+  because the script creates it a phase after the table); it may not also carry
+  a `default`; and it may not be `nullable`, because MySQL would store it
+  `NOT NULL` and the database would stop matching the document
+- **A composite foreign key that reorders its target.** MySQL needs an index on
+  the referenced table whose *leading* columns are the referenced ones, in that
+  order. `jjf validate` compares them as a set, which is right for PostgreSQL
+  and accepts a foreign key on `(b, a)` against a primary key on `(a, b)`;
+  MySQL answers that document with `Missing index for constraint`
+- **A `default` on a `BLOB`, `TEXT`, `GEOMETRY` or `JSON` column** unless it is
+  written as a parenthesised expression. `"default": "'x'"` is refused and
+  `"default": "('x')"` is not — the parenthesised form is the one MySQL has
+  accepted since 8.0.13, and the one `mysqldump` writes back
+- **A `default` that begins with a bare word MySQL will not take there.**
+  `CURRENT_TIMESTAMP`, `LOCALTIME`, `LOCALTIMESTAMP`, `TRUE`, `FALSE` and
+  `NULL` are the ones it takes; `CURRENT_DATE`, `USER` and the rest that
+  `jjf validate` accepts for other systems are a syntax error in MySQL unless
+  they are parenthesised, and the message says to write `(CURRENT_DATE)`
+- **A name longer than 64 characters, or a comment longer than MySQL stores** —
+  1024 characters on a column and 2048 on a table. The comment is
+  `logicalName` and `description` joined with a newline, so two fields each
+  inside the schema's own limits can still make one comment that is not
 - **A key over a `TEXT`, `BLOB` or `JSON` column.** MySQL wants a prefix length
   for the first two and a generated column for the third, and the design format
   has nowhere to put either
 - **`VARCHAR` or `VARBINARY` with no `length`.** MySQL has no default width for
   them, so the column would be a syntax error rather than a column
+
+Both dialects refuse **U+0000 in a `logicalName` or a `description`**. The
+schema puts no restriction on the characters of either field, and every other
+control character reaches the database and comes back unchanged; that one
+cannot. PostgreSQL's text types cannot represent it, and the `mysql` client
+will not send a statement containing it.
+
+Two things the refusal deliberately does **not** check, because checking them
+means keeping a per-system catalogue of types that the design format does not
+have: whether the two ends of a foreign key have compatible types, and whether
+a `length` or `precision` is inside the bound its type carries. Both are loud
+failures at the server — `VARCHAR(70000)` and a `NUMERIC(2000)` are rejected
+when the script runs, not silently accepted.
 
 #### What it does not write
 

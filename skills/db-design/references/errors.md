@@ -134,6 +134,8 @@ PostgreSQL only:
 | `db-design.json: error: table orders: is the second table this document calls "orders"; PostgreSQL cannot create two tables of one name in a schema` | the document defines one table name twice; `jjf validate` does not report this | rename or remove one |
 | `db-design.json: error: column id on table orders: is autoIncrement and also declares a default; PostgreSQL refuses a column that is both an identity column and has a DEFAULT` | a column carries `autoIncrement` and `default` | drop one of the two |
 | `db-design.json: error: column id on table orders: is autoIncrement and declared nullable; PostgreSQL makes an identity column NOT NULL, so the database would not match the document` | an `autoIncrement` column says `"nullable": true` | set `"nullable": false` |
+| `db-design.json: error: column id on table orders: is autoIncrement and declares type "NUMERIC"; PostgreSQL makes an identity column only of smallint, integer or bigint` | an `autoIncrement` column declares any other type | change the type, or drop `autoIncrement` and give the column a `default` instead |
+| `db-design.json: error: table order_items_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: has a name of 66 bytes; PostgreSQL truncates an identifier to 63 bytes, so the object it creates would not be the one this document names` | a table, column, constraint or index name is longer than 63 bytes; the schema allows 128 | shorten it. PostgreSQL would not fail, it would create an object of another name |
 
 MySQL only. The namespaces are the mirror image of PostgreSQL's: table names are
 schema-wide in both, but index names are **per table** here and foreign key names
@@ -150,12 +152,31 @@ are **schema-wide**, which is the opposite of PostgreSQL on both counts.
 | `db-design.json: error: table documents: declares index "ix_documents_body" over column "body", whose type is TEXT; MySQL refuses such a column in a key without a prefix length, which the document has nowhere to put` | a key or index covers a `TEXT`, `BLOB` or `JSON` column | drop the index, or index a `VARCHAR` column beside it. A prefix length cannot be expressed |
 | `db-design.json: error: column name on table labels: declares type "VARCHAR" and no length; MySQL has no default length for it, so the column would be a syntax error rather than a column` | `VARCHAR` or `VARBINARY` with no `length` | add `"length"`. `CHAR`, `BINARY`, `BIT` and `DECIMAL` have server defaults and need none |
 | `db-design.json: error: column colour on table themes: declares the default "1 #", in which "#" starts a comment; MySQL reads one to the end of the line, which is where the generated column definition continues` | a `default` contains `#` outside a string literal. `jjf validate` does not report this one, because `#` is a comment in MySQL and an operator in PostgreSQL — `--`, `/*` and `;` are reported there for every dialect | delete it. A `#` inside a string literal, as in `"'#ff0000'"`, is ordinary text and is not reported |
+| `db-design.json: error: column id on table tallies: is autoIncrement and declares type "DECIMAL"; MySQL auto-increments only its integer and floating-point types` | an `autoIncrement` column declares any other type | change the type. `DECIMAL` and `NUMERIC` are refused; `FLOAT`, `DOUBLE` and `BOOLEAN` are not |
+| `db-design.json: error: table order_items: declares foreign key "fk_orders" referencing (b, a) of table "orders"; MySQL needs an index on that table whose leading columns are those, in that order, and its primaryKey, uniqueKeys and indexes all begin differently` | a composite foreign key names the referenced columns in another order than the target's key declares them. `jjf validate` compares them as a set, which is right for PostgreSQL | reorder `references.columns`, or add an `indexes` entry on the referenced table in that order |
+| `db-design.json: error: column body on table documents: declares type "TEXT" and the default 'x'; MySQL gives a BLOB, TEXT, GEOMETRY or JSON column no default unless it is written as a parenthesised expression, as in ('x')` | a plain `default` on one of those four families | parenthesise it, as in `"default": "('x')"`, or drop it |
+| `db-design.json: error: column due on table tasks: declares the default "CURRENT_DATE", which MySQL takes only in parentheses; write it as (CURRENT_DATE), because an unparenthesised DEFAULT admits a literal, CURRENT_TIMESTAMP, LOCALTIME, LOCALTIMESTAMP and NOW() and nothing else` | a `default` begins with a bare word MySQL's `DEFAULT` grammar does not admit. `jjf validate` accepts it, because it is a niladic constant in other systems | parenthesise it, as the message shows |
+| `db-design.json: error: column note on table orders: needs a COMMENT of 2256 characters, which is its logicalName and its description joined; MySQL stores at most 1024 characters on a column` | the joined comment is longer than MySQL stores: 1024 characters on a column, 2048 on a table | shorten `description`, or `logicalName`. Both fields can be inside the schema's own limits and still join into one comment that is not |
+| `db-design.json: error: table a_name_of_more_than_sixty_four_characters_yyyyyyyyyyyyyyyyyyyyyyy: has a name of 65 characters; MySQL refuses an identifier longer than 64 characters` | a table, column, constraint or index name is longer than 64 characters; the schema allows 128 | shorten it |
+
+Both dialects:
+
+| Output | Cause | Fix |
+| --- | --- | --- |
+| `db-design.json: error: column note on table orders: carries U+0000 in its description; PostgreSQL cannot store that character in text at all, so the COMMENT statement would be rejected with every table already created` | `logicalName` or `description` contains U+0000. The schema puts no restriction on the characters of either field | remove it. No other control character is refused: they reach the database and come back unchanged |
+| `db-design.json: error: column note on table orders: carries U+0000 in its description; the mysql client refuses to send a statement containing that character` | the same field under MySQL. The clause differs because the wall does: MySQL's own text types hold the character and its client will not send it | remove it |
 
 `SET DEFAULT` as a referential action produces **no** message and is not a
 refusal: MySQL 8 accepts the clause, stores it and dumps it back, and InnoDB
 simply never performs it. An `ENUM` or a `SET` without its values is not a
 refusal either — that script parses here and fails on the server. Both are in
 [ddl-output.md](ddl-output.md) under what the format cannot hold.
+
+Two more failures reach the server rather than the refusal, because deciding
+them needs a per-system type catalogue `jjf` does not keep: two ends of a
+foreign key whose types are incompatible, and a `length` or `precision` outside
+the bound its type carries. `VARCHAR(70000)` and `NUMERIC(2000)` are rejected
+when the script runs.
 
 ## `jjf import` failures (exit code 2)
 

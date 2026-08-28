@@ -126,8 +126,11 @@ PostgreSQL:
   `PRIMARY KEY` and `UNIQUE` constraints share one namespace per schema and must
   all differ. Foreign key constraint names do not: they are per table, so two
   tables may both have an `fk_parent`
-- **Identity columns.** An `autoIncrement` column may not also carry a `default`,
-  and may not be `nullable`
+- **Identity columns.** An `autoIncrement` column must be a `smallint`,
+  `integer` or `bigint`, may not also carry a `default`, and may not be
+  `nullable`
+- **No identifier longer than 63 bytes.** PostgreSQL truncates rather than
+  refusing, so this one prevents a silent divergence: shorten the name
 
 MySQL, where the namespaces are inverted:
 
@@ -135,15 +138,38 @@ MySQL, where the namespaces are inverted:
 - **Foreign key names** are schema-wide too, so two tables may not both have an
   `fk_parent`. **Index names are per table**, so two tables may both have an
   `ix_created` — the opposite of PostgreSQL on both counts
-- **`AUTO_INCREMENT`**: one per table; it must be the first column of the
+- **`AUTO_INCREMENT`**: one per table; its type must be an integer or
+  floating-point one (`DECIMAL` is not); it must be the first column of the
   table's `primaryKey` or of one of its `uniqueKeys`; it may not carry a
   `default`; it may not be `nullable`. Naming it in `indexes` does not help,
   because the script creates an index a phase after the table — give the column
   a `uniqueKeys` entry, or make it lead the primary key
+- **A composite foreign key must name the referenced columns in the order the
+  target's key declares them.** `jjf validate` compares them as a set, which is
+  right for PostgreSQL and not for MySQL; reorder
+  `foreignKeys[].references.columns`, or add an `indexes` entry on the
+  referenced table in that order
+- **No plain `default` on a `BLOB`, `TEXT`, `GEOMETRY` or `JSON` column.**
+  Write it parenthesised — `"default": "('x')"` — or drop it
+- **No `default` that begins with a bare word MySQL does not take there.**
+  `CURRENT_TIMESTAMP`, `LOCALTIME`, `LOCALTIMESTAMP`, `TRUE`, `FALSE` and
+  `NULL` are the ones it takes; parenthesise anything else, as in
+  `"default": "(CURRENT_DATE)"`
+- **No identifier longer than 64 characters, and no comment longer than MySQL
+  stores** — 1024 characters on a column, 2048 on a table, counting
+  `logicalName` and `description` joined
 - **No key over a `TEXT`, `BLOB` or `JSON` column.** Index a `VARCHAR` column
   instead, or drop the key; do **not** ask for a prefix length, as the format has
   nowhere to put one
 - **No `VARCHAR` or `VARBINARY` without a `length`.** Add the length
+
+Both dialects refuse **U+0000 in a `logicalName` or a `description`**. No other
+control character is refused.
+
+Two things are deliberately **not** checked, so they fail at the server instead:
+whether the two ends of a foreign key have compatible types, and whether a
+`length` or `precision` is inside the bound its type carries. Both need a
+per-system type catalogue that `jjf` does not keep.
 
 There is no `-strict` for export and there must not be one. A refusal is not a
 warning that can be waived.

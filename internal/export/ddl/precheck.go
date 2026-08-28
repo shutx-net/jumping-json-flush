@@ -2,6 +2,7 @@ package ddl
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/shutx-net/jumping-json-flush/internal/check"
 	"github.com/shutx-net/jumping-json-flush/internal/exitcode"
@@ -150,3 +151,181 @@ func Check(doc *model.Document) []check.Finding {
 func tableLabel(name string) string { return "table " + name }
 
 func columnLabel(name, table string) string { return "column " + name + " on table " + table }
+
+// ---------------------------------------------------------------------------
+// What both dialects have to walk
+// ---------------------------------------------------------------------------
+
+// namedObject is one identifier a table declares, together with everything a
+// finding about it needs: where to file it and, when the where does not already
+// say so, what kind of object carries the name.
+//
+// It exists because both dialects refuse an identifier the schema allows and
+// the database does not, and only the limit and the sentence differ - the walk
+// that finds every name in a table is the same walk twice. Sharing the walk
+// rather than the rule is the seam this package already keeps everywhere else:
+// dialect.check is per dialect, tableLabel is not.
+type namedObject struct {
+	// name is the identifier as the document spells it.
+	name string
+	// where files the finding, in the shape check.Finding.Where takes.
+	where string
+	// what names the kind of object, and is empty when where already does. A
+	// table and a column are their own where; a constraint and an index are
+	// filed against their table, so the message has to say which one.
+	what string
+}
+
+// tableIdentifiers lists every name one table puts into the generated script,
+// in the order a reader meets the objects in the JSON.
+//
+// database.name is absent because no statement creates a database, and a
+// column's type is absent because it is not an identifier - choice 5 passes it
+// through as written and quotes nothing.
+func tableIdentifiers(t *model.Table) []namedObject {
+	label := tableLabel(t.Name)
+	objects := []namedObject{{name: t.Name, where: label}}
+	for j := range t.Columns {
+		c := &t.Columns[j]
+		objects = append(objects, namedObject{name: c.Name, where: columnLabel(c.Name, t.Name)})
+	}
+	if pk := t.PrimaryKey; pk != nil && pk.Name != "" {
+		objects = append(objects, namedObject{name: pk.Name, where: label, what: "primary key"})
+	}
+	for _, uk := range t.UniqueKeys {
+		if uk.Name != "" {
+			objects = append(objects, namedObject{name: uk.Name, where: label, what: "unique key"})
+		}
+	}
+	for _, ix := range t.Indexes {
+		objects = append(objects, namedObject{name: ix.Name, where: label, what: "index"})
+	}
+	for _, fk := range t.ForeignKeys {
+		if fk.Name != "" {
+			objects = append(objects, namedObject{name: fk.Name, where: label, what: "foreign key"})
+		}
+	}
+	return objects
+}
+
+// identifierLimit is one dialect's answer to a name longer than it will take.
+//
+// measure travels with unit because the two databases do not count the same
+// thing: PostgreSQL's NAMEDATALEN is 63 BYTES and MySQL's limit is 64
+// CHARACTERS, and a message that named the wrong one would send an author
+// looking for a byte they cannot see. The schema's identifier pattern is ASCII
+// only, so the two agree on every document jjf validate accepts; they are kept
+// apart anyway, because Check is documented as total over a model that never
+// met the schema.
+type identifierLimit struct {
+	max     int
+	unit    string
+	measure func(string) int
+	// clause finishes the sentence, and is where the finding names its
+	// database - the thing that lets these share one list with
+	// internal/check's without confusing a reader who then runs jjf validate.
+	clause string
+}
+
+// identifierFindings reports every name in one table that its dialect will not
+// take, in document order. An empty name is skipped: it is not a name a
+// database would truncate, and internal/check has nothing to say about it
+// either.
+func identifierFindings(t *model.Table, lim identifierLimit) []check.Finding {
+	var findings []check.Finding
+	for _, o := range tableIdentifiers(t) {
+		if o.name == "" {
+			continue
+		}
+		n := lim.measure(o.name)
+		if n <= lim.max {
+			continue
+		}
+		message := fmt.Sprintf("has a name of %d %s; %s", n, lim.unit, lim.clause)
+		if o.what != "" {
+			message = fmt.Sprintf("declares %s %q, a name of %d %s; %s", o.what, o.name, n, lim.unit, lim.clause)
+		}
+		findings = append(findings, check.Finding{Where: o.where, Message: message})
+	}
+	return findings
+}
+
+// commentedObject is one object whose logicalName and description become a
+// comment, and the label a finding about it carries.
+//
+// The two fields travel unjoined because a finding has to name the one that
+// carries the mistake: commentText joins them with a newline, and telling an
+// author that "the comment" holds a U+0000 would leave them to find out which
+// of two fields to edit.
+type commentedObject struct {
+	where            string
+	logical, descrip string
+	// text is what commentText composed out of the two, which is the string
+	// that reaches the script and therefore the one a length is measured
+	// against.
+	text string
+	// column distinguishes a column from the table it is on, for the dialect
+	// whose two limits differ. It travels as a field rather than being read
+	// back out of where, because a rule that recovered the kind by matching
+	// the prefix columnLabel writes would go quietly wrong the day that
+	// wording changed.
+	column bool
+}
+
+// tableComments lists the objects of one table that the generator writes a
+// comment for, in document order: the table, then its columns.
+//
+// A constraint and an index have nowhere in the format to hold either field, so
+// neither appears. An object commentText writes nothing for is absent too: a
+// rule about what a comment may carry has nothing to say about a comment that
+// is never written.
+func tableComments(t *model.Table) []commentedObject {
+	var objects []commentedObject
+	add := func(where, physical, logical, descrip string, column bool) {
+		text, ok := commentText(physical, logical, descrip)
+		if !ok {
+			return
+		}
+		objects = append(objects, commentedObject{
+			where: where, logical: logical, descrip: descrip, text: text, column: column,
+		})
+	}
+	add(tableLabel(t.Name), t.Name, t.LogicalName, t.Description, false)
+	for j := range t.Columns {
+		c := &t.Columns[j]
+		add(columnLabel(c.Name, t.Name), c.Name, c.LogicalName, c.Description, true)
+	}
+	return objects
+}
+
+// nulFinding reports U+0000 in the text of one object, naming the field that
+// carries it, and reports whether there was one at all.
+//
+// One character and not a class of them, because one character is what the
+// measurement found. $defs/logicalName and $defs/description have a maxLength
+// and no pattern, so every C0 control is a value jjf validate accepts - and
+// every other one survives a round trip through both databases untouched, which
+// makes refusing it a statement about taste rather than about the target. This
+// one cannot survive: PostgreSQL's text types cannot represent it, and the
+// mysql client refuses to send a statement containing it. Identifiers are not
+// walked for the same reason in reverse: the schema's identifier pattern
+// already forbids everything but ASCII letters, digits and the underscore.
+//
+// The two fields are checked in the order the schema declares them, and at most
+// one finding comes out per object: one authoring mistake, one finding, the
+// rule internal/check's checkColumnDefault follows.
+func nulFinding(o commentedObject, clause string) (check.Finding, bool) {
+	var field string
+	switch {
+	case strings.ContainsRune(o.logical, 0):
+		field = "logicalName"
+	case strings.ContainsRune(o.descrip, 0):
+		field = "description"
+	default:
+		return check.Finding{}, false
+	}
+	return check.Finding{
+		Where:   o.where,
+		Message: fmt.Sprintf("carries U+0000 in its %s; %s", field, clause),
+	}, true
+}

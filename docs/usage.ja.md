@@ -288,15 +288,21 @@ jjf: 2 problem(s) prevent PostgreSQL DDL generation
 しかも**2 つの方言で同じ一覧ではない**。要約の行が拒否した方言を名乗るのはそのため
 である。
 
-PostgreSQL では次の 2 群。
+PostgreSQL では次の 3 群。
 
 - **スキーマ全体でひとつの名前空間**。表名、索引名、`PRIMARY KEY` と `UNIQUE` の
   制約名は、スキーマごとにひとつの名前空間を共有するので、どれも互いに衝突できない。
   外部キーの制約名はここに入らない。表ごとの名前空間にあり、2 つの表が同じ名前の
   制約を持つことを PostgreSQL は認める
-- **identity 列**。`autoIncrement` の列は `default` を併せ持てない（PostgreSQL が
-  両方持つ列を拒否する）。`nullable` にもできない。PostgreSQL が黙って `NOT NULL` に
-  してしまい、データベースが文書と食い違うからである
+- **identity 列**。`autoIncrement` の列は `smallint`・`integer`・`bigint` の
+  いずれかでなければならない。PostgreSQL はそれ以外の型を identity 列にしない。
+  `default` を併せ持てない（PostgreSQL が両方持つ列を拒否する）。`nullable` にも
+  できない。PostgreSQL が黙って `NOT NULL` にしてしまい、データベースが文書と
+  食い違うからである
+- **63 バイトを超える名前**。スキーマは 128 文字まで認めるが PostgreSQL は切り詰める
+  ので、この拒否だけは*黙った*食い違いを防いでいる。無ければ、文書が書いていない
+  名前のオブジェクトができる。先頭 63 バイトが同じ名前が 2 つあるときだけ、
+  目に見える失敗になる
 
 MySQL では名前空間が**ちょうど逆**になる。
 
@@ -305,15 +311,43 @@ MySQL では名前空間が**ちょうど逆**になる。
   名前をデータベースごとの名前空間で持ち、衝突には
   `Duplicate foreign key constraint name` と答える。索引名は逆で、表の中にあるので、
   2 つの表がそれぞれ `ix_created` を持つことは MySQL では通る
-- **`AUTO_INCREMENT` の 4 つの規則**。1 つの表に 1 列まで。その表の `primaryKey` か
-  `uniqueKeys` のいずれかの先頭列でなければならない（`indexes` の項目では代わりに
-  ならない。スクリプトは表より 1 段階後に索引を作るからである）。`default` を
-  併せ持てない。`nullable` にもできない。MySQL が `NOT NULL` として格納してしまい、
-  データベースが文書と食い違うからである
+- **`AUTO_INCREMENT` の 5 つの規則**。1 つの表に 1 列まで。型は MySQL が
+  auto-increment する型――整数型と浮動小数点型――でなければならない。その表の
+  `primaryKey` か `uniqueKeys` のいずれかの先頭列でなければならない（`indexes` の
+  項目では代わりにならない。スクリプトは表より 1 段階後に索引を作るからである）。
+  `default` を併せ持てない。`nullable` にもできない。MySQL が `NOT NULL` として
+  格納してしまい、データベースが文書と食い違うからである
+- **参照先の列順を入れ替える複合外部キー**。MySQL は参照先の表に、参照される列を
+  *先頭から*その順で並べた索引を要求する。`jjf validate` は列を集合として比べる。
+  それは PostgreSQL では正しく、`(a, b)` の主キーに対する `(b, a)` の外部キーを
+  通すが、MySQL は同じ文書に `Missing index for constraint` と答える
+- **`BLOB`・`TEXT`・`GEOMETRY`・`JSON` の列の `default`**。括弧で囲んだ式として
+  書かれている場合を除く。`"default": "'x'"` は拒否され、`"default": "('x')"` は
+  通る。括弧付きの形が 8.0.13 以降 MySQL の受け付ける形であり、`mysqldump` が
+  書き戻す形でもある
+- **MySQL がそこで受け付けない裸の語で始まる `default`**。受け付けるのは
+  `CURRENT_TIMESTAMP`・`LOCALTIME`・`LOCALTIMESTAMP`・`TRUE`・`FALSE`・`NULL`。
+  `CURRENT_DATE` や `USER` など、他のシステムのために `jjf validate` が通す語は、
+  括弧で囲まない限り MySQL では構文エラーになる。メッセージは
+  `(CURRENT_DATE)` と書くよう伝える
+- **64 文字を超える名前と、MySQL が格納する長さを超えるコメント**――列は 1024 文字、
+  表は 2048 文字まで。コメントは `logicalName` と `description` を改行で繋いだもの
+  なので、どちらもスキーマの上限に収まっていても、繋いだ 1 つが収まらないことがある
 - **`TEXT`・`BLOB`・`JSON` の列を含むキー**。MySQL は前者 2 つには接頭辞長を、
   `JSON` には生成列を求めるが、設計フォーマットにはどちらの置き場所も無い
 - **`length` の無い `VARCHAR` と `VARBINARY`**。MySQL に既定の幅は無いので、
   列ではなく構文エラーになってしまう
+
+`logicalName` と `description` の **U+0000** は両方の方言が拒否する。スキーマは
+この 2 つのフィールドに文字種の制限を置いておらず、他の制御文字はデータベースまで
+届いてそのまま戻ってくるが、この 1 文字だけは戻らない。PostgreSQL のテキスト型は
+表現できず、`mysql` クライアントはそれを含む文を送らない。
+
+拒否が意図して**見ない**ものが 2 つある。どちらも、設計フォーマットが持たない
+「システムごとの型カタログ」を持たないと判断できないからである。外部キーの両端の型が
+互換かどうかと、`length` や `precision` がその型の上限に収まっているかどうか。
+どちらもサーバでは大きな声で失敗する――`VARCHAR(70000)` も `NUMERIC(2000)` も、
+黙って通るのではなくスクリプトの実行時に拒否される。
 
 #### 書かないもの
 
