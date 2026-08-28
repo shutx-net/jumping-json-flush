@@ -714,6 +714,16 @@ func (p *parser) parseCreateIndex(out *pgDump, d *diagList) error {
 		case p.acceptWord("where"):
 			d.warnf(at, "%s: partial index predicate is not imported", label)
 			return finishIndex(out, d, idx, expression, label)
+		// NULLS NOT DISTINCT before NULLS DISTINCT, or the shorter phrase
+		// would take the NULLS of the longer one. The constraint path already
+		// reports this clause; pg_dump writes both spellings for one table, so
+		// reporting it in one place and not the other made the same fact
+		// visible or not depending on which spelling it chose.
+		case p.acceptWords("nulls", "not", "distinct"):
+			d.warnf(at, "%s: NULLS NOT DISTINCT is not imported", label)
+		case p.acceptWords("nulls", "distinct"):
+			// PostgreSQL's default. Writing it says what the document already
+			// says, so there is nothing to report.
 		case p.acceptWord("with"):
 			if err := p.skipBalancedParens(); err != nil {
 				return err

@@ -219,6 +219,16 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 
 	for !p.done() && !p.peek().isPunct(",") && !p.peek().isPunct(")") {
 		at := p.peek().line
+		// Before the switch, because the clause is read into the type rather
+		// than acted on here: parseTypeName has already read any that came
+		// with the type, and the warning below covers both.
+		ok, err := p.acceptCollation(&col.Type)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
 		switch {
 		case p.acceptWord("constraint"):
 			// MySQL allows a symbol here only in front of a column CHECK, which
@@ -323,10 +333,14 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 			}
 			p.acceptWord("stored")
 			p.acceptWord("virtual")
-		case p.acceptWord("collate"), p.acceptWords("character", "set"), p.acceptWord("charset"):
-			if _, err := p.identifier(); err != nil {
-				return err
-			}
+		case p.acceptWord("invisible"):
+			// MySQL 8.0.23 and later. mysqldump writes it inside an executable
+			// comment, whose contents this lexer reads as ordinary SQL, so the
+			// word really does arrive here. A document that drops it describes
+			// a column every SELECT * returns, which this one is not.
+			d.warnf(at, "%s: INVISIBLE is not imported; the column is recorded as an ordinary one", label)
+		case p.acceptWord("visible"):
+			// The default. Writing it says what the document already says.
 		case p.acceptWord("srid"), p.acceptWord("column_format"), p.acceptWord("storage"):
 			p.next()
 		default:
@@ -347,6 +361,14 @@ func (p *parser) parseColumnDefinition(src []byte, t *myTable, d *diagList) erro
 				p.next()
 			}
 		}
+	}
+	// One warning per column for a collation, however many clauses said it and
+	// wherever they were written. The format has nowhere to keep one, and the
+	// loss is worth a line rather than silence: a utf8mb4_bin column compares
+	// and sorts differently from its table's default, so a document without it
+	// describes different uniqueness from the database it came from.
+	if col.Type.Collation != "" {
+		d.warnf(line, "%s: %s is not imported; the column falls back to its table's collation", label, col.Type.Collation)
 	}
 	t.Columns = append(t.Columns, col)
 	return nil
@@ -425,6 +447,13 @@ func (p *parser) parseTypeName() (myType, error) {
 	}
 
 	for {
+		ok, err := p.acceptCollation(&t)
+		if err != nil {
+			return myType{}, err
+		}
+		if ok {
+			continue
+		}
 		switch {
 		case p.acceptWord("unsigned"):
 			t.Unsigned = true
@@ -433,14 +462,45 @@ func (p *parser) parseTypeName() (myType, error) {
 			// deliberately not made here: this representation records what the
 			// dump wrote, and mysqldump writes both words when both hold.
 			t.Zerofill = true
-		case p.acceptWord("collate"), p.acceptWords("character", "set"), p.acceptWord("charset"):
-			if _, err := p.identifier(); err != nil {
-				return myType{}, err
-			}
 		default:
 			return t, nil
 		}
 	}
+}
+
+// acceptCollation consumes a CHARACTER SET, CHARSET or COLLATE clause and
+// records it on t verbatim, reporting whether one was there.
+//
+// Recorded rather than discarded because the loss has to be reported once per
+// COLUMN and mysqldump writes two of these clauses for one column: it emits
+// "CHARACTER SET utf8mb4 COLLATE utf8mb4_bin" whenever a column's collation
+// differs from its table's, and two warnings for one decision would be one too
+// many. The clauses reach here from two places - the type's own attribute list
+// and the column's - so the accumulation is what lets a single warning cover
+// both.
+func (p *parser) acceptCollation(t *myType) (bool, error) {
+	var clause string
+	switch {
+	case p.acceptWords("character", "set"):
+		clause = "CHARACTER SET"
+	case p.acceptWord("charset"):
+		clause = "CHARSET"
+	case p.acceptWord("collate"):
+		clause = "COLLATE"
+	default:
+		return false, nil
+	}
+	name, err := p.identifier()
+	if err != nil {
+		return false, err
+	}
+	clause += " " + name
+	if t.Collation == "" {
+		t.Collation = clause
+	} else {
+		t.Collation += " " + clause
+	}
+	return true, nil
 }
 
 // acceptTypeWord consumes w when it is at the cursor and records it as another
@@ -593,8 +653,10 @@ func (p *parser) parseTableConstraint(t qname, d *diagList) (tableElement, error
 		if err != nil {
 			return tableElement{}, err
 		}
-		p.skipElement()
 		label := "index" + labelOf(idx.Name) + " on table " + t.String()
+		if err := p.reportIndexTailLosses(d, label); err != nil {
+			return tableElement{}, err
+		}
 		if cols.Expression {
 			d.warnf(line, "%s: expression index is not imported", label)
 			return tableElement{}, nil
@@ -630,13 +692,14 @@ func (p *parser) finishKeyConstraint(kind constraintKind, name string, nameLine 
 	if err != nil {
 		return tableElement{}, err
 	}
-	p.skipElement()
-
 	what := "unique key"
 	if kind == constraintPrimaryKey {
 		what = "primary key"
 	}
 	label := what + labelOf(name) + " on table " + t.String()
+	if err := p.reportIndexTailLosses(d, label); err != nil {
+		return tableElement{}, err
+	}
 	if cols.Expression {
 		// Unlike an index, a key the document cannot name in full cannot be
 		// narrowed and kept: it would claim a uniqueness over the wrong
@@ -647,6 +710,50 @@ func (p *parser) finishKeyConstraint(kind constraintKind, name string, nameLine 
 	c.Columns = cols.Names
 	reportIndexColumnLosses(d, line, label, cols)
 	return tableElement{Kind: elementConstraint, Constraint: c}, nil
+}
+
+// reportIndexTailLosses reads the options written after an index or key element
+// and reports the ones that lose something the document would have held.
+//
+// It replaces a blind skipElement, and the line it draws is the one
+// internal/importer/postgres/stmt.go's CREATE INDEX loop already draws: a
+// clause that annotates or narrows what the index covers is reported, and one
+// that says only how the index is stored is stepped over without a word.
+// KEY_BLOCK_SIZE, WITH PARSER, ENGINE_ATTRIBUTE and USING are storage, and so
+// is whatever a later MySQL adds - which is why the default arm stays silent
+// rather than reporting everything it does not know.
+//
+// A comment is the one clause here that carries something a person wrote. jjf
+// keeps column comments and table comments, so losing an index comment in
+// silence was the odd one out rather than a considered omission.
+func (p *parser) reportIndexTailLosses(d *diagList, label string) error {
+	for !p.done() {
+		tok := p.peek()
+		if tok.isPunct(",") || tok.isPunct(")") {
+			return nil
+		}
+		at := tok.line
+		switch {
+		case p.acceptWord("comment"):
+			if _, err := p.stringValue("COMMENT"); err != nil {
+				return err
+			}
+			d.warnf(at, "%s: comment is not imported", label)
+		case p.acceptWord("invisible"):
+			d.warnf(at, "%s: INVISIBLE is not imported; the index is recorded as an ordinary one", label)
+		case p.acceptWord("visible"):
+			// The default. Writing it says what the document already says.
+		case tok.isPunct("("):
+			// A parenthesised option value, skipped whole so that its closing
+			// parenthesis cannot be read as the end of the element list.
+			if err := p.skipBalancedParens(); err != nil {
+				return err
+			}
+		default:
+			p.i++
+		}
+	}
+	return nil
 }
 
 // dropSpecialKey reads a FULLTEXT or SPATIAL key far enough to step over it and
@@ -910,6 +1017,9 @@ func (p *parser) parseCreateIndex(out *myDump, d *diagList) error {
 	}
 
 	label := "index" + labelOf(idx.Name) + " on table " + table.String()
+	if err := p.reportIndexTailLosses(d, label); err != nil {
+		return err
+	}
 	switch {
 	case special != "":
 		d.warnf(line, "%s: %s index is not imported", label, special)
@@ -952,14 +1062,26 @@ func (p *parser) parseAlterTable(src []byte, out *myDump, d *diagList) error {
 
 // parseAlterTableAction reads one ALTER TABLE action.
 //
-// Only ADD is mapped. MODIFY and CHANGE restate a column the CREATE TABLE
-// already gave, DROP takes one away, and RENAME, ENGINE, CONVERT TO CHARACTER
-// SET, ALTER INDEX ... INVISIBLE and the rest say nothing about the design.
-// Every one of them, and every action a future MySQL adds, is skipped without
-// complaint - which is what keeps a dump from a newer server importable.
+// Only ADD is mapped. Everything else is stepped over, and the question is
+// which of those steps deserves a word. The four in changesTheDesign do: they
+// take a column away, restate one, or rename something the document names, and
+// the document then goes on describing the table as CREATE TABLE left it. That
+// is the silent divergence this importer exists to avoid, and it is reachable -
+// not from a dump, where mysqldump writes none of the four, but from the
+// hand-written migration script the parser also accepts.
+//
+// Everything else stays silent: ENGINE, CONVERT TO CHARACTER SET,
+// ALTER INDEX ... INVISIBLE, ORDER BY and the rest say nothing about the
+// design, and so does whatever a future MySQL adds. That last part is the half
+// of this comment worth keeping unchanged - an unknown action must not become
+// an error or a warning, or a dump from a newer server stops importing
+// cleanly.
 func (p *parser) parseAlterTableAction(src []byte, table qname, out *myDump, d *diagList) error {
 	line := p.peek().line
 	if !p.acceptWord("add") {
+		if what := changesTheDesign(p.wordAt(0)); what != "" {
+			d.warnf(line, "table %s: %s is not imported; the document keeps the definition CREATE TABLE gave", table, what)
+		}
 		p.skipElement()
 		return nil
 	}
@@ -986,4 +1108,28 @@ func (p *parser) parseAlterTableAction(src []byte, table qname, out *myDump, d *
 	}
 	d.warnf(line, "table %s: ADD COLUMN is imported at the end of the column list", table)
 	return p.parseColumnDefinition(src, t, d)
+}
+
+// changesTheDesign names the ALTER TABLE action w when it changes what the
+// table holds, and returns "" for every other action - including every action
+// this parser has never heard of.
+//
+// Four words and not a table of every action MySQL has. Each of these leaves
+// the document describing something the database no longer does: DROP takes a
+// column, key or index away, MODIFY and CHANGE restate a column, and RENAME
+// moves a name the document carries - the table's, a column's or an index's.
+// The rest of the grammar changes storage rather than design, which is exactly
+// the distinction parseAlterTableAction's comment draws.
+func changesTheDesign(w string) string {
+	switch w {
+	case "drop":
+		return "DROP"
+	case "modify":
+		return "MODIFY"
+	case "change":
+		return "CHANGE"
+	case "rename":
+		return "RENAME"
+	}
+	return ""
 }

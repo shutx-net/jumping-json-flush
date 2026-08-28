@@ -787,6 +787,45 @@ func TestCreateIndexTailClausesThatChangeNothing(t *testing.T) {
 // it keeps the index with an empty name and says nothing. Deciding that a
 // document cannot hold a nameless index is the resolver's job, and build_test.go
 // asserts that half.
+// TestNullsNotDistinctOnAnIndexIsReported covers #54's fourth case, and it is
+// a disagreement inside one package rather than a gap: the constraint path
+// already warns about NULLS NOT DISTINCT, and the index path did not, so the
+// same clause was reported or not depending on which spelling pg_dump chose.
+//
+// pg_dump 16.13 writes both, for the same table:
+//
+//	ALTER TABLE ... ADD CONSTRAINT uq UNIQUE NULLS NOT DISTINCT (email);
+//	CREATE UNIQUE INDEX ux ON public.t USING btree (email) NULLS NOT DISTINCT;
+//
+// The clause changes what the index enforces - whether two NULLs collide - so
+// an index recorded without it claims a uniqueness the database does not have.
+func TestNullsNotDistinctOnAnIndexIsReported(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE public.t (email text);\n"+
+		"CREATE UNIQUE INDEX ux_email ON public.t USING btree (email) NULLS NOT DISTINCT;")
+	msgs := messages(warnings)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "NULLS NOT DISTINCT is not imported") {
+		t.Fatalf("warnings got = %v, want exactly one about NULLS NOT DISTINCT", msgs)
+	}
+	// The index is still imported: the clause is what is dropped.
+	if len(dump.Indexes) != 1 || dump.Indexes[0].Name != "ux_email" || !dump.Indexes[0].Unique {
+		t.Errorf("indexes got = %+v, want the unique ux_email", dump.Indexes)
+	}
+}
+
+// TestNullsDistinctOnAnIndexStaysSilent is the other side: NULLS DISTINCT is
+// PostgreSQL's default, so writing it says nothing the document does not
+// already say and there is nothing to report.
+func TestNullsDistinctOnAnIndexStaysSilent(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE public.t (email text);\n"+
+		"CREATE UNIQUE INDEX ux_email ON public.t USING btree (email) NULLS DISTINCT;")
+	if len(warnings) != 0 {
+		t.Errorf("warnings got = %v, want none", messages(warnings))
+	}
+	if len(dump.Indexes) != 1 || !dump.Indexes[0].Unique {
+		t.Errorf("indexes got = %+v, want the unique ux_email", dump.Indexes)
+	}
+}
+
 func TestAnIndexNeedNotBeNamedToParse(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE INDEX ON public.t USING btree (a);")
 	if len(warnings) != 0 {

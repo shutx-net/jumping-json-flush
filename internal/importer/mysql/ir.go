@@ -79,7 +79,17 @@ type myType struct {
 	Args     []string
 	Unsigned bool
 	Zerofill bool
-	Line     int
+	// Collation is the CHARACTER SET, CHARSET and COLLATE clauses the column
+	// carried, verbatim and joined by a space, or "" when it carried none.
+	//
+	// It records what the dump wrote rather than what it means, exactly as
+	// Zerofill does: the design format has nowhere to keep a per-column
+	// collation, so the only thing this is for is the warning that says so.
+	// It is deliberately absent from String(), which renders the type for the
+	// diagnostics of OTHER losses - a message about a dropped type parameter
+	// should not grow a collation it is not talking about.
+	Collation string
+	Line      int
 }
 
 // String renders the type roughly as the dump wrote it, for diagnostics.

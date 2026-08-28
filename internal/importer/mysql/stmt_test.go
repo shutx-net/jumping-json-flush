@@ -312,6 +312,11 @@ func TestParseColumnTypes(t *testing.T) {
 		args     string
 		unsigned bool
 		zerofill bool
+		// collated marks the one row whose input carries a clause the format
+		// cannot keep. Every other row must stay silent, which is what makes
+		// the assertion below worth having: a type parsed correctly should not
+		// be reported about.
+		collated bool
 	}{
 		{name: "an integer", src: "int", words: "int"},
 		{name: "an unsigned integer", src: "int unsigned", words: "int", unsigned: true},
@@ -337,14 +342,18 @@ func TestParseColumnTypes(t *testing.T) {
 		{name: "a bit type", src: "bit(1)", words: "bit", args: "1"},
 		{name: "a year", src: "year", words: "year"},
 		{name: "a geometry type", src: "geometry", words: "geometry"},
-		{name: "a character set and a collation after the type", src: "varchar(10) CHARACTER SET latin1 COLLATE latin1_bin", words: "varchar", args: "10"},
+		{name: "a character set and a collation after the type", src: "varchar(10) CHARACTER SET latin1 COLLATE latin1_bin", words: "varchar", args: "10", collated: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n  `c` "+tt.src+"\n);")
-			if len(warnings) != 0 {
-				t.Errorf("warnings got = %v, want none", messages(warnings))
+			wantWarnings := 0
+			if tt.collated {
+				wantWarnings = 1
+			}
+			if len(warnings) != wantWarnings {
+				t.Errorf("warnings got = %v, want %d", messages(warnings), wantWarnings)
 			}
 			typ := dump.Tables[0].Columns[0].Type
 			if got := strings.Join(typ.Words, " "); got != tt.words {
@@ -887,7 +896,11 @@ func TestSetPreambleAndLockTablesAreSkipped(t *testing.T) {
 func TestUnknownColumnOptionIsSkippedNotRejected(t *testing.T) {
 	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
 		"  `a` int FUTURE_OPTION 7 NOT NULL DEFAULT 0,\n"+
-		"  `b` int ANOTHER_ONE NOT NULL STORAGE DISK COLUMN_FORMAT FIXED INVISIBLE\n) ENGINE=InnoDB;")
+		// INVISIBLE was here until it became a known attribute with a warning
+		// of its own; what is left is what this test is actually about - two
+		// options nobody has ever heard of, and two that are known and say
+		// nothing about the design.
+		"  `b` int ANOTHER_ONE NOT NULL STORAGE DISK COLUMN_FORMAT FIXED\n) ENGINE=InnoDB;")
 	cols := dump.Tables[0].Columns
 	if len(cols) != 2 {
 		t.Fatalf("columns got = %+v, want 2", cols)
@@ -1020,6 +1033,206 @@ func TestATableLevelForeignKeyIsStillImported(t *testing.T) {
 		fk.RefTable.Name != "parent" || !slices.Equal(fk.RefColumns, []string{"id"}) ||
 		fk.OnDelete != "CASCADE" {
 		t.Errorf("foreign key got = %+v, want fk_child_parent to parent(id)", fk)
+	}
+}
+
+// TestAColumnCollationIsReported covers #54's first case. mysqldump writes the
+// clause for every column whose collation differs from its table's, so this is
+// a real dump shape and not a hand-written one, and the loss changes meaning:
+// a utf8mb4_bin column compares and sorts differently from a
+// utf8mb4_0900_ai_ci one, so a document that drops it describes a table with
+// different uniqueness.
+//
+// One warning per column and not one per clause. mysqldump writes CHARACTER SET
+// and COLLATE together, and they are one decision to report.
+func TestAColumnCollationIsReported(t *testing.T) {
+	tests := []struct {
+		name   string
+		column string
+		want   string
+	}{
+		{
+			name:   "the pair mysqldump writes",
+			column: "`c` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL",
+			want:   "CHARACTER SET utf8mb4 COLLATE utf8mb4_bin is not imported",
+		},
+		{
+			name:   "a collation alone",
+			column: "`c` varchar(20) COLLATE utf8mb4_bin",
+			want:   "COLLATE utf8mb4_bin is not imported",
+		},
+		{
+			name:   "a character set alone",
+			column: "`c` varchar(20) CHARACTER SET latin1",
+			want:   "CHARACTER SET latin1 is not imported",
+		},
+		{
+			name:   "the CHARSET spelling",
+			column: "`c` varchar(20) CHARSET latin1",
+			want:   "CHARSET latin1 is not imported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n  "+tt.column+"\n);")
+			msgs := messages(warnings)
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Fatalf("warnings got = %v, want exactly one containing %q", msgs, tt.want)
+			}
+			// The clause is what is dropped, not the column.
+			col := dump.Tables[0].Columns[0]
+			if col.Name != "c" || strings.Join(col.Type.Words, " ") != "varchar" {
+				t.Errorf("column got = %+v, want c of type varchar", col)
+			}
+		})
+	}
+}
+
+// TestAnInvisibleColumnIsReported covers #54's second case, in the shape
+// mysqldump 8.0.46 writes it. The executable comment is not a comment to this
+// lexer - its contents lex as ordinary SQL - so INVISIBLE really does reach the
+// attribute loop, where it was being skipped as an attribute nobody knew.
+func TestAnInvisibleColumnIsReported(t *testing.T) {
+	dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+		"  `hidden` int DEFAULT NULL /*!80023 INVISIBLE */,\n"+
+		"  `shown` int DEFAULT NULL\n);")
+	msgs := messages(warnings)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "INVISIBLE is not imported") {
+		t.Fatalf("warnings got = %v, want exactly one about INVISIBLE", msgs)
+	}
+	if !strings.Contains(msgs[0], "hidden") {
+		t.Errorf("warning got = %q, want it to name the hidden column", msgs[0])
+	}
+	// Both columns are still imported: the attribute is dropped, not the column.
+	var names []string
+	for _, c := range dump.Tables[0].Columns {
+		names = append(names, c.Name)
+	}
+	if !slices.Equal(names, []string{"hidden", "shown"}) {
+		t.Errorf("columns got = %v, want [hidden shown]", names)
+	}
+}
+
+// TestIndexTailClausesThatLoseSomethingAreReported covers #54's second and
+// third cases on the index side. Both are shapes mysqldump 8.0.46 writes, and
+// both were being swallowed by skipElement - which is the same call that made
+// them invisible whether the element was a KEY, a UNIQUE KEY or a PRIMARY KEY.
+//
+// A comment is the only place in a dump where a human wrote prose about an
+// index, and jjf keeps column and table comments, so losing this one in silence
+// was the odd one out.
+func TestIndexTailClausesThatLoseSomethingAreReported(t *testing.T) {
+	tests := []struct {
+		name    string
+		element string
+		want    string
+	}{
+		{
+			name:    "an index comment",
+			element: "KEY `ix_body` (`body`) COMMENT 'why this index exists'",
+			want:    "comment is not imported",
+		},
+		{
+			name:    "an invisible index",
+			element: "KEY `ix_body` (`body`) /*!80000 INVISIBLE */",
+			want:    "INVISIBLE is not imported",
+		},
+		{
+			name:    "a unique key carrying a comment",
+			element: "UNIQUE KEY `ux_body` (`body`) COMMENT 'unique because'",
+			want:    "comment is not imported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+				"  `body` varchar(50) DEFAULT NULL,\n"+
+				"  "+tt.element+"\n);")
+			msgs := messages(warnings)
+			if len(msgs) != 1 || !strings.Contains(msgs[0], tt.want) {
+				t.Fatalf("warnings got = %v, want exactly one containing %q", msgs, tt.want)
+			}
+			// The key or index itself is still imported.
+			table := dump.Tables[0]
+			if len(table.Indexes)+len(table.Constraints) != 1 {
+				t.Errorf("indexes = %+v, constraints = %+v, want exactly one of them", table.Indexes, table.Constraints)
+			}
+		})
+	}
+}
+
+// TestIndexStorageOptionsStaySilent is the other side of the line: a clause
+// that says how the index is stored rather than what it covers loses nothing a
+// design document would have held, so it is skipped without a word - the same
+// call internal/importer/postgres makes for WITH.
+func TestIndexStorageOptionsStaySilent(t *testing.T) {
+	for _, element := range []string{
+		"KEY `ix_body` (`body`) USING BTREE",
+		"KEY `ix_body` (`body`) KEY_BLOCK_SIZE=4",
+		"KEY `ix_body` (`body`) /*!80000 VISIBLE */",
+		"KEY `ix_body` (`body`) ENGINE_ATTRIBUTE='{}'",
+	} {
+		t.Run(element, func(t *testing.T) {
+			_, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
+				"  `body` varchar(50) DEFAULT NULL,\n  "+element+"\n);")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+		})
+	}
+}
+
+// TestAlterTableActionsThatChangeTheDesignAreReported covers #54's fifth case.
+//
+// This one refines a decision the code stated rather than an oversight: the
+// comment on parseAlterTableAction said every non-ADD action is skipped without
+// complaint, on the grounds that MODIFY and CHANGE restate what CREATE TABLE
+// already gave. That holds for a dump, where mysqldump writes neither, and not
+// for the hand-written migration script the parser also accepts - there MODIFY
+// really does change the column and DROP really does take it away, and the
+// document went on describing the table as it was before.
+//
+// The forward-compatibility half of that comment is kept: an action jjf has
+// never heard of is still skipped in silence.
+func TestAlterTableActionsThatChangeTheDesignAreReported(t *testing.T) {
+	reported := []struct {
+		name   string
+		action string
+	}{
+		{name: "DROP COLUMN", action: "DROP COLUMN `b`"},
+		{name: "DROP without the COLUMN keyword", action: "DROP `b`"},
+		{name: "MODIFY", action: "MODIFY `a` BIGINT NULL"},
+		{name: "CHANGE", action: "CHANGE `a` `c` BIGINT NULL"},
+		{name: "RENAME COLUMN", action: "RENAME COLUMN `a` TO `c`"},
+	}
+	for _, tt := range reported {
+		t.Run(tt.name, func(t *testing.T) {
+			_, warnings := mustParse(t, "CREATE TABLE `t` (`a` int NOT NULL, `b` int NOT NULL);\n"+
+				"ALTER TABLE `t` "+tt.action+";")
+			if msgs := messages(warnings); len(msgs) != 1 || !strings.Contains(msgs[0], "is not imported") {
+				t.Errorf("warnings got = %v, want exactly one about %s", msgs, tt.name)
+			}
+		})
+	}
+
+	silent := []struct {
+		name   string
+		action string
+	}{
+		{name: "an engine change says nothing about the design", action: "ENGINE=InnoDB"},
+		{name: "index visibility says nothing about the design", action: "ALTER INDEX `ix` INVISIBLE"},
+		{name: "an action a future MySQL adds", action: "SOMETHINGNEW `a`"},
+	}
+	for _, tt := range silent {
+		t.Run(tt.name, func(t *testing.T) {
+			_, warnings := mustParse(t, "CREATE TABLE `t` (`a` int NOT NULL, `b` int NOT NULL);\n"+
+				"ALTER TABLE `t` "+tt.action+";")
+			if len(warnings) != 0 {
+				t.Errorf("warnings got = %v, want none", messages(warnings))
+			}
+		})
 	}
 }
 
@@ -1185,8 +1398,21 @@ func TestAColumnCharacterSetAndCollationAreConsumed(t *testing.T) {
 		"  `a` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_bin NOT NULL,\n"+
 		"  `b` varchar(20) COLLATE utf8mb4_bin DEFAULT 'x',\n"+
 		"  `c` varchar(20) CHARSET latin1 NOT NULL\n) ENGINE=InnoDB;")
-	if len(warnings) != 0 {
-		t.Errorf("warnings got = %v, want none", messages(warnings))
+	// Consumed is not the same as kept: the clauses no longer derail the
+	// parse, AND each column says once that its collation was dropped.
+	want := []string{
+		"column t.a: CHARACTER SET utf8mb3 COLLATE utf8mb3_bin is not imported",
+		"column t.b: COLLATE utf8mb4_bin is not imported",
+		"column t.c: CHARSET latin1 is not imported",
+	}
+	msgs := messages(warnings)
+	if len(msgs) != len(want) {
+		t.Fatalf("warnings got = %v, want one per column", msgs)
+	}
+	for i, w := range want {
+		if !strings.Contains(msgs[i], w) {
+			t.Errorf("warning %d got = %q, want it to contain %q", i, msgs[i], w)
+		}
 	}
 	cols := dump.Tables[0].Columns
 	if len(cols) != 3 {
@@ -1225,8 +1451,12 @@ func TestADefaultEndsWhereACharacterSetBegins(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dump, warnings := mustParse(t, "CREATE TABLE `t` (\n"+
 				"  `a` varchar(20) DEFAULT 'x' "+tt.attribute+" NOT NULL\n);")
-			if len(warnings) != 0 {
-				t.Errorf("warnings got = %v, want none", messages(warnings))
+			// The clause is reported, which is a separate matter from where it
+			// ends the default. One warning and no more: a second would mean
+			// the attribute had been read twice.
+			if msgs := messages(warnings); len(msgs) != 1 ||
+				!strings.Contains(msgs[0], tt.attribute+" is not imported") {
+				t.Errorf("warnings got = %v, want the one about %s", msgs, tt.attribute)
 			}
 			col := dump.Tables[0].Columns[0]
 			if !col.HasDefault || col.Default != "'x'" {
