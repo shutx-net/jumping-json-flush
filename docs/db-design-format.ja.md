@@ -85,7 +85,7 @@
 | `boolean`, `bool` | `BOOLEAN` | — |
 | `double precision`, `float8`, `float` | `DOUBLE PRECISION` | — |
 | `real`, `float4` | `REAL` | — |
-| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true` |
+| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true`。文が言っていなくても `nullable: false` になる。PostgreSQL に nullable な identity 列は存在せず、`GENERATED ... AS IDENTITY` と書いた列も同じである。`DEFAULT nextval(...)` だけの列はこれにあたらず、nullable のままになる |
 | `text`, `bytea`, `uuid`, `json`, `jsonb`, `date`, `money`, `inet` ほか | 同じ名前の大文字 | — |
 | 配列（`text[]`, `character varying(30)[]`） | `TEXT ARRAY`, `VARCHAR ARRAY` | 要素のものを引き継ぐ |
 

@@ -88,7 +88,7 @@ means.
 | `boolean`, `bool` | `BOOLEAN` | — |
 | `double precision`, `float8`, `float` | `DOUBLE PRECISION` | — |
 | `real`, `float4` | `REAL` | — |
-| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true` |
+| `serial`, `bigserial`, `smallserial` | `INTEGER`, `BIGINT`, `SMALLINT` | `autoIncrement: true`, and `nullable: false` even when the statement did not say so: PostgreSQL has no nullable identity column, and the same holds for a column written `GENERATED ... AS IDENTITY`. A `DEFAULT nextval(...)` alone is not one of them and stays nullable |
 | `text`, `bytea`, `uuid`, `json`, `jsonb`, `date`, `money`, `inet`, … | the same name in upper case | — |
 | any array (`text[]`, `character varying(30)[]`) | `TEXT ARRAY`, `VARCHAR ARRAY` | those of the element |
 
