@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jjf",
   "displayName": "Jumpin' Json Flush",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Edit and validate jjf database design JSON, then regenerate the Excel design document from it. Can also build the JSON from a PostgreSQL or MySQL schema dump, draw it as an SVG ER diagram, and write it out as a PostgreSQL or MySQL DDL script. Requires the jjf CLI on PATH.",
   "author": {
     "name": "shutx-net",
