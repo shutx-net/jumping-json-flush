@@ -221,6 +221,29 @@ func TestImportFixtures(t *testing.T) {
 // documents agree because the text does. A failure here means that stopped
 // being true.
 //
+// Which is also what it cannot yet tell apart: a series-insensitive importer
+// and two identical files. Those three header lines are the ONLY bytes that
+// differ between the two captures, and of what the importer reads out of them
+// the database name is the same in both and the server version reaches
+// checkDumpVersion and so the diagnostics this test discards. What the
+// comparison establishes today is therefore that the text which does differ
+// stays out of the document; a series-dependent misreading of the SCHEMA would
+// pass here, because there is no schema text differing to misread. The capture
+// is doing the work rather than the comparison - which is the point rather than
+// a defect, because the day mysqldump's output diverges is the day this starts
+// checking, and the capture is what makes that day visible.
+//
+// The PostgreSQL counterpart is the contrast and not the same test in another
+// package: pg13 and pg18 disagree below the header - pg16 moved a sequence's
+// ownership from ALTER TABLE to ALTER SEQUENCE and pg17 added
+// SET transaction_timeout - so TestImportAgreesAcrossPgDumpMajors is comparing
+// two readings of two texts. A reader who has seen that one earn its name
+// should not assume this one does yet.
+//
+// There is nothing here to fix in the importer, which never asks what series it
+// is reading. Confirming that it does not would need text that differs by
+// series, and the only text that does is the header.
+//
 // Only the documents are compared. Diagnostics legitimately differ between
 // series - the warning line numbers move with the dump header, and a series
 // outside the supported range adds the version warning - so the exact-warning
