@@ -199,8 +199,13 @@ direnv.
 - `internal/importer/mysql/testdata/dump/mysql<series>/*.sql` is the same
   arrangement for the second dialect, with one difference forced by MySQL's
   versioning: a directory per release SERIES rather than per major, because 8.0 and
-  8.4 are different series of one major and their `mysqldump` output differs, so a
-  directory per major would hide the difference the captures exist to expose. The
+  8.4 are different series of one major and `mysqldump`'s output is a property of
+  the series rather than of the major, so a directory per major would hide the
+  divergence the captures exist to expose. There is none to hide today — the two
+  captures are byte-identical below the three header lines the comparison already
+  ignores, which is why `TestImportAgreesAcrossMysqldumpSeries` says in its own
+  comment what it therefore cannot yet check. The layout is what will make the
+  first real divergence visible on the day it appears. The
   supported range is stated over majors, is exactly what the captures cover, and
   `TestCapturedSeriesCoverTheSupportedMajors` is what holds it there — `mysql8.4/`
   went in as one directory and no code, and the next series goes in the same way.
